@@ -117,12 +117,25 @@ export async function activateEmbedModel(
     [randomUUID(), tenantId, modelKey, config.modelId, dims],
   );
 
+  // The vector is a 1:1 derivative of its chunk, so referential integrity
+  // lives in the schema: a hard delete cascades document -> version ->
+  // chunk -> embedding with no application cleanup to forget. CREATE TABLE
+  // IF NOT EXISTS cannot retrofit the FK onto a pre-existing table — that
+  // is a deliberate new-tables-only choice (see IMPLEMENTATION.md for the
+  // one-time ALTER).
   await client.query(
     `CREATE TABLE IF NOT EXISTS ${tableName} (
-       chunk_id text PRIMARY KEY,
+       chunk_id text PRIMARY KEY REFERENCES knowledge_chunk (id) ON DELETE CASCADE,
        tenant_id text NOT NULL,
        embedding vector(${dims})
      )`,
+    [],
+  );
+  // Composite over bare tenant_id: the read path filters tenant_id plus a
+  // chunk_id set, which this serves as an index-only membership check. Runs
+  // on every activation so a pre-FK table still gets the index.
+  await client.query(
+    `CREATE INDEX IF NOT EXISTS ${tableName}_tenant_chunk_idx ON ${tableName} (tenant_id, chunk_id)`,
     [],
   );
 
