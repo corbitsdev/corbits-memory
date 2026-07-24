@@ -1,0 +1,49 @@
+# Local dev dependencies for the knowledge engine SDK.
+#
+#   docker compose up -d          # DB + embeddings + reranker
+#   docker compose exec ollama ollama pull nomic-embed-text
+#   bun install && bun run db:setup
+#
+# The SDK itself is not a server — it mounts onto your Interchange app. This
+# compose only stands up the backing services the engine talks to.
+
+services:
+  # Knowledge / vector store (pgvector).
+  postgres:
+    image: pgvector/pgvector:pg17
+    ports:
+      - "5434:5432"
+    environment:
+      POSTGRES_USER: knowledge
+      POSTGRES_PASSWORD: knowledge-dev-password
+      POSTGRES_DB: knowledge
+    volumes:
+      - knowledge-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U knowledge -d knowledge"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Embeddings (Ollama). After first boot: `ollama pull nomic-embed-text`.
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+
+  # Cross-encoder reranker (Hugging Face TEI).
+  reranker:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-latest
+    platform: linux/amd64
+    command: ["--model-id", "BAAI/bge-reranker-base"]
+    ports:
+      - "8085:80"
+    volumes:
+      - reranker-cache:/data
+
+volumes:
+  knowledge-data:
+  ollama-models:
+  reranker-cache:

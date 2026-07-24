@@ -1,0 +1,64 @@
+/**
+ * @corbits/knowledge-engine — a knowledge capture + search engine you mount
+ * onto an Interchange hub.
+ *
+ * The host owns auth, tenancy, grants, and the process. This SDK reads the
+ * request principal off the Interchange context and (optionally) taps the
+ * host's grant middleware; it authenticates nothing itself.
+ */
+import type { Hono } from "hono";
+import { createRequireGrant, type TenantEnv } from "@intx/hub-api";
+
+import type { KnowledgeConfig } from "./mount-config.ts";
+import { CaptureLog } from "./capture-log.ts";
+import { createKnowledgePlane, type KnowledgePlane } from "./knowledge.ts";
+import {
+  mountKnowledgeRoutes,
+  type GrantConfig,
+  type RouteDeps,
+} from "./routes/mount.ts";
+
+// Config
+export type { KnowledgeConfig } from "./mount-config.ts";
+export { loadKnowledgeConfig } from "./mount-config.ts";
+export type { EngineConfig } from "./config.ts";
+// Knowledge plane + capture log
+export type { KnowledgePlane } from "./knowledge.ts";
+export { CaptureLog, type CaptureEvent } from "./capture-log.ts";
+// Migrations
+export { runKnowledgeMigrations } from "./migrations.ts";
+// Granular mount (compose your own)
+export { mountKnowledgeRoutes, type GrantConfig } from "./routes/mount.ts";
+
+export type MountKnowledgeEngineOptions = {
+  config: KnowledgeConfig;
+  /**
+   * The host's grant store + condition registry — the same pair it passes to
+   * `createApp`/`createRequireGrant`. Required: HTTP routes are guarded with
+   * `requireGrant("knowledge", <action>)`. The SDK never leaves a route
+   * unguarded.
+   */
+  grants: GrantConfig;
+};
+
+export type MountedKnowledgeEngine = {
+  knowledge: KnowledgePlane;
+  captureLog: CaptureLog;
+};
+
+/** Mount the knowledge HTTP routes over one knowledge plane. */
+export function mountKnowledgeEngine(
+  app: Hono<TenantEnv>,
+  options: MountKnowledgeEngineOptions,
+): MountedKnowledgeEngine {
+  const knowledge = createKnowledgePlane(options.config);
+  const captureLog = new CaptureLog();
+  const deps: RouteDeps = {
+    knowledge,
+    captureLog,
+    grants: options.grants,
+    requireGrant: createRequireGrant(options.grants),
+  };
+  mountKnowledgeRoutes(app, deps);
+  return { knowledge, captureLog };
+}
