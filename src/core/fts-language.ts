@@ -30,7 +30,25 @@ export function parseFtsLanguage(raw: string | undefined): string {
   return raw;
 }
 
-interface FtsVerifySqlClient {
+/**
+ * Memoized serving-path wrapper around verifyFtsLanguage: the first call
+ * verifies, success is remembered forever, and a failure clears the memo so
+ * a transient DB error at first use does not poison the plane until
+ * restart (a real mismatch keeps failing on every retry anyway).
+ */
+export function createFtsVerification(
+  client: FtsVerifySqlClient,
+  ftsLanguage: string,
+): () => Promise<void> {
+  let verified: Promise<void> | undefined;
+  return () =>
+    (verified ??= verifyFtsLanguage(client, ftsLanguage).catch((err) => {
+      verified = undefined;
+      throw err;
+    }));
+}
+
+export interface FtsVerifySqlClient {
   query: (sql: string, params: readonly unknown[]) => Promise<Array<Record<string, unknown>>>;
 }
 

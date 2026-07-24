@@ -131,10 +131,13 @@ An ordered slice of a version's text, keyed by `(version_id, ordinal)`
 that powers the lexical search channel — this is the only place FTS is
 computed; no separate FTS table exists. Its language comes from
 `FTS_LANGUAGE` at migration time; the query side binds the same configured
-language as a `regconfig` parameter, and `runKnowledgeMigrations` verifies
-the column's actual language against the configuration (read back from the
-catalog) so a mismatch fails at startup instead of silently degrading
-recall. Chunks are **never** reused across
+language as a `regconfig` parameter. The invariant is verified twice, both
+read-only against the catalog: `runKnowledgeMigrations` checks after
+applying (the deploy step), and the knowledge plane runs the same check
+once, memoized, before its first query (the serving path) — so a mismatch
+or unmigrated schema fails loudly on first use regardless of who ran the
+migrations. Hosts with a readiness probe can call the exported
+`verifyFtsLanguage` there instead. Chunks are **never** reused across
 versions — every new version gets a fresh full insert of its own chunks.
 
 ### `knowledge_entity` / `knowledge_edge`

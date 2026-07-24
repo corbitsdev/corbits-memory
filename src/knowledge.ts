@@ -5,6 +5,8 @@
 import type { EngineConfig } from "./config.ts";
 import { formatCaughtError, log } from "./log.ts";
 import { createDb, type Db, type RawSql } from "./db/client.ts";
+import { createFtsVerification } from "./core/fts-language.ts";
+import { createEmbedRegistrySqlClient } from "./core/embed-sql.ts";
 import type { VisibilitySpec } from "./core/schemas/document.ts";
 import { captureDocument } from "./services/capture.ts";
 import {
@@ -57,9 +59,21 @@ export function createKnowledgePlane(config: KnowledgeConfig): KnowledgePlane {
   const { db, sql }: { db: Db; sql: RawSql } = createDb(engineConfig);
   const deps = { db, sql, config: engineConfig };
 
+  // Serving-path schema validation, industry-standard fail-fast shape
+  // (Hibernate validate / Rails check_all_pending!): the mount is
+  // synchronous, so "before accepting traffic" becomes a memoized check
+  // awaited by the first query. Read-only; migration stays a deploy step.
+  // Hosts with a real readiness probe can call verifyFtsLanguage there
+  // instead — this memo then resolves against an already-verified schema.
+  const ensureVerified = createFtsVerification(
+    createEmbedRegistrySqlClient(sql),
+    engineConfig.ftsLanguage,
+  );
+
   return {
     async search(params) {
       try {
+        await ensureVerified();
         const result = await hybridSearch(deps, {
           tenantId: params.tenantId,
           principalId: params.principalId,
@@ -116,6 +130,7 @@ export function createKnowledgePlane(config: KnowledgeConfig): KnowledgePlane {
     },
 
     async capture(params) {
+      await ensureVerified();
       const adapter = params.adapter ?? "mcp";
       const externalRef =
         params.externalRef ??

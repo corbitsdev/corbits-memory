@@ -11,6 +11,7 @@ import {
   parseFtsLanguage,
   verifyFtsLanguage,
 } from "./core/fts-language.ts";
+import { createEmbedRegistrySqlClient } from "./core/embed-sql.ts";
 
 const MIGRATIONS_DIR = join(import.meta.dir, "..", "migrations");
 
@@ -58,15 +59,7 @@ export async function runKnowledgeMigrations(
     // generated column was actually built with; a previously-migrated
     // database under a different language must fail loudly here, not
     // degrade recall silently at query time.
-    await verifyFtsLanguage(
-      {
-        query: async (text, params) =>
-          (await sql.unsafe(text, [...params] as never[])) as unknown as Array<
-            Record<string, unknown>
-          >,
-      },
-      ftsLanguage,
-    );
+    await verifyFtsLanguage(createEmbedRegistrySqlClient(sql), ftsLanguage);
   } finally {
     await sql.end();
   }

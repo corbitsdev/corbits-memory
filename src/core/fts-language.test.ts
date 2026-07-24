@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
+  createFtsVerification,
   DEFAULT_FTS_LANGUAGE,
   FTS_LANGUAGE_TOKEN,
   parseFtsLanguage,
@@ -89,5 +90,110 @@ describe("verifyFtsLanguage", () => {
     await expect(
       verifyFtsLanguage(fakeClient({ expr: null }), "english"),
     ).rejects.toThrow("schema not migrated");
+  });
+});
+
+describe("createFtsVerification", () => {
+  const ENGLISH_EXPR = "to_tsvector('english'::regconfig, text)";
+
+  it("verifies once and memoizes success", async () => {
+    let calls = 0;
+    const ensure = createFtsVerification(
+      {
+        query: (sqlText: string) => {
+          calls += 1;
+          return Promise.resolve(
+            sqlText.includes("pg_ts_config") ? [{ ok: 1 }] : [{ expr: ENGLISH_EXPR }],
+          );
+        },
+      },
+      "english",
+    );
+    await ensure();
+    await ensure();
+    // one pg_ts_config lookup + one catalog read, never repeated
+    expect(calls).toBe(2);
+  });
+
+  it("clears the memo on failure so a transient error does not poison the plane", async () => {
+    let attempt = 0;
+    const ensure = createFtsVerification(
+      {
+        query: (sqlText: string) => {
+          if (attempt === 0 && sqlText.includes("pg_ts_config")) {
+            attempt += 1;
+            return Promise.reject(new Error("connection refused"));
+          }
+          return Promise.resolve(
+            sqlText.includes("pg_ts_config") ? [{ ok: 1 }] : [{ expr: ENGLISH_EXPR }],
+          );
+        },
+      },
+      "english",
+    );
+    await expect(ensure()).rejects.toThrow("connection refused");
+    await ensure();
+  });
+
+  it("keeps throwing on a real mismatch", async () => {
+    const ensure = createFtsVerification(
+      {
+        query: (sqlText: string) =>
+          Promise.resolve(
+            sqlText.includes("pg_ts_config") ? [{ ok: 1 }] : [{ expr: ENGLISH_EXPR }],
+          ),
+      },
+      "german",
+    );
+    await expect(ensure()).rejects.toThrow('built with "english"');
+    await expect(ensure()).rejects.toThrow('built with "english"');
+  });
+});
+
+describe("createFtsVerification concurrency", () => {
+  const ENGLISH_EXPR = "to_tsvector('english'::regconfig, text)";
+
+  it("concurrent first calls share one in-flight verification", async () => {
+    let calls = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const ensure = createFtsVerification(
+      {
+        query: async (sqlText: string) => {
+          calls += 1;
+          await gate;
+          return sqlText.includes("pg_ts_config") ? [{ ok: 1 }] : [{ expr: ENGLISH_EXPR }];
+        },
+      },
+      "english",
+    );
+    const a = ensure();
+    const b = ensure();
+    release();
+    await Promise.all([a, b]);
+    expect(calls).toBe(2);
+  });
+
+  it("concurrent callers all see a shared failure, then a retry succeeds", async () => {
+    let attempt = 0;
+    const ensure = createFtsVerification(
+      {
+        query: (sqlText: string) => {
+          if (attempt === 0 && sqlText.includes("pg_ts_config")) {
+            attempt += 1;
+            return Promise.reject(new Error("connection refused"));
+          }
+          return Promise.resolve(
+            sqlText.includes("pg_ts_config") ? [{ ok: 1 }] : [{ expr: ENGLISH_EXPR }],
+          );
+        },
+      },
+      "english",
+    );
+    const a = ensure();
+    const b = ensure();
+    await expect(a).rejects.toThrow("connection refused");
+    await expect(b).rejects.toThrow("connection refused");
+    await ensure();
   });
 });
