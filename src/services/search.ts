@@ -359,6 +359,7 @@ interface LexicalCandidateParams {
   tenantId: string;
   principalId: string | null;
   query: string;
+  ftsLanguage: string;
   overfetchLimit: number;
   kinds?: string[] | undefined;
   entityIds?: string[] | undefined;
@@ -379,6 +380,7 @@ export async function fetchLexicalCandidates(
     tenantId,
     principalId,
     query,
+    ftsLanguage,
     overfetchLimit,
     kinds,
     entityIds,
@@ -398,9 +400,12 @@ export async function fetchLexicalCandidates(
 
   let rankExpr = sql<number>`0::double precision`;
   if (query !== "") {
-    rankExpr = sql<number>`ts_rank("knowledge_chunk"."text_fts", plainto_tsquery('english', ${query}))`;
+    // Bound as a parameter and cast to regconfig — never spliced — and
+    // required to match the language the generated column was built with
+    // (verified against the catalog by runKnowledgeMigrations).
+    rankExpr = sql<number>`ts_rank("knowledge_chunk"."text_fts", plainto_tsquery(${ftsLanguage}::regconfig, ${query}))`;
     conditions.push(
-      sql`"knowledge_chunk"."text_fts" @@ plainto_tsquery('english', ${query})`,
+      sql`"knowledge_chunk"."text_fts" @@ plainto_tsquery(${ftsLanguage}::regconfig, ${query})`,
     );
   }
 
@@ -824,6 +829,7 @@ export async function hybridSearch(
     tenantId,
     principalId,
     query,
+    ftsLanguage: config.ftsLanguage,
     overfetchLimit,
     kinds,
     entityIds,

@@ -1,4 +1,5 @@
 import type { EngineConfig } from "./config.ts";
+import { parseFtsLanguage } from "./core/fts-language.ts";
 
 /**
  * SDK mount config — what `mountKnowledgeEngine` consumes.
@@ -57,6 +58,7 @@ export function loadKnowledgeConfig(): KnowledgeConfig {
       // must never be mistaken for the engine's vector plane.
       databaseUrl: requireEnv("KNOWLEDGE_DATABASE_URL"),
       dbPoolMax: intEnv("DB_POOL_MAX", 8),
+      ftsLanguage: parseFtsLanguage(optionalEnv("FTS_LANGUAGE")),
       embed: {
         baseUrl: requireEnv("EMBED_BASE_URL"),
         model: requireEnv("EMBED_MODEL"),

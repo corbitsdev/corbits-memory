@@ -10,6 +10,9 @@
 export type EngineConfig = {
   databaseUrl: string;
   dbPoolMax: number;
+  // Must match the language the knowledge_chunk.text_fts column was built
+  // with (runKnowledgeMigrations verifies this against the catalog).
+  ftsLanguage: string;
   // A model endpoint (embed or rerank) is just a URL + capability options,
   // trusted the same as KNOWLEDGE_DATABASE_URL — including a self-hosted endpoint on
   // localhost or a private IP. Self-hosted or managed makes no difference:

@@ -61,6 +61,7 @@ fallback)` parses a positive integer or throws.
 |---|---|---|---|
 |  `KNOWLEDGE_DATABASE_URL` | **yes** | — | the engine's own pgvector Postgres |
 | `DB_POOL_MAX` | no | `8` | postgres-js pool size |
+| `FTS_LANGUAGE` | no | `english` | text search config for the lexical channel; fixed into the generated column at migration time — changing it later requires rebuilding the column, and `runKnowledgeMigrations` fails loudly if config and column disagree |
 | `EMBED_BASE_URL` | **yes** | — | embed endpoint root, no path suffix |
 | `EMBED_MODEL` | **yes** | — | model id/name passed to the embed endpoint |
 | `EMBED_API_STYLE` | no | `"openai"` | `"openai" \| "tei" \| "ollama"` |
@@ -128,7 +129,12 @@ alongside, the live ones unless a caller explicitly searches that generation.
 An ordered slice of a version's text, keyed by `(version_id, ordinal)`
 (unique). Carries a generated-always `text_fts tsvector` column (GIN-indexed)
 that powers the lexical search channel — this is the only place FTS is
-computed; no separate FTS table exists. Chunks are **never** reused across
+computed; no separate FTS table exists. Its language comes from
+`FTS_LANGUAGE` at migration time; the query side binds the same configured
+language as a `regconfig` parameter, and `runKnowledgeMigrations` verifies
+the column's actual language against the configuration (read back from the
+catalog) so a mismatch fails at startup instead of silently degrading
+recall. Chunks are **never** reused across
 versions — every new version gets a fresh full insert of its own chunks.
 
 ### `knowledge_entity` / `knowledge_edge`
