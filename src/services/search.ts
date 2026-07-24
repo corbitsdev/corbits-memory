@@ -10,6 +10,7 @@ import {
 } from "../db/schema.ts";
 import { createEmbedRegistrySqlClient } from "../core/embed-sql.ts";
 import {
+  cosineDistanceExpr,
   EMBED_TABLE_NAME_PATTERN,
   resolveActiveEmbedTable,
 } from "../core/embed-model-registry.ts";
@@ -547,7 +548,7 @@ export async function fetchDenseCandidates(
     WHERE e.tenant_id = $1 AND c.tenant_id = $1 AND kv.status = 'active'
       AND kv.generation = ${generationParam}
       AND ${visibilitySql}
-    ORDER BY e.embedding <=> ${vectorParam}::vector ASC
+    ORDER BY ${cosineDistanceExpr("e.embedding", vectorParam, activeTable.dims)} ASC
     LIMIT ${limitParam}
   `;
 

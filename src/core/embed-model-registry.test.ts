@@ -3,12 +3,15 @@ import type { EmbedClientConfig } from "./embed-client.ts";
 import {
   activateEmbedModel,
   computeModelKey,
+  cosineDistanceExpr,
   DimsOutOfBoundsError,
   discoverModelDims,
   EMBED_TABLE_NAME_PATTERN,
   embeddingTableName,
   type EmbedRegistrySqlClient,
+  HALFVEC_INDEX_MAX_DIMS,
   resolveActiveEmbedTable,
+  VECTOR_INDEX_MAX_DIMS,
 } from "./embed-model-registry.ts";
 
 function jsonResponse(body: unknown): Response {
@@ -86,6 +89,35 @@ describe("discoverModelDims", () => {
       DimsOutOfBoundsError,
     );
   });
+
+  it("accepts the halfvec cap exactly and rejects one past it", async () => {
+    expect(await discoverModelDims(baseConfig, fixtureFetch(HALFVEC_INDEX_MAX_DIMS))).toBe(
+      HALFVEC_INDEX_MAX_DIMS,
+    );
+    await expect(
+      discoverModelDims(baseConfig, fixtureFetch(HALFVEC_INDEX_MAX_DIMS + 1)),
+    ).rejects.toThrow(DimsOutOfBoundsError);
+  });
+});
+
+describe("cosineDistanceExpr", () => {
+  it("emits the plain vector expression up to the vector index cap", () => {
+    expect(cosineDistanceExpr("e.embedding", "$3", VECTOR_INDEX_MAX_DIMS)).toBe(
+      "e.embedding <=> $3::vector",
+    );
+  });
+
+  it("emits the halfvec expression past the vector index cap", () => {
+    expect(cosineDistanceExpr("e.embedding", "$3", VECTOR_INDEX_MAX_DIMS + 1)).toBe(
+      `(e.embedding::halfvec(${VECTOR_INDEX_MAX_DIMS + 1})) <=> $3::halfvec(${VECTOR_INDEX_MAX_DIMS + 1})`,
+    );
+  });
+
+  it("rejects non-positive or non-integer dims", () => {
+    expect(() => cosineDistanceExpr("e.embedding", "$1", 0)).toThrow();
+    expect(() => cosineDistanceExpr("e.embedding", "$1", -5)).toThrow();
+    expect(() => cosineDistanceExpr("e.embedding", "$1", 768.5)).toThrow();
+  });
 });
 
 describe("activateEmbedModel", () => {
@@ -143,6 +175,37 @@ describe("activateEmbedModel", () => {
     const createTableQueries = queries.filter((q) => q.sql.includes("CREATE TABLE IF NOT EXISTS"));
     expect(createTableQueries).toHaveLength(2);
     expect(createTableQueries[0]?.sql).toBe(createTableQueries[1]?.sql);
+  });
+
+  it("creates a halfvec expression hnsw index past the vector cap, matching the query expression", async () => {
+    const dims = 3072;
+    const { client, queries } = createMockClient();
+    const result = await activateEmbedModel(client, "tenant-1", baseConfig, fixtureFetch(dims));
+
+    expect(result.dims).toBe(dims);
+    const indexQuery = queries.find((q) => q.sql.includes("CREATE INDEX"));
+    expect(indexQuery?.sql).toContain("USING hnsw");
+    expect(indexQuery?.sql).toContain("halfvec_cosine_ops");
+    expect(indexQuery?.sql).not.toContain("ivfflat");
+
+    // The planner only uses an expression index when the query reproduces
+    // the indexed expression verbatim — pin the two to the same string.
+    const indexedExpr = `(embedding::halfvec(${dims}))`;
+    expect(indexQuery?.sql).toContain(`(${indexedExpr} halfvec_cosine_ops)`);
+    expect(cosineDistanceExpr("embedding", "$1", dims).startsWith(indexedExpr)).toBe(true);
+  });
+
+  it("does not fall back to ivfflat when halfvec index creation fails", async () => {
+    const client: EmbedRegistrySqlClient = {
+      query: (sql) =>
+        sql.includes("USING hnsw")
+          ? Promise.reject(new Error("type halfvec does not exist"))
+          : Promise.resolve([]),
+    };
+
+    await expect(
+      activateEmbedModel(client, "tenant-1", baseConfig, fixtureFetch(2500)),
+    ).rejects.toThrow("halfvec does not exist");
   });
 
   it("lets two different models coexist under different table names (T3 — 768d + 1024d)", async () => {
