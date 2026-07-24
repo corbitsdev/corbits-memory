@@ -4,6 +4,8 @@ import {
   authorityWeightedScore,
   dedupeCandidatesPerDocument,
   deriveHybridEvidence,
+  fetchDenseCandidates,
+  hnswEfSearch,
   snippet,
   visibilityPredicateSql,
   visibilityPredicateRawSql,
@@ -236,5 +238,120 @@ describe("deriveHybridEvidence", () => {
   it("falls back to the lexical evidence path when reranking did not run (no rerankedTop)", () => {
     const strongLexicalRows = [candidate({ rank: 0.9, authority: 0.9 })];
     expect(deriveHybridEvidence(strongLexicalRows, 1)).toBe("strong");
+  });
+});
+
+describe("hnswEfSearch", () => {
+  it("clamps to pgvector's [40, 1000] bounds", () => {
+    expect(hnswEfSearch(0)).toBe(40);
+    expect(hnswEfSearch(1)).toBe(40);
+    expect(hnswEfSearch(40)).toBe(40);
+    expect(hnswEfSearch(250)).toBe(250);
+    expect(hnswEfSearch(1000)).toBe(1000);
+    expect(hnswEfSearch(1001)).toBe(1000);
+  });
+
+  it("falls back to the default for non-finite input", () => {
+    expect(hnswEfSearch(Number.NaN)).toBe(40);
+    expect(hnswEfSearch(Number.POSITIVE_INFINITY)).toBe(40);
+  });
+});
+
+describe("fetchDenseCandidates hnsw tuning", () => {
+  const MODEL_ROW = { model_key: "aaaaaaaaaaaaaaaa", model_id: "m", dims: 768 };
+
+  function openaiEmbedFetch(): typeof fetch {
+    return (() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ data: [{ embedding: [0.1, 0.2] }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      )) as unknown as typeof fetch;
+  }
+
+  // A fake postgres-js handle: top-level `unsafe` serves the registry
+  // lookup; `begin` hands the callback a tx whose statements are recorded
+  // and whose savepoint behavior is scripted per test.
+  function fakeRawSql(savepointError?: Error) {
+    const statements: string[] = [];
+    let savepointAttempts = 0;
+    type FakeTx = {
+      unsafe: (sqlText: string) => Promise<unknown[]>;
+      savepoint: (fn: (sp: FakeTx) => Promise<unknown>) => Promise<unknown>;
+    };
+    const tx: FakeTx = {
+      unsafe: (sqlText: string) => {
+        statements.push(sqlText);
+        return Promise.resolve([]);
+      },
+      savepoint: (fn: (sp: FakeTx) => Promise<unknown>) => {
+        savepointAttempts += 1;
+        if (savepointError) return Promise.reject(savepointError);
+        return fn(tx);
+      },
+    };
+    const rawSql = {
+      unsafe: (sqlText: string) => {
+        statements.push(sqlText);
+        return Promise.resolve(
+          sqlText.includes("FROM knowledge_embed_model") ? [MODEL_ROW] : [],
+        );
+      },
+      begin: (cb: (t: FakeTx) => Promise<unknown>) => cb(tx),
+    };
+    return {
+      rawSql: rawSql as unknown as Parameters<typeof fetchDenseCandidates>[0]["sql"],
+      statements,
+      savepointAttempts: () => savepointAttempts,
+    };
+  }
+
+  function args(sql: Parameters<typeof fetchDenseCandidates>[0]["sql"]) {
+    return {
+      sql,
+      embedClientConfig: { baseUrl: "https://embed.example.com", modelId: "m", apiStyle: "openai" as const },
+      fetchImpl: openaiEmbedFetch(),
+      tenantId: "tenant-1",
+      principalId: null,
+      query: "hello",
+      overfetchLimit: 250,
+    };
+  }
+
+  it("sets ef_search from the overfetch limit and probes iterative_scan once", async () => {
+    const fake = fakeRawSql();
+    await fetchDenseCandidates(args(fake.rawSql));
+    expect(fake.statements).toContain("SET LOCAL hnsw.ef_search = 250");
+    expect(fake.statements).toContain("SET LOCAL hnsw.iterative_scan = 'relaxed_order'");
+    expect(fake.savepointAttempts()).toBe(1);
+
+    // Support is cached per pool: the second call sets the GUC directly
+    // without another savepoint probe.
+    await fetchDenseCandidates(args(fake.rawSql));
+    expect(fake.savepointAttempts()).toBe(1);
+    expect(
+      fake.statements.filter((s) => s.includes("iterative_scan")),
+    ).toHaveLength(2);
+  });
+
+  it("degrades to ef_search alone on pgvector < 0.8 and stops probing", async () => {
+    const unknownGuc = Object.assign(new Error("unrecognized configuration parameter"), {
+      code: "42704",
+    });
+    const fake = fakeRawSql(unknownGuc);
+
+    const rows = await fetchDenseCandidates(args(fake.rawSql));
+    expect(rows).toEqual([]);
+    expect(fake.statements).toContain("SET LOCAL hnsw.ef_search = 250");
+    expect(fake.statements.filter((s) => s.includes("iterative_scan"))).toHaveLength(0);
+
+    await fetchDenseCandidates(args(fake.rawSql));
+    expect(fake.savepointAttempts()).toBe(1);
+  });
+
+  it("rethrows a non-42704 savepoint failure", async () => {
+    const fake = fakeRawSql(Object.assign(new Error("connection reset"), { code: "08006" }));
+    await expect(fetchDenseCandidates(args(fake.rawSql))).rejects.toThrow("connection reset");
   });
 });
