@@ -309,7 +309,8 @@ search); otherwise it throws `KnowledgeSearchInputError` (400).
    `overfetch`, `rerank`); every field it doesn't supply falls back to the
    engine's own defaults. Live search never pays for this lookup.
 2. **Lexical channel** — `fetchLexicalCandidates`: Postgres full-text search
-   (`ts_rank` against `plainto_tsquery('english', query)` over
+   (`ts_rank` against `plainto_tsquery` in the configured `FTS_LANGUAGE`,
+   bound as a `regconfig` parameter, over
    `knowledge_chunk.text_fts`), joined to `knowledge_version` (filtered to
    `status = 'active'` and the resolved `generation`) and `knowledge_document`
    (filtered by `visibilityPredicateSql`), optionally further filtered by
