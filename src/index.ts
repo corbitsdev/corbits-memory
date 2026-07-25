@@ -25,7 +25,21 @@ export { loadKnowledgeConfig } from "./mount-config.ts";
 export type { EngineConfig } from "./config.ts";
 export { RerankConfigError } from "./core/rerank-client.ts";
 // Knowledge plane
-export type { KnowledgePlane, TimelineEvent } from "./knowledge.ts";
+//
+// `createKnowledgePlane` is exported so a host can capture or search outside a
+// request — a CLI seeder, a batch ingester, or a test — without standing up a
+// Hono app just to get a plane. Callers acting on behalf of a user are
+// responsible for the capability check `requireGrant` would have performed; see
+// the README.
+export { createKnowledgePlane } from "./knowledge.ts";
+export type {
+  KnowledgeCaptureParams,
+  KnowledgeIdentity,
+  KnowledgePlane,
+  KnowledgeSearchParams,
+  TimelineEvent,
+} from "./knowledge.ts";
+export { KnowledgeError } from "./knowledge.ts";
 // Migrations
 export { runKnowledgeMigrations } from "./migrations.ts";
 // Degrade metrics — no metrics dependency exists in this package (see

@@ -41,7 +41,7 @@ import { loadKnowledgeConfig } from "@corbits/knowledge-engine/config";
 // `app` is your Interchange createApp (Hono<TenantEnv>). Pass the same grant
 // store + condition registry you give createApp/createRequireGrant.
 mountKnowledgeEngine(app, {
-  config: loadKnowledgeConfig(),          // or build the object yourself
+  config: loadKnowledgeConfig(), // or build the object yourself
   grants: { grantStore, conditionRegistry },
 });
 ```
@@ -86,6 +86,51 @@ app.use("/api/knowledge/*", async (c, next) => {
 ```
 
 Without it every knowledge route returns **401 `principal_required`**.
+
+### Capturing and searching outside a request
+
+`mountKnowledgeEngine` returns the `KnowledgePlane` it built, and the plane takes
+identity as data — so an in-process caller passes `{tenantId, principalId}`
+explicitly rather than faking a request context:
+
+```ts
+const { knowledge } = mountKnowledgeEngine(app, { config, grants });
+
+await knowledge.search({ tenantId, principalId, query: "…", k: 6 });
+```
+
+For a CLI seeder, a batch ingester, or a test with no app at all, construct a
+plane directly:
+
+```ts
+import {
+  createKnowledgePlane,
+  loadKnowledgeConfig,
+} from "@corbits/knowledge-engine";
+
+const knowledge = createKnowledgePlane(loadKnowledgeConfig());
+await knowledge.capture({ tenantId, principalId, title, text });
+await knowledge.close();
+```
+
+Note that this path bypasses the `requireGrant` route guard, since there is no
+request. If the caller is acting for a user rather than as an operator, check the
+capability yourself — the per-document visibility the engine applies is not a
+substitute for "may this principal search at all":
+
+```ts
+import { authorize } from "@intx/authz";
+
+const decision = await authorize(
+  grantStore,
+  principalId,
+  tenantId,
+  "knowledge",
+  "search",
+  conditionRegistry,
+);
+if (decision.effect !== "allow") throw new Error("not permitted");
+```
 
 Apply the knowledge/vector schema once (idempotent):
 
