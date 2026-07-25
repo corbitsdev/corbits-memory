@@ -5,7 +5,7 @@ import { type } from "arktype";
 
 import { formatCaughtError, log } from "../log.ts";
 import type { RouteDeps } from "./deps.ts";
-import { caller, grantGuard } from "./deps.ts";
+import { caller, grantGuard, requirePrincipal } from "./deps.ts";
 
 const TimelineResponse = type({
   events: type({
@@ -17,7 +17,10 @@ const TimelineResponse = type({
   }).array(),
 });
 
-export function mountTimelineRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
+export function mountTimelineRoute(
+  app: Hono<TenantEnv>,
+  deps: RouteDeps,
+): void {
   app.get(
     "/api/knowledge/timeline",
     describeRoute({
@@ -34,6 +37,7 @@ export function mountTimelineRoute(app: Hono<TenantEnv>, deps: RouteDeps): void 
         502: { description: "Timeline query failed" },
       },
     }),
+    requirePrincipal(),
     grantGuard(deps, "search"),
     async (c) => {
       const { scopeId, subjectId } = caller(c);
