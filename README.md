@@ -108,15 +108,23 @@ import {
   loadKnowledgeConfig,
 } from "@corbits/knowledge-engine";
 
-const knowledge = createKnowledgePlane(loadKnowledgeConfig());
+const knowledge = createKnowledgePlane(loadKnowledgeConfig(), {
+  grantStore,
+  conditionRegistry,
+});
 await knowledge.capture({ tenantId, principalId, title, text });
 await knowledge.close();
 ```
 
-Note that this path bypasses the `requireGrant` route guard, since there is no
-request. If the caller is acting for a user rather than as an operator, check the
-capability yourself — the per-document visibility the engine applies is not a
-substitute for "may this principal search at all":
+The grant config is required so the plane can evaluate capabilities on the paths
+that check them — `ask()` does its own `knowledge:search` check internally,
+precisely because an in-process caller never passes through the `requireGrant`
+route guard.
+
+`capture()` and `search()` do **not** check the capability grant. They apply
+per-document visibility and block lists, which is not the same question. So if
+the caller is acting on behalf of a user rather than as an operator, check it
+yourself:
 
 ```ts
 import { authorize } from "@intx/authz";
@@ -131,6 +139,8 @@ const decision = await authorize(
 );
 if (decision.effect !== "allow") throw new Error("not permitted");
 ```
+
+Or just use `ask()`, which cannot be called without that check happening.
 
 Apply the knowledge/vector schema once (idempotent):
 
