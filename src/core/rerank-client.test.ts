@@ -1,9 +1,12 @@
 import { describe, expect, it, mock } from "bun:test";
 
 import {
+  RerankConfigError,
   RerankHttpError,
   RerankTimeoutError,
+  TEI_MAX_DOC_CHARS,
   rerankDocuments,
+  validateRerankConfig,
 } from "./rerank-client.ts";
 import type { RerankClientConfig } from "./rerank-client.ts";
 
@@ -168,5 +171,101 @@ describe("rerankDocuments", () => {
         fetchImpl as unknown as typeof fetch,
       ),
     ).rejects.toBeInstanceOf(RerankTimeoutError);
+  });
+
+  it("truncates oversized TEI document text to the default budget", async () => {
+    const longDoc = { id: "chunk-c", text: "x".repeat(TEI_MAX_DOC_CHARS + 500) };
+    const fetchImpl = mock((_url: string, init: RequestInit) => {
+      const body = JSON.parse(init.body as string) as { texts: string[] };
+      expect(body.texts[0]?.length).toBe(TEI_MAX_DOC_CHARS);
+      return Promise.resolve(jsonResponse([{ index: 0, score: 0.5 }]));
+    });
+
+    await rerankDocuments(
+      "q",
+      [longDoc],
+      teiConfig,
+      fetchImpl as unknown as typeof fetch,
+    );
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("respects a configured maxDocChars for TEI requests", async () => {
+    const longDoc = { id: "chunk-c", text: "x".repeat(200) };
+    const fetchImpl = mock((_url: string, init: RequestInit) => {
+      const body = JSON.parse(init.body as string) as { texts: string[] };
+      expect(body.texts[0]?.length).toBe(100);
+      return Promise.resolve(jsonResponse([{ index: 0, score: 0.5 }]));
+    });
+
+    await rerankDocuments(
+      "q",
+      [longDoc],
+      { ...teiConfig, maxDocChars: 100 },
+      fetchImpl as unknown as typeof fetch,
+    );
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not truncate documents at or under the budget", async () => {
+    const shortDoc = { id: "chunk-c", text: "x".repeat(TEI_MAX_DOC_CHARS) };
+    const fetchImpl = mock((_url: string, init: RequestInit) => {
+      const body = JSON.parse(init.body as string) as { texts: string[] };
+      expect(body.texts[0]?.length).toBe(TEI_MAX_DOC_CHARS);
+      return Promise.resolve(jsonResponse([{ index: 0, score: 0.5 }]));
+    });
+
+    await rerankDocuments(
+      "q",
+      [shortDoc],
+      teiConfig,
+      fetchImpl as unknown as typeof fetch,
+    );
+  });
+});
+
+describe("validateRerankConfig", () => {
+  it("passes for the default budget against a known model with a large enough limit", () => {
+    expect(() =>
+      validateRerankConfig({
+        baseUrl: "https://tei.example.com",
+        apiStyle: "tei",
+        model: "bge-reranker-base",
+        maxDocChars: 1_200,
+      }),
+    ).not.toThrow();
+  });
+
+  it("throws RerankConfigError when maxDocChars can overflow a known model's token limit", () => {
+    expect(() =>
+      validateRerankConfig({
+        baseUrl: "https://tei.example.com",
+        apiStyle: "tei",
+        model: "bge-reranker-base",
+        maxDocChars: 5_000,
+      }),
+    ).toThrow(RerankConfigError);
+  });
+
+  it("skips validation for an unlisted model", () => {
+    expect(() =>
+      validateRerankConfig({
+        baseUrl: "https://tei.example.com",
+        apiStyle: "tei",
+        model: "some-custom-reranker",
+        maxDocChars: 100_000,
+      }),
+    ).not.toThrow();
+  });
+
+  it("skips validation for non-TEI api styles", () => {
+    expect(() =>
+      validateRerankConfig({
+        baseUrl: "https://api.cohere.example.com",
+        apiStyle: "cohere",
+        model: "bge-reranker-base",
+        maxDocChars: 100_000,
+      }),
+    ).not.toThrow();
   });
 });

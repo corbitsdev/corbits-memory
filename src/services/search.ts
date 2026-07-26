@@ -662,13 +662,14 @@ function toEmbedClientConfig(embed: EngineConfig["embed"]): EmbedClientConfig {
 // same degrade-soft precedent as the embed config being absent upstream.
 // Built from the engine's own operator-configured rerank endpoint — a trusted
 // URL, the same as KNOWLEDGE_DATABASE_URL.
-function toRerankClientConfig(
+export function toRerankClientConfig(
   rerank: EngineConfig["rerank"],
 ): RerankClientConfig | undefined {
   if (!rerank.baseUrl) return undefined;
   return {
     baseUrl: rerank.baseUrl,
     apiStyle: "tei",
+    maxDocChars: rerank.maxDocChars,
     ...(rerank.model !== undefined ? { model: rerank.model } : {}),
     ...(rerank.apiKey !== undefined ? { apiKey: rerank.apiKey } : {}),
   };

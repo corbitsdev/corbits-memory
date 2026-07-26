@@ -1,4 +1,5 @@
 import type { EngineConfig } from "./config.ts";
+import { TEI_MAX_DOC_CHARS } from "./core/rerank-client.ts";
 
 /**
  * SDK mount config — what `mountKnowledgeEngine` consumes.
@@ -54,6 +55,7 @@ export function loadKnowledgeConfig(): KnowledgeConfig {
         baseUrl: optionalEnv("RERANK_BASE_URL"),
         model: optionalEnv("RERANK_MODEL"),
         apiKey: optionalEnv("RERANK_API_KEY"),
+        maxDocChars: intEnv("RERANK_MAX_DOC_CHARS", TEI_MAX_DOC_CHARS),
       },
     },
   };

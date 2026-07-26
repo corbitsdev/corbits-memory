@@ -24,5 +24,8 @@ export type EngineConfig = {
     baseUrl: string | undefined;
     model: string | undefined;
     apiKey: string | undefined;
+    // Per-document character budget sent to the reranker — see
+    // `TEI_MAX_DOC_CHARS` / `validateRerankConfig` in rerank-client.ts.
+    maxDocChars: number;
   };
 };

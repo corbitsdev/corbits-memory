@@ -17,11 +17,14 @@ import {
   type GrantConfig,
   type RouteDeps,
 } from "./routes/mount.ts";
+import { toRerankClientConfig } from "./services/search.ts";
+import { validateRerankConfig } from "./core/rerank-client.ts";
 
 // Config
 export type { KnowledgeConfig } from "./mount-config.ts";
 export { loadKnowledgeConfig } from "./mount-config.ts";
 export type { EngineConfig } from "./config.ts";
+export { RerankConfigError } from "./core/rerank-client.ts";
 // Knowledge plane + capture log
 export type { KnowledgePlane } from "./knowledge.ts";
 export { CaptureLog, type CaptureEvent } from "./capture-log.ts";
@@ -51,6 +54,11 @@ export function mountKnowledgeEngine(
   app: Hono<TenantEnv>,
   options: MountKnowledgeEngineOptions,
 ): MountedKnowledgeEngine {
+  // Catch a chunk-size / reranker-limit mismatch here, at mount time — not
+  // silently on every search once the reranker starts rejecting batches.
+  const rerankConfig = toRerankClientConfig(options.config.knowledge.rerank);
+  if (rerankConfig) validateRerankConfig(rerankConfig);
+
   const knowledge = createKnowledgePlane(options.config);
   const captureLog = new CaptureLog();
   const deps: RouteDeps = {

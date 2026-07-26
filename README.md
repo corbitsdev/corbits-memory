@@ -78,6 +78,17 @@ bun run db:setup                                       # apply the knowledge sch
 want env-driven config can build the object directly. See `PRODUCT.md` for the
 shape and the identity/ACL model.
 
+Reranking (`RERANK_BASE_URL` etc.) is optional and TEI-only today; retrieval
+degrades to fusion-only if unset. `RERANK_MAX_DOC_CHARS` (default `1600`)
+bounds how much of each chunk's text is sent per document — TEI rejects the
+whole batch if any single document exceeds the reranker's token limit, and the
+engine's ~700-token chunks routinely exceed `bge-reranker-base`'s 512.
+`mountKnowledgeEngine` validates this against known models' advertised limits
+at startup and throws `RerankConfigError` on a mismatch, rather than failing
+per query. Truncation is a real tradeoff: the reranker scores only the head of
+a chunk while the caller still cites and reads the whole thing, so a document
+whose relevance lives in its tail ranks lower than it deserves.
+
 ## Testing
 
 ```bash

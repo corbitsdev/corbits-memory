@@ -12,6 +12,9 @@ export const RerankClientConfigSchema = type({
   apiStyle: "'tei'|'cohere'|'voyage'",
   "apiKey?": "string",
   "timeoutMs?": "number",
+  // Per-document character budget for TEI requests — see TEI_MAX_DOC_CHARS.
+  // Ignored for cohere/voyage, which advertise much longer context windows.
+  "maxDocChars?": "number",
 });
 export type RerankClientConfig = typeof RerankClientConfigSchema.infer;
 
@@ -92,6 +95,69 @@ async function assertOk(res: Response, url: string): Promise<void> {
   throw new RerankHttpError(res.status, bodySnippet, url);
 }
 
+// Cross-encoders cap the query+document pair, and TEI rejects the WHOLE batch
+// with a 413 if any single document is over — so one long chunk disables
+// reranking for the entire query. The engine chunks at ~700 tokens while
+// `bge-reranker-base` allows 512, which means every real chunk trips it.
+//
+// Truncating keeps reranking working at a known cost: the reranker scores the
+// head of a chunk while the caller still cites and reads the whole thing, so a
+// document whose relevance lives only in its tail scores lower than it should.
+// Ranking the first ~450 tokens beats not ranking at all.
+//
+// Default is deliberately conservative for `bge-reranker-base` (512 tokens):
+// chars-per-token varies with content, so this assumes as few as ~3
+// chars/token to avoid overshooting — overshooting costs the entire batch.
+// Callers with a longer-context reranker (several go to 4K-32K tokens) can
+// raise this via `RerankClientConfig.maxDocChars`; `validateRerankConfig`
+// catches a mismatch against known models' advertised limits up front.
+export const TEI_MAX_DOC_CHARS = 1_600;
+
+// Conservative floor used only to validate `maxDocChars` against a model's
+// advertised token limit — real tokenization varies by content and model.
+const CHARS_PER_TOKEN_FLOOR = 3;
+
+// Token limits for rerankers we know are commonly TEI-served. Deliberately a
+// short, high-confidence list: an unlisted model skips validation rather than
+// asserting a limit we're not sure of.
+export const KNOWN_TEI_RERANK_MODEL_TOKEN_LIMITS: Record<string, number> = {
+  "bge-reranker-base": 512,
+  "bge-reranker-large": 512,
+};
+
+export class RerankConfigError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "RerankConfigError";
+  }
+}
+
+/**
+ * Catches a chunk-size / reranker-limit mismatch at config time instead of
+ * at every query (where it previously surfaced as a silent per-batch 413).
+ * Only validates TEI configs against a known model's advertised token limit;
+ * everything else (unlisted model, cohere/voyage) is left unchecked.
+ */
+export function validateRerankConfig(config: RerankClientConfig): void {
+  if (config.apiStyle !== "tei" || !config.model) return;
+  const tokenLimit = KNOWN_TEI_RERANK_MODEL_TOKEN_LIMITS[config.model];
+  if (tokenLimit === undefined) return;
+
+  const maxDocChars = config.maxDocChars ?? TEI_MAX_DOC_CHARS;
+  const estimatedMaxTokens = Math.ceil(maxDocChars / CHARS_PER_TOKEN_FLOOR);
+  if (estimatedMaxTokens > tokenLimit) {
+    throw new RerankConfigError(
+      `Rerank maxDocChars=${maxDocChars} can produce up to ~${estimatedMaxTokens} tokens per document, ` +
+        `exceeding ${config.model}'s ${tokenLimit}-token limit. Lower maxDocChars (RERANK_MAX_DOC_CHARS) ` +
+        `or switch to a longer-context reranker.`,
+    );
+  }
+}
+
+function truncateForRerank(text: string, maxDocChars: number): string {
+  return text.length > maxDocChars ? text.slice(0, maxDocChars) : text;
+}
+
 // TEI's native `/rerank` shape: `{query, texts}` -> `[{index, score}]`
 // (unordered — callers must respect `index`, not array position).
 async function rerankTei(
@@ -107,7 +173,12 @@ async function rerankTei(
     {
       method: "POST",
       headers: buildHeaders(config),
-      body: JSON.stringify({ query, texts: docs.map((d) => d.text) }),
+      body: JSON.stringify({
+        query,
+        texts: docs.map((d) =>
+          truncateForRerank(d.text, config.maxDocChars ?? TEI_MAX_DOC_CHARS),
+        ),
+      }),
     },
     config.timeoutMs ?? DEFAULT_TIMEOUT_MS,
   );
