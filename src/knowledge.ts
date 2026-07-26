@@ -2,8 +2,9 @@
  * Knowledge plane backed by the engine's pgvector Postgres. Wraps the capture
  * and hybrid-search services directly — no HTTP hop.
  */
+import { blockedDocumentIds } from "./acl.ts";
 import type { EngineConfig } from "./config.ts";
-import { formatCaughtError, log } from "./log.ts";
+import { log } from "./log.ts";
 import { createDb, type Db, type RawSql } from "./db/client.ts";
 import { createFtsVerification, parseFtsLanguage } from "./core/fts-language.ts";
 import { createRawSqlClient } from "./core/embed-sql.ts";
@@ -93,13 +94,12 @@ export function createKnowledgePlane(config: KnowledgeConfig): KnowledgePlane {
           k: params.k,
         });
 
-        // Block-list post-filter: docs may store acl_block as JSON array
-        // of principal ids. Engine visibility does not model block lists yet.
+        // Block-list post-filter: docs may store acl_block as a list of
+        // principal ids. Engine visibility does not model block lists yet.
         if (result.hits.length === 0) return result;
         const docIds = Array.from(
           new Set(result.hits.map((h) => h.document_id)),
         );
-        const blocked = new Set<string>();
         const rows = await sql<
           { id: string; attributes: Record<string, unknown> | null }[]
         >`
@@ -107,26 +107,16 @@ export function createKnowledgePlane(config: KnowledgeConfig): KnowledgePlane {
           FROM knowledge_document
           WHERE id = ANY(${docIds}::text[])
         `;
-        for (const row of rows) {
-          const raw = row.attributes?.["acl_block"];
-          if (typeof raw !== "string" || raw.length === 0) continue;
-          let list: unknown;
-          try {
-            list = JSON.parse(raw);
-          } catch (err) {
-            // Unparseable block list → fail closed: hide the doc rather than
-            // risk surfacing something a corrupt ACL meant to block.
-            const errMessage = formatCaughtError(err);
-            log.warn(
-              `search: unparseable acl_block, blocking document: ${errMessage}`,
-              { documentId: row.id, error: errMessage },
-            );
-            blocked.add(row.id);
-            continue;
-          }
-          if (Array.isArray(list) && list.includes(params.principalId)) {
-            blocked.add(row.id);
-          }
+        const { blocked, unreadable } = blockedDocumentIds(
+          docIds,
+          rows,
+          params.principalId,
+        );
+        if (unreadable.length > 0) {
+          log.warn(
+            `search: ${unreadable.length} document(s) had an unreadable acl_block or missing row; withholding`,
+            { count: unreadable.length },
+          );
         }
         if (blocked.size === 0) return result;
         const hits = result.hits.filter((h) => !blocked.has(h.document_id));
