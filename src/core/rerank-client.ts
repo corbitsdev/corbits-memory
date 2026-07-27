@@ -37,6 +37,21 @@ export class RerankTimeoutError extends Error {
   }
 }
 
+// Thrown by `rerankTei` when the query alone leaves less than `MIN_DOC_CHARS`
+// of the query+document budget for the document. Truncating the query
+// instead would silently change what the user asked and feed the reranker a
+// mangled query, which is worse than not reranking; forcing the document
+// budget back up would exceed the model's vetted per-pair limit and 413.
+// Skipping is the only option that keeps the request honest and within
+// budget — the caller is expected to catch this the same way it catches any
+// other rerank failure and fall back to fused ranking.
+export class RerankQueryTooLongError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "RerankQueryTooLongError";
+  }
+}
+
 export class RerankHttpError extends Error {
   constructor(
     public readonly status: number,
@@ -134,10 +149,14 @@ export const TEI_MAX_DOC_CHARS = 1_500;
 // `RERANK_MAX_DOC_CHARS` well below the computed ceiling.
 const CHARS_PER_TOKEN_FLOOR = 3;
 
-// Always send at least this many document characters, even when a very long
-// query eats most of the shared query+document budget — zero document
-// content defeats reranking outright, so a long query degrades the
-// truncation rather than starving the document to nothing.
+// Minimum document budget worth sending to the reranker. If a query is so
+// long that it alone eats maxDocChars down past this floor, we do NOT force
+// the document budget back up to this floor — that would grow the
+// query+document pair past maxDocChars (the value `validateRerankConfig`
+// vetted against the model's real token limit), reproducing the 413 this
+// module exists to prevent. Instead `rerankTei` throws `RerankQueryTooLongError`
+// and the caller skips reranking for that request, same as any other rerank
+// failure (see hybrid-search.ts's `rerank_unavailable`/soft-degrade path).
 const MIN_DOC_CHARS = 200;
 
 // Token limits for rerankers we know are commonly TEI-served. Deliberately a
@@ -179,20 +198,24 @@ export function validateRerankConfig(config: RerankClientConfig): void {
 
 // TEI's limit is on the query+document PAIR, not the document alone — a long
 // query plus a budget-sized document can still overflow the model's cap.
-// Reserve the query's estimated share of the budget first (floored at
-// MIN_DOC_CHARS so the document is never truncated to nothing), then
-// truncate. Trims before slicing so a document that opens with padding
-// whitespace doesn't yield an all-whitespace result once cut.
-function truncateForRerank(
-  text: string,
-  maxDocChars: number,
-  queryChars: number,
-): string {
-  const floor = Math.min(MIN_DOC_CHARS, maxDocChars);
-  const budget = Math.max(maxDocChars - queryChars, floor);
+// `budget` here is already resolved to the document's share of maxDocChars
+// (see `resolveDocBudget`); this only truncates to it. Trims before slicing
+// so a document that opens with padding whitespace doesn't yield an
+// all-whitespace result once cut.
+function truncateForRerank(text: string, budget: number): string {
   if (text.length <= budget) return text;
   const trimmed = text.trim();
   return trimmed.length <= budget ? trimmed : trimmed.slice(0, budget);
+}
+
+// Splits maxDocChars between query and document. Never grows the document
+// share past what's left after the query — doing so is exactly the bug this
+// resolves (see `RerankQueryTooLongError`). Returns null when the query
+// alone leaves less than MIN_DOC_CHARS for the document; callers must treat
+// null as "skip reranking for this request", not "use MIN_DOC_CHARS anyway".
+function resolveDocBudget(maxDocChars: number, queryChars: number): number | null {
+  const budget = maxDocChars - queryChars;
+  return budget < MIN_DOC_CHARS ? null : budget;
 }
 
 // TEI's native `/rerank` shape: `{query, texts}` -> `[{index, score}]`
@@ -203,6 +226,17 @@ async function rerankTei(
   config: RerankClientConfig,
   fetchImpl: typeof fetch,
 ): Promise<RerankResult[]> {
+  const maxDocChars = config.maxDocChars ?? TEI_MAX_DOC_CHARS;
+  const docBudget = resolveDocBudget(maxDocChars, query.length);
+  if (docBudget === null) {
+    throw new RerankQueryTooLongError(
+      `query is ${query.length} chars, leaving under ${MIN_DOC_CHARS} of the ` +
+        `${maxDocChars}-char maxDocChars budget for the document; skipping ` +
+        `rerank rather than sending a query+document pair guaranteed to ` +
+        `exceed the model's token limit`,
+    );
+  }
+
   const url = `${config.baseUrl}/rerank`;
   const res = await doFetch(
     fetchImpl,
@@ -212,13 +246,7 @@ async function rerankTei(
       headers: buildHeaders(config),
       body: JSON.stringify({
         query,
-        texts: docs.map((d) =>
-          truncateForRerank(
-            d.text,
-            config.maxDocChars ?? TEI_MAX_DOC_CHARS,
-            query.length,
-          ),
-        ),
+        texts: docs.map((d) => truncateForRerank(d.text, docBudget)),
       }),
     },
     config.timeoutMs ?? DEFAULT_TIMEOUT_MS,
@@ -238,6 +266,14 @@ async function rerankTei(
   });
 }
 
+// Same query+document pair-budget reasoning as TEI applies here in
+// principle, but Cohere's rerank-v3.5/multilingual-v3 advertise 4,096
+// tokens per document — over an order of magnitude past what our ~700-token
+// chunks plus any realistic query need — so it is not enforced. This is not
+// proven safe for arbitrarily large input; it's a documented judgment call
+// that Cohere's context window makes the TEI failure mode impractical to
+// hit at our chunk sizes, not a guarantee.
+//
 // Cohere v2 `/v2/rerank` shape: `{model, query, documents}` ->
 // `{results: [{index, relevance_score}]}`.
 async function rerankCohere(
@@ -285,6 +321,11 @@ async function rerankCohere(
   });
 }
 
+// Same reasoning as `rerankCohere` above: Voyage's rerank-2 advertises a
+// 32,000-token context, so the pair-budget failure mode this module fixes
+// for TEI is not enforced here either — judged impractical to hit at our
+// chunk sizes, not verified safe for arbitrary input.
+//
 // Voyage `/v1/rerank` shape: `{model, query, documents}` ->
 // `{data: [{index, relevance_score}]}`.
 async function rerankVoyage(

@@ -3,6 +3,7 @@ import { describe, expect, it, mock } from "bun:test";
 import {
   RerankConfigError,
   RerankHttpError,
+  RerankQueryTooLongError,
   RerankTimeoutError,
   TEI_MAX_DOC_CHARS,
   rerankDocuments,
@@ -198,17 +199,17 @@ describe("rerankDocuments", () => {
   });
 
   it("respects a configured maxDocChars for TEI requests", async () => {
-    const longDoc = { id: "chunk-c", text: "x".repeat(200) };
+    const longDoc = { id: "chunk-c", text: "x".repeat(1_200) };
     const fetchImpl = mock((_url: string, init: RequestInit) => {
       const body = JSON.parse(init.body as string) as { texts: string[] };
-      expect(body.texts[0]?.length).toBe(100);
+      expect(body.texts[0]?.length).toBe(999);
       return Promise.resolve(jsonResponse([{ index: 0, score: 0.5 }]));
     });
 
     await rerankDocuments(
       "q",
       [longDoc],
-      { ...teiConfig, maxDocChars: 100 },
+      { ...teiConfig, maxDocChars: 1_000 },
       fetchImpl as unknown as typeof fetch,
     );
     expect(fetchImpl).toHaveBeenCalledTimes(1);
@@ -232,27 +233,69 @@ describe("rerankDocuments", () => {
     );
   });
 
-  it("floors the document budget at MIN_DOC_CHARS even when the query alone exceeds maxDocChars", async () => {
+  it("uses the full remaining budget when the query leaves exactly MIN_DOC_CHARS", async () => {
+    // maxDocChars 1000, query 800 chars -> budget is exactly 200 (the
+    // MIN_DOC_CHARS boundary): must still run, not skip.
     const longDoc = { id: "chunk-c", text: "x".repeat(500) };
-    const veryLongQuery = "q".repeat(10_000);
+    const query = "q".repeat(800);
     const fetchImpl = mock((_url: string, init: RequestInit) => {
       const body = JSON.parse(init.body as string) as { texts: string[] };
-      expect(body.texts[0]?.length).toBe(200); // MIN_DOC_CHARS floor
+      expect(body.texts[0]?.length).toBe(200);
       return Promise.resolve(jsonResponse([{ index: 0, score: 0.5 }]));
     });
 
     await rerankDocuments(
-      veryLongQuery,
+      query,
       [longDoc],
-      { ...teiConfig, maxDocChars: 300 },
+      { ...teiConfig, maxDocChars: 1_000 },
       fetchImpl as unknown as typeof fetch,
     );
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips reranking (does not call fetch) when the query leaves one char under MIN_DOC_CHARS", async () => {
+    // Same setup, one char over the query length above -> budget 199, one
+    // under MIN_DOC_CHARS: must throw and never touch the network, rather
+    // than forcing the document budget back up and overflowing the pair.
+    const longDoc = { id: "chunk-c", text: "x".repeat(500) };
+    const query = "q".repeat(801);
+    const fetchImpl = mock(() =>
+      Promise.resolve(jsonResponse([{ index: 0, score: 0.5 }])),
+    );
+
+    await expect(
+      rerankDocuments(
+        query,
+        [longDoc],
+        { ...teiConfig, maxDocChars: 1_000 },
+        fetchImpl as unknown as typeof fetch,
+      ),
+    ).rejects.toBeInstanceOf(RerankQueryTooLongError);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("skips reranking outright when the query alone dwarfs maxDocChars", async () => {
+    const longDoc = { id: "chunk-c", text: "x".repeat(500) };
+    const veryLongQuery = "q".repeat(10_000);
+    const fetchImpl = mock(() =>
+      Promise.resolve(jsonResponse([{ index: 0, score: 0.5 }])),
+    );
+
+    await expect(
+      rerankDocuments(
+        veryLongQuery,
+        [longDoc],
+        { ...teiConfig, maxDocChars: 300 },
+        fetchImpl as unknown as typeof fetch,
+      ),
+    ).rejects.toBeInstanceOf(RerankQueryTooLongError);
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   it("trims before truncating so leading padding doesn't yield an all-whitespace document", async () => {
     const paddedDoc = {
       id: "chunk-c",
-      text: " ".repeat(100) + "real content that matters",
+      text: " ".repeat(220) + "real content that matters",
     };
     const fetchImpl = mock((_url: string, init: RequestInit) => {
       const body = JSON.parse(init.body as string) as { texts: string[] };
@@ -264,7 +307,7 @@ describe("rerankDocuments", () => {
     await rerankDocuments(
       "q",
       [paddedDoc],
-      { ...teiConfig, maxDocChars: 50 },
+      { ...teiConfig, maxDocChars: 220 },
       fetchImpl as unknown as typeof fetch,
     );
   });

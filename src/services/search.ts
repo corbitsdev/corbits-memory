@@ -14,7 +14,11 @@ import {
   resolveActiveEmbedTable,
 } from "../core/embed-model-registry.ts";
 import { embedTexts, type EmbedClientConfig } from "../core/embed-client.ts";
-import { rerankDocuments, type RerankClientConfig } from "../core/rerank-client.ts";
+import {
+  rerankDocuments,
+  RerankQueryTooLongError,
+  type RerankClientConfig,
+} from "../core/rerank-client.ts";
 import { mmrRerank, type MmrItem } from "../core/mmr.ts";
 import {
   authorityBoostMultiplier,
@@ -715,7 +719,11 @@ export interface HybridSearchResult {
  * unconfigured — lexical always answers, and `degraded` reports
  * `"dense_unavailable"` / `"rerank_unavailable"` when either stage did not
  * contribute (fused+authority order is preserved unchanged on the
- * rerank-degraded path).
+ * rerank-degraded path). `"rerank_query_too_long"` is a distinct rerank
+ * degrade reason: the query alone left too little of the per-pair character
+ * budget for the document, so the request was skipped rather than sent
+ * guaranteed to exceed the model's token limit (see `RerankQueryTooLongError`
+ * in rerank-client.ts).
  */
 export async function hybridSearch(
   deps: HybridSearchDeps,
@@ -893,11 +901,19 @@ export async function hybridSearch(
         .map((chunkId) => boostedByChunk.get(chunkId)?.row)
         .filter((row): row is CandidateRow => row !== undefined);
     } catch (err) {
-      log.warn("search: rerank failed; falling back to fused ranking", {
-        tenantId,
-        error: err instanceof Error ? err.message : String(err),
-      });
-      degraded = [...(degraded ?? []), "rerank_unavailable"];
+      if (err instanceof RerankQueryTooLongError) {
+        log.warn(
+          "search: rerank skipped; query too long for the document budget, falling back to fused ranking",
+          { tenantId, error: err.message },
+        );
+        degraded = [...(degraded ?? []), "rerank_query_too_long"];
+      } else {
+        log.warn("search: rerank failed; falling back to fused ranking", {
+          tenantId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        degraded = [...(degraded ?? []), "rerank_unavailable"];
+      }
       truncated = dedupeCandidatesPerDocument(
         mergedRows,
         true,
