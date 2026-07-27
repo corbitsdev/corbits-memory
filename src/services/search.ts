@@ -14,7 +14,13 @@ import {
   resolveActiveEmbedTable,
 } from "../core/embed-model-registry.ts";
 import { embedTexts, type EmbedClientConfig } from "../core/embed-client.ts";
-import { rerankDocuments, type RerankClientConfig } from "../core/rerank-client.ts";
+import {
+  rerankDocuments,
+  RerankConfigError,
+  RerankQueryTooLongError,
+  validateRerankConfig,
+  type RerankClientConfig,
+} from "../core/rerank-client.ts";
 import { mmrRerank, type MmrItem } from "../core/mmr.ts";
 import {
   authorityBoostMultiplier,
@@ -662,7 +668,7 @@ function toEmbedClientConfig(embed: EngineConfig["embed"]): EmbedClientConfig {
 // same degrade-soft precedent as the embed config being absent upstream.
 // Built from the engine's own operator-configured rerank endpoint — a trusted
 // URL, the same as KNOWLEDGE_DATABASE_URL.
-function toRerankClientConfig(
+export function toRerankClientConfig(
   rerank: EngineConfig["rerank"],
 ): RerankClientConfig | undefined {
   if (!rerank.baseUrl) return undefined;
@@ -671,6 +677,9 @@ function toRerankClientConfig(
     apiStyle: "tei",
     ...(rerank.model !== undefined ? { model: rerank.model } : {}),
     ...(rerank.apiKey !== undefined ? { apiKey: rerank.apiKey } : {}),
+    ...(rerank.maxDocChars !== undefined
+      ? { maxDocChars: rerank.maxDocChars }
+      : {}),
   };
 }
 
@@ -714,7 +723,11 @@ export interface HybridSearchResult {
  * unconfigured — lexical always answers, and `degraded` reports
  * `"dense_unavailable"` / `"rerank_unavailable"` when either stage did not
  * contribute (fused+authority order is preserved unchanged on the
- * rerank-degraded path).
+ * rerank-degraded path). `"rerank_query_too_long"` is a distinct rerank
+ * degrade reason: the query alone left too little of the per-pair character
+ * budget for the document, so the request was skipped rather than sent
+ * guaranteed to exceed the model's token limit (see `RerankQueryTooLongError`
+ * in rerank-client.ts).
  */
 export async function hybridSearch(
   deps: HybridSearchDeps,
@@ -840,6 +853,14 @@ export async function hybridSearch(
 
   if (rerankConfig) {
     try {
+      // A replay's transform_config can supply its own rerank endpoint/model
+      // (resolvedTuning?.rerank, above) that never passes through
+      // mountKnowledgeEngine's startup validation — validate it here, on the
+      // same terms as the mounted config, so a replay-authored mismatch
+      // degrades to fused ranking (caught below) instead of silently
+      // 413-ing every rerank call for that generation.
+      validateRerankConfig(rerankConfig);
+
       const dedupedForRerank = dedupeCandidatesPerDocument(mergedRows, false);
       const rerankCandidates = dedupedForRerank.slice(
         0,
@@ -892,11 +913,25 @@ export async function hybridSearch(
         .map((chunkId) => boostedByChunk.get(chunkId)?.row)
         .filter((row): row is CandidateRow => row !== undefined);
     } catch (err) {
-      log.warn("search: rerank failed; falling back to fused ranking", {
-        tenantId,
-        error: err instanceof Error ? err.message : String(err),
-      });
-      degraded = [...(degraded ?? []), "rerank_unavailable"];
+      if (err instanceof RerankQueryTooLongError) {
+        log.warn(
+          "search: rerank skipped; query too long for the document budget, falling back to fused ranking",
+          { tenantId, error: err.message },
+        );
+        degraded = [...(degraded ?? []), "rerank_query_too_long"];
+      } else if (err instanceof RerankConfigError) {
+        log.warn(
+          "search: rerank config failed validation (possibly replay-supplied); falling back to fused ranking",
+          { tenantId, generation, error: err.message },
+        );
+        degraded = [...(degraded ?? []), "rerank_unavailable"];
+      } else {
+        log.warn("search: rerank failed; falling back to fused ranking", {
+          tenantId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        degraded = [...(degraded ?? []), "rerank_unavailable"];
+      }
       truncated = dedupeCandidatesPerDocument(
         mergedRows,
         true,

@@ -14,7 +14,10 @@ export const RRF_K_DEFAULT = 60;
 
 export const MAX_BATCH_QUERIES = 5;
 
-export type DegradeFlag = "dense_unavailable" | "rerank_unavailable";
+export type DegradeFlag =
+  | "dense_unavailable"
+  | "rerank_unavailable"
+  | "rerank_query_too_long";
 
 export interface RankedCandidate {
   /** Stable identifier the candidate is keyed by across channels (a chunk id). */
