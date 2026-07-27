@@ -10,6 +10,13 @@ import {
 } from "./rerank-client.ts";
 import type { RerankClientConfig } from "./rerank-client.ts";
 
+// The default env in .env.example ships RERANK_MODEL=bge-reranker-base with
+// RERANK_MAX_DOC_CHARS unset (-> TEI_MAX_DOC_CHARS). That exact combination
+// must not throw — an earlier version of this budget failed its own
+// validation on the shipped defaults, which would have taken down every
+// host that never touched the rerank env vars.
+const DEFAULT_SHIPPED_MODEL = "bge-reranker-base";
+
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -182,7 +189,7 @@ describe("rerankDocuments", () => {
     });
 
     await rerankDocuments(
-      "q",
+      "", // empty query: isolate document-only truncation from the query reserve
       [longDoc],
       teiConfig,
       fetchImpl as unknown as typeof fetch,
@@ -207,6 +214,61 @@ describe("rerankDocuments", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
+  it("reserves the query's length out of the document budget (query+document pair cap, not document alone)", async () => {
+    const longDoc = { id: "chunk-c", text: "x".repeat(1_200) };
+    const longQuery = "q".repeat(150);
+    const fetchImpl = mock((_url: string, init: RequestInit) => {
+      const body = JSON.parse(init.body as string) as { texts: string[] };
+      // budget 1000, query 150 chars -> document truncated to 850, not 1000.
+      expect(body.texts[0]?.length).toBe(850);
+      return Promise.resolve(jsonResponse([{ index: 0, score: 0.5 }]));
+    });
+
+    await rerankDocuments(
+      longQuery,
+      [longDoc],
+      { ...teiConfig, maxDocChars: 1_000 },
+      fetchImpl as unknown as typeof fetch,
+    );
+  });
+
+  it("floors the document budget at MIN_DOC_CHARS even when the query alone exceeds maxDocChars", async () => {
+    const longDoc = { id: "chunk-c", text: "x".repeat(500) };
+    const veryLongQuery = "q".repeat(10_000);
+    const fetchImpl = mock((_url: string, init: RequestInit) => {
+      const body = JSON.parse(init.body as string) as { texts: string[] };
+      expect(body.texts[0]?.length).toBe(200); // MIN_DOC_CHARS floor
+      return Promise.resolve(jsonResponse([{ index: 0, score: 0.5 }]));
+    });
+
+    await rerankDocuments(
+      veryLongQuery,
+      [longDoc],
+      { ...teiConfig, maxDocChars: 300 },
+      fetchImpl as unknown as typeof fetch,
+    );
+  });
+
+  it("trims before truncating so leading padding doesn't yield an all-whitespace document", async () => {
+    const paddedDoc = {
+      id: "chunk-c",
+      text: " ".repeat(100) + "real content that matters",
+    };
+    const fetchImpl = mock((_url: string, init: RequestInit) => {
+      const body = JSON.parse(init.body as string) as { texts: string[] };
+      expect(body.texts[0]?.trim().length).toBeGreaterThan(0);
+      expect(body.texts[0]).toContain("real content");
+      return Promise.resolve(jsonResponse([{ index: 0, score: 0.5 }]));
+    });
+
+    await rerankDocuments(
+      "q",
+      [paddedDoc],
+      { ...teiConfig, maxDocChars: 50 },
+      fetchImpl as unknown as typeof fetch,
+    );
+  });
+
   it("does not truncate documents at or under the budget", async () => {
     const shortDoc = { id: "chunk-c", text: "x".repeat(TEI_MAX_DOC_CHARS) };
     const fetchImpl = mock((_url: string, init: RequestInit) => {
@@ -216,7 +278,7 @@ describe("rerankDocuments", () => {
     });
 
     await rerankDocuments(
-      "q",
+      "", // empty query: isolate document-only truncation from the query reserve
       [shortDoc],
       teiConfig,
       fetchImpl as unknown as typeof fetch,
@@ -225,7 +287,27 @@ describe("rerankDocuments", () => {
 });
 
 describe("validateRerankConfig", () => {
-  it("passes for the default budget against a known model with a large enough limit", () => {
+  it("passes for the REAL shipped default (TEI_MAX_DOC_CHARS, bge-reranker-base) — the exact combination .env.example ships unmodified", () => {
+    expect(() =>
+      validateRerankConfig({
+        baseUrl: "https://tei.example.com",
+        apiStyle: "tei",
+        model: DEFAULT_SHIPPED_MODEL,
+        maxDocChars: TEI_MAX_DOC_CHARS,
+      }),
+    ).not.toThrow();
+    // Also exercise the config-omitted path, since that's what
+    // toRerankClientConfig actually produces when RERANK_MAX_DOC_CHARS is unset.
+    expect(() =>
+      validateRerankConfig({
+        baseUrl: "https://tei.example.com",
+        apiStyle: "tei",
+        model: DEFAULT_SHIPPED_MODEL,
+      }),
+    ).not.toThrow();
+  });
+
+  it("passes for a smaller custom budget against a known model with a large enough limit", () => {
     expect(() =>
       validateRerankConfig({
         baseUrl: "https://tei.example.com",

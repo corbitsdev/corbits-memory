@@ -54,8 +54,15 @@ export function mountKnowledgeEngine(
   app: Hono<TenantEnv>,
   options: MountKnowledgeEngineOptions,
 ): MountedKnowledgeEngine {
-  // Catch a chunk-size / reranker-limit mismatch here, at mount time — not
-  // silently on every search once the reranker starts rejecting batches.
+  // Catch a chunk-size / reranker-limit mismatch here, at mount time, rather
+  // than silently on every search once the reranker starts rejecting
+  // batches. This throws instead of warning: a mismatch here means every
+  // rerank call for this host WILL 413 and silently degrade to fused
+  // ranking, with no per-request signal — a boot-time failure surfaces that
+  // once, loudly, instead of leaving reranking quietly broken indefinitely.
+  // This is only safe to throw on because the shipped defaults are
+  // self-consistent (see TEI_MAX_DOC_CHARS) — validation can only fire on an
+  // operator's own override, never spuriously on an unmodified config.
   const rerankConfig = toRerankClientConfig(options.config.knowledge.rerank);
   if (rerankConfig) validateRerankConfig(rerankConfig);
 

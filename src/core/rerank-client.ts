@@ -107,15 +107,38 @@ async function assertOk(res: Response, url: string): Promise<void> {
 //
 // Default is deliberately conservative for `bge-reranker-base` (512 tokens):
 // chars-per-token varies with content, so this assumes as few as ~3
-// chars/token to avoid overshooting — overshooting costs the entire batch.
+// chars/token (CHARS_PER_TOKEN_FLOOR below) to avoid overshooting —
+// overshooting costs the entire batch. 1500 chars / 3 = 500 estimated
+// tokens, under the 512 cap with headroom to spare; this is the largest
+// round value that still clears `validateRerankConfig` against
+// bge-reranker-base with the floor below (must satisfy
+// ceil(value / CHARS_PER_TOKEN_FLOOR) <= 512, i.e. value <= 1536).
+// `rerank-client.test.ts` asserts this constant against the real default
+// model so the two can't drift apart again.
+//
 // Callers with a longer-context reranker (several go to 4K-32K tokens) can
 // raise this via `RerankClientConfig.maxDocChars`; `validateRerankConfig`
 // catches a mismatch against known models' advertised limits up front.
-export const TEI_MAX_DOC_CHARS = 1_600;
+export const TEI_MAX_DOC_CHARS = 1_500;
 
-// Conservative floor used only to validate `maxDocChars` against a model's
-// advertised token limit — real tokenization varies by content and model.
+// Conservative floor used to estimate tokens from characters, both to
+// validate `maxDocChars` against a model's advertised limit and to size the
+// per-request truncation budget. 3 chars/token covers ordinary
+// English/code-comment prose (average is closer to 4). It is NOT a
+// guarantee: dense text with a poor char-to-token ratio — CJK, minified
+// code, base64, dense punctuation — can run closer to ~1 char/token and can
+// still overflow the model's real limit even after this truncation. There
+// is no reliable non-model-specific way to bound that without invoking the
+// actual tokenizer, so this stays a documented gap, not a bug. Operators
+// serving those corpora through a TEI cross-encoder should lower
+// `RERANK_MAX_DOC_CHARS` well below the computed ceiling.
 const CHARS_PER_TOKEN_FLOOR = 3;
+
+// Always send at least this many document characters, even when a very long
+// query eats most of the shared query+document budget — zero document
+// content defeats reranking outright, so a long query degrades the
+// truncation rather than starving the document to nothing.
+const MIN_DOC_CHARS = 200;
 
 // Token limits for rerankers we know are commonly TEI-served. Deliberately a
 // short, high-confidence list: an unlisted model skips validation rather than
@@ -154,8 +177,22 @@ export function validateRerankConfig(config: RerankClientConfig): void {
   }
 }
 
-function truncateForRerank(text: string, maxDocChars: number): string {
-  return text.length > maxDocChars ? text.slice(0, maxDocChars) : text;
+// TEI's limit is on the query+document PAIR, not the document alone — a long
+// query plus a budget-sized document can still overflow the model's cap.
+// Reserve the query's estimated share of the budget first (floored at
+// MIN_DOC_CHARS so the document is never truncated to nothing), then
+// truncate. Trims before slicing so a document that opens with padding
+// whitespace doesn't yield an all-whitespace result once cut.
+function truncateForRerank(
+  text: string,
+  maxDocChars: number,
+  queryChars: number,
+): string {
+  const floor = Math.min(MIN_DOC_CHARS, maxDocChars);
+  const budget = Math.max(maxDocChars - queryChars, floor);
+  if (text.length <= budget) return text;
+  const trimmed = text.trim();
+  return trimmed.length <= budget ? trimmed : trimmed.slice(0, budget);
 }
 
 // TEI's native `/rerank` shape: `{query, texts}` -> `[{index, score}]`
@@ -176,7 +213,11 @@ async function rerankTei(
       body: JSON.stringify({
         query,
         texts: docs.map((d) =>
-          truncateForRerank(d.text, config.maxDocChars ?? TEI_MAX_DOC_CHARS),
+          truncateForRerank(
+            d.text,
+            config.maxDocChars ?? TEI_MAX_DOC_CHARS,
+            query.length,
+          ),
         ),
       }),
     },
