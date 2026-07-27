@@ -91,6 +91,13 @@ describe("verifyFtsLanguage", () => {
       verifyFtsLanguage(fakeClient({ expr: null }), "english"),
     ).rejects.toThrow("schema not migrated");
   });
+
+  it("throws an explicit, actionable error for a schema-qualified applied config, not the generic parse failure", async () => {
+    const QUALIFIED_EXPR = "to_tsvector('myschema.mycfg'::regconfig, text)";
+    await expect(
+      verifyFtsLanguage(fakeClient({ expr: QUALIFIED_EXPR }), "english"),
+    ).rejects.toThrow('schema-qualified text search config "myschema.mycfg"');
+  });
 });
 
 describe("createFtsVerification", () => {

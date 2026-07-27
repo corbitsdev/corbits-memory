@@ -61,7 +61,7 @@ fallback)` parses a positive integer or throws.
 |---|---|---|---|
 |  `KNOWLEDGE_DATABASE_URL` | **yes** | — | the engine's own pgvector Postgres |
 | `DB_POOL_MAX` | no | `8` | postgres-js pool size |
-| `FTS_LANGUAGE` | no | `english` | text search config for the lexical channel; fixed into the generated column at migration time — changing it later requires rebuilding the column, and `runKnowledgeMigrations` fails loudly if config and column disagree |
+| `FTS_LANGUAGE` | no | `english` | text search config for the lexical channel; fixed into the generated column at migration time — changing it later requires rebuilding the column (recipe below), and `runKnowledgeMigrations` fails loudly if config and column disagree. Unqualified `pg_catalog` config names only — a schema-qualified config (`myschema.mycfg`) is rejected explicitly, both when configuring and when read back from an already-migrated column. |
 | `EMBED_BASE_URL` | **yes** | — | embed endpoint root, no path suffix |
 | `EMBED_MODEL` | **yes** | — | model id/name passed to the embed endpoint |
 | `EMBED_API_STYLE` | no | `"openai"` | `"openai" \| "tei" \| "ollama"` |
@@ -139,6 +139,30 @@ or unmigrated schema fails loudly on first use regardless of who ran the
 migrations. Hosts with a readiness probe can call the exported
 `verifyFtsLanguage` there instead. Chunks are **never** reused across
 versions — every new version gets a fresh full insert of its own chunks.
+
+**Changing `FTS_LANGUAGE` on an already-migrated database** (the mismatch
+`verifyFtsLanguage` throws on) requires rebuilding the generated column —
+`runKnowledgeMigrations` only applies new files and will not retroactively
+alter an existing one. One-time recipe:
+
+```sql
+BEGIN;
+ALTER TABLE knowledge_chunk DROP COLUMN text_fts;
+ALTER TABLE knowledge_chunk ADD COLUMN text_fts tsvector
+  GENERATED ALWAYS AS (to_tsvector('<new_language>', "text")) STORED;
+CREATE INDEX CONCURRENTLY knowledge_chunk_text_fts_idx ON knowledge_chunk USING gin (text_fts);
+COMMIT;
+```
+
+Both `ALTER TABLE` statements take an `ACCESS EXCLUSIVE` lock and force a
+full table rewrite (dropping then re-adding a `STORED` generated column
+always rewrites) — plan for a stall on `knowledge_chunk` for the duration on
+a populated database; run in a maintenance window. `CREATE INDEX
+CONCURRENTLY` cannot run inside the same transaction as the `ALTER`s on some
+Postgres versions — if it errors there, `COMMIT` the `ALTER`s first and run
+the index creation as a separate statement. Only unqualified `pg_catalog`
+config names are supported; a schema-qualified config on this column is
+rejected explicitly by `verifyFtsLanguage` rather than silently mis-parsed.
 
 ### `knowledge_entity` / `knowledge_edge`
 Lightweight graph rows. `knowledge_entity` has no unique constraint; dedupe on

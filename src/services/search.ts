@@ -24,6 +24,7 @@ import {
 } from "../core/rerank-client.ts";
 import { mmrRerank, type MmrItem } from "../core/mmr.ts";
 import { recordDegrade } from "../core/degrade-metrics.ts";
+import { DEFAULT_FTS_LANGUAGE } from "../core/fts-language.ts";
 import {
   authorityBoostMultiplier,
   clampOverfetchMultiplier,
@@ -829,7 +830,7 @@ export async function hybridSearch(
     tenantId,
     principalId,
     query,
-    ftsLanguage: config.ftsLanguage,
+    ftsLanguage: config.ftsLanguage ?? DEFAULT_FTS_LANGUAGE,
     overfetchLimit,
     kinds,
     entityIds,

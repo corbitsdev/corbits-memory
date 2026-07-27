@@ -12,7 +12,11 @@ export type EngineConfig = {
   dbPoolMax: number;
   // Must match the language the knowledge_chunk.text_fts column was built
   // with (runKnowledgeMigrations verifies this against the catalog).
-  ftsLanguage: string;
+  // Optional — omitted/undefined resolves to DEFAULT_FTS_LANGUAGE
+  // (core/fts-language.ts), same as an unset FTS_LANGUAGE env var, so a
+  // consumer constructing EngineConfig directly (not via loadKnowledgeConfig)
+  // doesn't need to know this field exists to keep compiling.
+  ftsLanguage?: string;
   // A model endpoint (embed or rerank) is just a URL + capability options,
   // trusted the same as KNOWLEDGE_DATABASE_URL — including a self-hosted endpoint on
   // localhost or a private IP. Self-hosted or managed makes no difference:

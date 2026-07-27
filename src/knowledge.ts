@@ -5,8 +5,8 @@
 import type { EngineConfig } from "./config.ts";
 import { formatCaughtError, log } from "./log.ts";
 import { createDb, type Db, type RawSql } from "./db/client.ts";
-import { createFtsVerification } from "./core/fts-language.ts";
-import { createEmbedRegistrySqlClient } from "./core/embed-sql.ts";
+import { createFtsVerification, DEFAULT_FTS_LANGUAGE } from "./core/fts-language.ts";
+import { createRawSqlClient } from "./core/embed-sql.ts";
 import type { VisibilitySpec } from "./core/schemas/document.ts";
 import { captureDocument } from "./services/capture.ts";
 import {
@@ -66,8 +66,8 @@ export function createKnowledgePlane(config: KnowledgeConfig): KnowledgePlane {
   // Hosts with a real readiness probe can call verifyFtsLanguage there
   // instead — this memo then resolves against an already-verified schema.
   const ensureVerified = createFtsVerification(
-    createEmbedRegistrySqlClient(sql),
-    engineConfig.ftsLanguage,
+    createRawSqlClient(sql),
+    engineConfig.ftsLanguage ?? DEFAULT_FTS_LANGUAGE,
   );
 
   return {
