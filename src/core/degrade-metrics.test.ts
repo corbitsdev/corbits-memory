@@ -385,4 +385,84 @@ describe("degrade-metrics", () => {
       expect(snapshot.escalated.rerank_unavailable).toBe(true);
     });
   });
+
+  describe("no accepted config can make escalation unreachable", () => {
+    it("rejects highWatermark=1 (5/(1*0) = Infinity samples needed — can never evaluate)", () => {
+      expect(() =>
+        configureDegradeMetrics({ highWatermark: 1, lowWatermark: 0.5 }),
+      ).toThrow();
+    });
+
+    it("still escalates a fully-degraded tenant if highWatermark=1 were ever in effect (regression guard on the rejected config's runtime behavior)", () => {
+      // Guard against a future relaxation of the validator silently
+      // reintroducing the round-3 bug: even if someone loosens the
+      // (0,1] bound to allow exactly 1, the invariant check must still
+      // reject it specifically because escalation would never fire.
+      expect(() => configureDegradeMetrics({ highWatermark: 1 })).toThrow(
+        /can never escalate|infinite/i,
+      );
+    });
+
+    it("rejects a windowSize smaller than the derived minimum-sample floor", () => {
+      // minSamplesFor(0.05) = ceil(5 / (0.05*0.95)) = 106, which does not
+      // fit in a 20-slot window — the alarm could never fire.
+      expect(() =>
+        configureDegradeMetrics({ windowSize: 20, highWatermark: 0.05, lowWatermark: 0.01 }),
+      ).toThrow();
+    });
+
+    it("accepts a windowSize exactly at the derived floor", () => {
+      const floor = Math.ceil(5 / (0.05 * 0.95));
+      expect(() =>
+        configureDegradeMetrics({
+          windowSize: floor,
+          highWatermark: 0.05,
+          lowWatermark: 0.01,
+        }),
+      ).not.toThrow();
+    });
+
+    it("a config the validator accepts always lets a fully-degraded tenant escalate", () => {
+      configureDegradeMetrics({ windowSize: 50, highWatermark: 0.3, lowWatermark: 0.15 });
+      for (let i = 0; i < 200; i++) recordDegrade("tenant-a", ["rerank_unavailable"]);
+      expect(getDegradeMetricsSnapshot("tenant-a").escalated.rerank_unavailable).toBe(true);
+    });
+  });
+
+  describe("reconfiguring windowSize on live tenants", () => {
+    it("shrinking windowSize on a live tenant never produces a rate above 1.0", () => {
+      configureDegradeMetrics({ windowSize: 200 });
+      for (let i = 0; i < 200; i++) recordDegrade("tenant-a", ["rerank_unavailable"]);
+      // 32 is the minimum-sample floor at the default 20% watermark — any
+      // smaller windowSize at this watermark is itself rejected by the
+      // invariant check, so this is the smallest legal shrink target.
+      configureDegradeMetrics({ windowSize: 32 });
+      recordDegrade("tenant-a", ["rerank_unavailable"]);
+
+      const snapshot = getDegradeMetricsSnapshot("tenant-a");
+      expect(snapshot.windowedDegradeRate.rerank_unavailable).toBeLessThanOrEqual(1);
+      expect(snapshot.windowSize).toBeLessThanOrEqual(32);
+    });
+
+    it("growing windowSize on a live tenant also stays well-formed and still escalates once resample fills back up", () => {
+      configureDegradeMetrics({ windowSize: 50 });
+      for (let i = 0; i < 6; i++) recordDegrade("tenant-a", ["rerank_unavailable"]);
+      configureDegradeMetrics({ windowSize: 300 });
+      for (let i = 0; i < 100; i++) recordDegrade("tenant-a", ["rerank_unavailable"]);
+
+      const snapshot = getDegradeMetricsSnapshot("tenant-a");
+      expect(snapshot.windowedDegradeRate.rerank_unavailable).toBeLessThanOrEqual(1);
+      expect(snapshot.escalated.rerank_unavailable).toBe(true);
+    });
+
+    it("a tenant that was escalated before a windowSize change re-escalates once enough post-resize samples accrue, rather than staying stuck", () => {
+      configureDegradeMetrics({ windowSize: 200 });
+      for (let i = 0; i < 200; i++) recordDegrade("tenant-a", ["rerank_unavailable"]);
+      expect(getDegradeMetricsSnapshot("tenant-a").escalated.rerank_unavailable).toBe(true);
+
+      configureDegradeMetrics({ windowSize: 40 });
+      for (let i = 0; i < 40; i++) recordDegrade("tenant-a", ["rerank_unavailable"]);
+      expect(getDegradeMetricsSnapshot("tenant-a").escalated.rerank_unavailable).toBe(true);
+    });
+  });
 });

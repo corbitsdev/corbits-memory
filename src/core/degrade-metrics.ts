@@ -104,17 +104,46 @@ function validateConfig(next: DegradeMetricsConfig): void {
       `degrade-metrics: highWatermark (${next.highWatermark}) must exceed lowWatermark (${next.lowWatermark})`,
     );
   }
+
+  // INVARIANT: no config this validator accepts may make escalation
+  // unreachable. recordDegrade holds off evaluating escalation until a
+  // tenant's window has at least minSamplesFor(highWatermark) samples (see
+  // that function) — if that floor is non-finite (highWatermark=1, where
+  // p*(1-p)=0) or exceeds windowSize (the window can never hold that many
+  // samples), the guard added in round 2 to stop cold-start false
+  // positives becomes a way to permanently disable the alarm instead,
+  // which is the exact CL-4600 failure shape re-armed by config. Any
+  // future config knob that affects whether/when escalation can evaluate
+  // must extend this same check, not add a separate one.
+  const floor = minSamplesFor(next.highWatermark);
+  if (!Number.isFinite(floor) || floor > next.windowSize) {
+    throw new Error(
+      `degrade-metrics: highWatermark ${next.highWatermark} requires ` +
+        `${Number.isFinite(floor) ? floor : "an infinite number of"} samples ` +
+        `to ever evaluate, but windowSize is only ${next.windowSize} — this ` +
+        `config can never escalate. Lower highWatermark or raise windowSize.`,
+    );
+  }
 }
 
 let config: DegradeMetricsConfig = { ...DEFAULT_CONFIG };
 
-/** Lets a host tune cadence/thresholds/eviction without forking the module. */
+/**
+ * Lets a host tune cadence/thresholds/eviction without forking the module.
+ * Reconfiguring `windowSize` resizes every already-tracked tenant's rolling
+ * window immediately (see resizeAllTenantWindows) rather than leaving old
+ * tenants on their creation-time buffer size, which previously let
+ * `windowedDegradeRate` exceed 1.0 once a tenant's live window count no
+ * longer matched its buffer length.
+ */
 export function configureDegradeMetrics(
   overrides: Partial<DegradeMetricsConfig>,
 ): void {
   const next = { ...config, ...overrides };
   validateConfig(next);
+  const windowSizeChanged = next.windowSize !== config.windowSize;
   config = next;
+  if (windowSizeChanged) resizeAllTenantWindows(next.windowSize);
 }
 
 // A binomial proportion's normal approximation is considered trustworthy
@@ -124,7 +153,10 @@ export function configureDegradeMetrics(
 // rather than noise from a handful of early calls. At highWatermark=0.20
 // this is ceil(5 / (0.2*0.8)) = 32: below 32 samples, escalation is held
 // off entirely rather than evaluated against a rate that isn't yet
-// meaningful.
+// meaningful. At highWatermark=1 this is 5/0 = Infinity — there is no
+// finite sample count that makes "100% forever" distinguishable from "100%
+// so far", so validateConfig rejects any highWatermark/windowSize
+// combination whose floor isn't finite and <= windowSize.
 function minSamplesFor(watermark: number): number {
   return Math.ceil(5 / (watermark * (1 - watermark)));
 }
@@ -150,12 +182,11 @@ interface TenantState {
   degradeCounts: Record<DegradeFlag, number>;
   since: Date;
   // Rolling window as a fixed-length circular buffer (sized to
-  // config.windowSize at tenant creation) plus a running per-flag count
-  // within the buffer, so the windowed rate is an O(1) lookup rather than
-  // an O(windowSize) re-scan on every one of the up-to-9 calls per search
-  // (3 flags x escalate-check + summary). Changing windowSize via
-  // configureDegradeMetrics only affects tenants created afterward;
-  // existing tenants keep their current buffer until reset/evicted.
+  // config.windowSize at tenant creation, or resized in place by
+  // configureDegradeMetrics — see resizeAllTenantWindows) plus a running
+  // per-flag count within the buffer, so the windowed rate is an O(1)
+  // lookup rather than an O(windowSize) re-scan on every one of the
+  // up-to-9 calls per search (3 flags x escalate-check + summary).
   windowBuffer: (readonly DegradeFlag[] | undefined)[];
   windowCursor: number;
   windowFilled: number;
@@ -180,6 +211,27 @@ function newTenantState(): TenantState {
 // Map preserves insertion order; touching a tenant (delete + re-set) moves
 // it to the end, giving cheap LRU semantics without a separate structure.
 let tenants = new Map<string, TenantState>();
+
+// Resizing the buffer instead of forbidding windowSize reconfiguration
+// keeps configureDegradeMetrics simple to reason about (no "only before
+// any tenant exists" rule to enforce or explain to a host). Every tracked
+// tenant's window is reset to empty at the new size: its cumulative
+// totals/degradeCounts/since survive (still meaningful at any window
+// size), but a stale windowFilled/windowFlagCounts pairing that no longer
+// matches the buffer length does not — that mismatch is exactly what
+// produced windowedDegradeRate > 1.0. Tenants re-accumulate from zero
+// against the new window and are subject to the same minimum-sample floor
+// as a brand-new tenant, which is the same, already-accepted cold-start
+// trade-off.
+function resizeAllTenantWindows(windowSize: number): void {
+  for (const state of tenants.values()) {
+    state.windowBuffer = new Array(windowSize).fill(undefined);
+    state.windowCursor = 0;
+    state.windowFilled = 0;
+    state.windowFlagCounts = zeroFlagCounts();
+    state.escalated = emptyEscalated();
+  }
+}
 
 function isEscalated(state: TenantState): boolean {
   return ALL_DEGRADE_FLAGS.some((flag) => state.escalated[flag]);
