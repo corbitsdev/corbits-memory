@@ -141,6 +141,71 @@ import { runKnowledgeMigrations } from "@corbits/knowledge-engine/migrations";
 await runKnowledgeMigrations(process.env.KNOWLEDGE_DATABASE_URL);
 ```
 
+## ask()
+
+`knowledge.ask()` answers a question from retrieved context, in-process — no
+HTTP hop, no separate host-side answer synthesis. It is grant-checked
+internally, so it is safe to call from anywhere a host has resolved a
+principal, even code paths that never go through the mounted HTTP routes:
+
+```ts
+const { text, citations, evidence } = await knowledge.ask({
+  tenantId,
+  principalId,
+  query,
+  k: 6, // optional, defaults to hybridSearch's default
+});
+```
+
+1. Checks the capability grant (`authorize(grantStore, principalId, tenantId,
+"knowledge", "search", conditionRegistry)`) and throws
+   `KnowledgeNotPermittedError` unless the effect is an explicit `"allow"` — no
+   matching grant (`effect: null`) denies too. This runs whether or not the
+   call came through the HTTP route guard, so it can never be forgotten.
+2. Searches as that principal (`hybridSearch`), so per-document visibility and
+   block lists apply exactly as they do for `search()`.
+3. Assembles a grounded context block from the hits' `snippet` text, truncated
+   to a character budget.
+4. Calls the **host-supplied** `generate` function with a system prompt that
+   instructs answering only from context and refusing explicitly when the
+   context doesn't contain the answer.
+5. Returns the answer text, the citations actually used (matched to the `[N]`
+   markers in the prompt), and the search's evidence level.
+
+### The engine owns no generation client
+
+`ask()` takes generation as an injected function, not as config:
+
+```ts
+type Generate = (messages: readonly ChatMessage[]) => Promise<string>;
+
+mountKnowledgeEngine(app, {
+  config,
+  grants,
+  generate: async (messages) => runInferenceSomehow(messages),
+});
+```
+
+This is deliberate. Interchange already has an inference layer
+(`@intx/inference`) with provider adapters, tenant-scoped credentials, a retry
+policy, audit collection and authz gates. A `fetch` client here would bypass all
+of it and take an API key from a raw env var — so hosts wire `generate` to that
+layer instead, and credentials stay in the credential store where they belong.
+
+It also keeps the engine transport-free, which is the posture it already takes
+on embedding: never in-process, always an endpoint the owner plugs in.
+
+Omit `generate` if the host only captures and searches; `ask()` then fails with
+a 501 naming what is missing rather than at some later point.
+
+Two things that belong in the host's `generate`, learned the hard way:
+
+- **Timeouts must be generous for local models.** A cold 10GB model can take
+  over a minute to page into memory before emitting a token.
+- **Use a non-reasoning model.** A reasoning model that exhausts its budget
+  returns chain-of-thought with empty content, and the host will see an empty
+  answer. Detect it there and say so.
+
 ## Local development
 
 The SDK is not a server — it mounts onto your app. This repo ships a

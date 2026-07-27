@@ -2,6 +2,8 @@
  * Knowledge plane backed by the engine's pgvector Postgres. Wraps the capture
  * and hybrid-search services directly — no HTTP hop.
  */
+import { authorize } from "@intx/authz";
+
 import { blockedDocumentIds } from "./acl.ts";
 import type { EngineConfig } from "./config.ts";
 import { log } from "./log.ts";
@@ -9,6 +11,7 @@ import { createDb, type Db, type RawSql } from "./db/client.ts";
 import { createFtsVerification, parseFtsLanguage } from "./core/fts-language.ts";
 import { createRawSqlClient } from "./core/embed-sql.ts";
 import type { VisibilitySpec } from "./core/schemas/document.ts";
+import type { SearchHit } from "./core/schemas/search.ts";
 import { validateRerankConfig } from "./core/rerank-client.ts";
 import { captureDocument } from "./services/capture.ts";
 import {
@@ -22,11 +25,31 @@ import {
   type TimelineEvent,
 } from "./services/timeline.ts";
 import type { KnowledgeConfig } from "./mount-config.ts";
+import type { GrantConfig } from "./routes/deps.ts";
 
 // Re-export so hosts typing plane.search() results don't reach into services/.
 export type { HybridSearchResult } from "./services/search.ts";
 export type { SearchHit } from "./core/schemas/search.ts";
 export type { VisibilitySpec } from "./core/schemas/document.ts";
+
+export type ChatMessage = {
+  role: "system" | "user" | "assistant";
+  content: string;
+};
+
+/**
+ * How `ask()` reaches a model. Supplied by the host, not owned here.
+ *
+ * The engine deliberately has no generation client. Interchange already has an
+ * inference layer (`@intx/inference`) with provider adapters, tenant-scoped
+ * credentials, retry policy, audit and authz gates — hand-rolling a `fetch` here
+ * would bypass all of it and take an API key from a raw env var. Hosts wire
+ * this to that layer; tests pass a stub.
+ *
+ * Same posture the engine already takes on embedding: never in-process, always
+ * an endpoint the owner plugs in.
+ */
+export type Generate = (messages: readonly ChatMessage[]) => Promise<string>;
 
 export type KnowledgeIdentity = {
   principalId: string;
@@ -37,6 +60,34 @@ export type KnowledgeSearchParams = KnowledgeIdentity & {
   query: string;
   k?: number;
 };
+
+export type KnowledgeAskParams = KnowledgeIdentity & {
+  query: string;
+  k?: number;
+};
+
+/** One source cited in an `ask()` answer, matched to its bracket in the text. */
+export type AskCitation = {
+  /** The `[N]` marker the grounding prompt asked the model to cite. */
+  index: number;
+  documentId: string;
+  title: string;
+  citation: SearchHit["citation"];
+};
+
+export type AskResult = {
+  text: string;
+  citations: AskCitation[];
+  evidence: HybridSearchResult["evidence"];
+};
+
+/** Thrown when the asking principal lacks the knowledge:search capability. */
+export class KnowledgeNotPermittedError extends Error {
+  constructor() {
+    super("principal lacks the knowledge:search grant");
+    this.name = "KnowledgeNotPermittedError";
+  }
+}
 
 export type KnowledgeCaptureParams = KnowledgeIdentity & {
   title: string;
@@ -66,6 +117,7 @@ export class KnowledgeError extends Error {
 
 export type KnowledgePlane = {
   search(params: KnowledgeSearchParams): Promise<HybridSearchResult>;
+  ask(params: KnowledgeAskParams): Promise<AskResult>;
   capture(params: KnowledgeCaptureParams): Promise<void>;
   timeline(params: KnowledgeTimelineParams): Promise<TimelineEvent[]>;
   close(): Promise<void>;
@@ -73,7 +125,110 @@ export type KnowledgePlane = {
 
 export type { TimelineEvent };
 
-export function createKnowledgePlane(config: KnowledgeConfig): KnowledgePlane {
+// Character budget for the grounded context block handed to the generation
+// endpoint. Deliberately conservative: it bounds prompt size regardless of
+// how many/large the retrieved hits are.
+const MAX_CONTEXT_CHARS = 8_000;
+
+const SYSTEM_PROMPT = [
+  "You are a knowledge assistant answering questions from retrieved context.",
+  "",
+  "Answer ONLY from the numbered context provided. The context has already",
+  "been filtered to what this specific principal is permitted to read, so",
+  "never speculate beyond it or fill gaps from your own knowledge.",
+  "",
+  "If the context does not contain the answer, say so plainly in one sentence",
+  "and stop — do not guess.",
+  "",
+  "Cite the sources you used as bracketed numbers, e.g. [1] or [2]. Be",
+  "concise: a few sentences.",
+].join("\n");
+
+/** Build the grounded context block, truncated to a sane prompt budget. */
+function buildContext(hits: readonly SearchHit[]): {
+  block: string;
+  citations: AskCitation[];
+} {
+  const citations: AskCitation[] = [];
+  const parts: string[] = [];
+  let budget = MAX_CONTEXT_CHARS;
+
+  // Number only among entries that actually land in the prompt. Skipping an
+  // empty snippet (or stopping on budget) must not leave gaps in [N] markers.
+  let nextIndex = 1;
+  for (const hit of hits) {
+    const text = hit.snippet.trim();
+    if (!text) continue;
+    const index = nextIndex;
+    const entry = `[${index}] ${hit.title}\n${text}`;
+    if (entry.length > budget) break;
+    budget -= entry.length;
+    parts.push(entry);
+    citations.push({
+      index,
+      documentId: hit.document_id,
+      title: hit.title,
+      citation: hit.citation,
+    });
+    nextIndex += 1;
+  }
+
+  return { block: parts.join("\n\n"), citations };
+}
+
+/**
+ * Turn a search result into an answer: assemble grounded context, call the
+ * configured generation endpoint, and return the citations actually used.
+ * Factored out of `ask()` so it is unit-testable against a mocked generation
+ * endpoint without a real search result / database.
+ */
+export async function synthesizeAnswer(
+  query: string,
+  result: Pick<HybridSearchResult, "hits" | "evidence">,
+  generate: Generate,
+): Promise<AskResult> {
+  if (result.hits.length === 0) {
+    return {
+      text: "I couldn't find anything you have access to that answers that.",
+      citations: [],
+      evidence: "none",
+    };
+  }
+
+  const { block, citations } = buildContext(result.hits);
+  if (!block) {
+    return {
+      text: "I found matching documents but couldn't read any text out of them.",
+      citations: [],
+      evidence: "none",
+    };
+  }
+
+  const text = await generate([
+    { role: "system", content: SYSTEM_PROMPT },
+    { role: "user", content: `Question: ${query}\n\nContext:\n${block}` },
+  ]);
+
+  return { text, citations, evidence: result.evidence };
+}
+
+export type KnowledgePlaneOptions = {
+  /** Required for `ask()`; omit if the host only captures and searches. */
+  generate?: Generate;
+};
+
+/**
+ * Build a knowledge plane.
+ *
+ * - `grants` is required for `ask()` (in-process capability check). Standalone
+ *   capture/search callers may omit it — same as #8's out-of-band plane.
+ * - Rerank config is validated at construction (same as mount).
+ */
+export function createKnowledgePlane(
+  config: KnowledgeConfig,
+  grants?: GrantConfig,
+  options: KnowledgePlaneOptions = {},
+): KnowledgePlane {
   // Catch a chunk-size / reranker-limit mismatch at construction time, rather
   // than silently on every search once the reranker starts rejecting batches.
   // Throws instead of warning: a mismatch means every rerank call for this
@@ -115,7 +270,7 @@ export function createKnowledgePlane(config: KnowledgeConfig): KnowledgePlane {
     engineConfig.ftsLanguage,
   );
 
-  return {
+  const plane: KnowledgePlane = {
     async search(params) {
       try {
         await ensureVerified();
@@ -176,6 +331,68 @@ export function createKnowledgePlane(config: KnowledgeConfig): KnowledgePlane {
       }
     },
 
+    async ask(params) {
+      // Capability layer. Callers reaching the plane in-process bypass the
+      // HTTP surface's `requireGrant("knowledge", ...)` route guard, so the
+      // check has to live here — AUTH.md is explicit that the capability and
+      // data layers are independent and BOTH must allow. Per-document
+      // visibility (enforced inside `search`) is not a substitute for "may
+      // this principal search at all".
+      if (!grants) {
+        throw new KnowledgeError(
+          501,
+          "ask() requires a GrantConfig. Pass grants to " +
+            "createKnowledgePlane/mountKnowledgeEngine.",
+        );
+      }
+      const decision = await authorize(
+        grants.grantStore,
+        params.principalId,
+        params.tenantId,
+        "knowledge",
+        "search",
+        grants.conditionRegistry,
+      );
+      // `effect: null` means no grant matched at all — deny by default, same
+      // as an explicit deny. Only an explicit allow proceeds.
+      if (decision.effect !== "allow") {
+        // Interpolate into the message string: some sinks only render the
+        // template, not the structured context object (see src/log.ts).
+        const effect = decision.effect ?? "no-matching-grant";
+        log.info(
+          `ask: denied knowledge:search for ${params.principalId} (effect=${effect})`,
+          {
+            principalId: params.principalId,
+            effect,
+          },
+        );
+        throw new KnowledgeNotPermittedError();
+      }
+
+      // Fail closed on missing generate *before* retrieval so a misconfigured
+      // host gets the promised 501 instead of paying for hybrid search (or
+      // surfacing a DB error that masks the real problem).
+      if (!options.generate) {
+        throw new KnowledgeError(
+          501,
+          "ask() requires a `generate` function. Pass one to " +
+            "createKnowledgePlane/mountKnowledgeEngine, wired to your " +
+            "inference layer.",
+        );
+      }
+
+      // Search AS the asking principal — the per-document ACL boundary,
+      // including the block-list post-filter above.
+      const result = await plane.search({
+        tenantId: params.tenantId,
+        principalId: params.principalId,
+        query: params.query,
+        ...(params.k !== undefined ? { k: params.k } : {}),
+      });
+
+      return synthesizeAnswer(params.query, result, options.generate);
+    },
+
     async capture(params) {
       await ensureVerified();
       const adapter = params.adapter ?? "mcp";
@@ -187,9 +404,7 @@ export function createKnowledgePlane(config: KnowledgeConfig): KnowledgePlane {
         ...(params.attributes ?? {}),
       };
       if (params.blockPrincipalIds && params.blockPrincipalIds.length > 0) {
-        attributes["acl_block"] = JSON.stringify(
-          params.blockPrincipalIds,
-        );
+        attributes["acl_block"] = JSON.stringify(params.blockPrincipalIds);
       }
 
       await captureDocument(deps, {
@@ -223,4 +438,6 @@ export function createKnowledgePlane(config: KnowledgeConfig): KnowledgePlane {
       await sql.end({ timeout: 5 });
     },
   };
+
+  return plane;
 }
