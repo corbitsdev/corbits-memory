@@ -61,7 +61,7 @@ export function mountCaptureRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
         return c.json({ status: "captured" });
       } catch (err) {
         const errMessage = formatCaughtError(err);
-        log.error(`knowledge capture failed: ${errMessage}`, { err });
+        log.error(`knowledge capture failed: ${errMessage}`, { error: errMessage });
         return c.json({ error: "capture failed" }, 502);
       }
     },

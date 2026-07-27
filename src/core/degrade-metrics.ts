@@ -10,35 +10,13 @@ import type { DegradeFlag } from "./hybrid-search.ts";
 // forward.
 //
 // CL-4600: reranking degraded on 100% of queries, indefinitely, and nobody
-// noticed. The original version of this module only caught that *exact*
-// shape — a single flag on literally every call in a fixed 100-call
-// bucket. It went silent at 99% (one healthy call per 100 resets the
-// bucket), it was defeated by any second tenant sharing the process (one
-// tenant's 100%-down window is diluted across everyone else's healthy
-// traffic), and its log line dropped every number into a context object
-// that some `@intx/log` sinks never render (see formatCaughtError's
-// comment in ../log.ts) — the exact bug this same PR fixes elsewhere.
-//
-// This version:
-//   - keys all state per tenant, so one tenant's outage isn't diluted by
-//     the other 49's healthy traffic;
-//   - escalates on a RATE crossing a threshold within a rolling window,
-//     not "every call in a fixed bucket", so 99% (and anything above the
-//     threshold) fires;
-//   - uses hysteresis (separate escalate/de-escalate watermarks) so a rate
-//     bouncing around one threshold doesn't flap between log.info and
-//     log.error every call;
-//   - checks the rate on every call (not just every SUMMARY_INTERVALth),
-//     so onset mid-window pages immediately instead of waiting for the
-//     next periodic tick;
-//   - interpolates every number into the log message string, because nothing
-//     downstream is guaranteed to render the context object;
-//   - exposes a windowed rate from getDegradeMetricsSnapshot, since a
-//     cumulative-only snapshot dilutes a live incident into an
-//     unremarkable lifetime average (9000 healthy + 1000 degraded reads as
-//     "10% forever", not "100% right now");
-//   - bounds memory with an LRU eviction over tracked tenants instead of
-//     growing a map forever.
+// noticed. A first pass here only caught that *exact* shape (every call in
+// a fixed 100-call bucket). A rate/hysteresis redesign fixed 99% failure,
+// single-tenant-among-many, and mid-window onset — but overshot into the
+// opposite failure: with no minimum-sample guard, a cold or freshly-evicted
+// tenant could cross the rate watermark off one or two calls and page on
+// noise, which is exactly the "alarm cries wolf, gets muted, we're blind
+// again" failure mode this module exists to end. See `minSamplesFor` below.
 
 const DEGRADE_FLAG_SET = {
   dense_unavailable: true,
@@ -63,33 +41,30 @@ export interface DegradeMetricsConfig {
   highWatermark: number;
   /** Windowed rate at/below which an escalated flag returns to log.info. */
   lowWatermark: number;
-  /** Max tenants tracked at once; oldest-touched tenant is evicted past this. */
+  /** Max tenants tracked at once; oldest non-escalated tenant is evicted past this. */
   maxTrackedTenants: number;
 }
 
 // windowSize=200: large enough that a single stray flag (1/200 = 0.5%)
 // doesn't read as an incident, small enough to fill (and start reporting a
 // reliable rate) within a couple hundred calls of any tenant with real
-// traffic. It is *not* tied to summaryInterval — issue #7 was two
-// unrelated concerns (reporting cadence vs. detection window) fused into
-// one constant.
+// traffic. It is *not* tied to summaryInterval — reporting cadence and
+// detection window are two unrelated concerns.
 //
 // highWatermark=0.20 / lowWatermark=0.10: healthy operation should show
 // ~0% on these flags, so 20% sustained is already well outside normal
 // noise and worth paging on; a 10-point gap to the low watermark is enough
 // hysteresis that a rate oscillating around 20% doesn't flap log.error /
-// log.info every call. Both watermarks sit far enough below the 99% and
-// 100% incident shapes the ticket names that they fire almost immediately
-// once the window has enough samples to reflect the true rate — the
-// escalation check runs on every call, not just at a periodic boundary,
-// so it does not wait for the window to fully refill before firing.
+// log.info every call.
 //
-// maxTrackedTenants=1000: bounds worst-case memory for a long-lived
-// process without needing a time-based decay loop; a host running more
-// concurrent tenants than this in-process should be forwarding the
-// snapshot to its own metrics backend anyway (getDegradeMetricsSnapshot /
-// getAllDegradeMetricsSnapshots), which is unaffected by eviction here
-// beyond losing the evicted tenant's rolling window.
+// maxTrackedTenants=1000: each tenant's state is a fixed-size circular
+// buffer of `windowSize` small flag arrays plus a few counters — at
+// windowSize=200 that's roughly 200 * (a handful of pointers) per tenant,
+// on the order of tens of KB; 1000 tenants is a low-single-digit-MB bound,
+// cheap for a long-lived process without needing a time-based decay loop.
+// A host running more concurrent tenants than this in-process should be
+// forwarding the snapshot to its own metrics backend anyway
+// (getDegradeMetricsSnapshot / getAllDegradeMetricsSnapshots).
 const DEFAULT_CONFIG: DegradeMetricsConfig = {
   windowSize: 200,
   summaryInterval: 100,
@@ -98,6 +73,39 @@ const DEFAULT_CONFIG: DegradeMetricsConfig = {
   maxTrackedTenants: 1000,
 };
 
+function validateConfig(next: DegradeMetricsConfig): void {
+  if (!Number.isInteger(next.windowSize) || next.windowSize < 1) {
+    throw new Error(
+      `degrade-metrics: windowSize must be a positive integer, got ${next.windowSize}`,
+    );
+  }
+  if (!Number.isInteger(next.summaryInterval) || next.summaryInterval < 1) {
+    throw new Error(
+      `degrade-metrics: summaryInterval must be a positive integer, got ${next.summaryInterval}`,
+    );
+  }
+  if (!Number.isInteger(next.maxTrackedTenants) || next.maxTrackedTenants < 1) {
+    throw new Error(
+      `degrade-metrics: maxTrackedTenants must be a positive integer, got ${next.maxTrackedTenants}`,
+    );
+  }
+  if (!(next.highWatermark > 0 && next.highWatermark <= 1)) {
+    throw new Error(
+      `degrade-metrics: highWatermark must be in (0, 1], got ${next.highWatermark}`,
+    );
+  }
+  if (!(next.lowWatermark >= 0 && next.lowWatermark < 1)) {
+    throw new Error(
+      `degrade-metrics: lowWatermark must be in [0, 1), got ${next.lowWatermark}`,
+    );
+  }
+  if (next.highWatermark <= next.lowWatermark) {
+    throw new Error(
+      `degrade-metrics: highWatermark (${next.highWatermark}) must exceed lowWatermark (${next.lowWatermark})`,
+    );
+  }
+}
+
 let config: DegradeMetricsConfig = { ...DEFAULT_CONFIG };
 
 /** Lets a host tune cadence/thresholds/eviction without forking the module. */
@@ -105,12 +113,20 @@ export function configureDegradeMetrics(
   overrides: Partial<DegradeMetricsConfig>,
 ): void {
   const next = { ...config, ...overrides };
-  if (next.highWatermark <= next.lowWatermark) {
-    throw new Error(
-      `degrade-metrics: highWatermark (${next.highWatermark}) must exceed lowWatermark (${next.lowWatermark})`,
-    );
-  }
+  validateConfig(next);
   config = next;
+}
+
+// A binomial proportion's normal approximation is considered trustworthy
+// once n*p*(1-p) >= 5 (the standard rule of thumb — see e.g. Wackerly,
+// Mathematical Statistics). Solving for n at a given watermark gives the
+// smallest sample size at which a rate crossing it reflects a real shift
+// rather than noise from a handful of early calls. At highWatermark=0.20
+// this is ceil(5 / (0.2*0.8)) = 32: below 32 samples, escalation is held
+// off entirely rather than evaluated against a rate that isn't yet
+// meaningful.
+function minSamplesFor(watermark: number): number {
+  return Math.ceil(5 / (watermark * (1 - watermark)));
 }
 
 function emptyDegradeCounts(): Record<DegradeFlag, number> {
@@ -125,12 +141,25 @@ function emptyEscalated(): Record<DegradeFlag, boolean> {
   return escalated;
 }
 
+function zeroFlagCounts(): Record<DegradeFlag, number> {
+  return emptyDegradeCounts();
+}
+
 interface TenantState {
   totalSearches: number;
   degradeCounts: Record<DegradeFlag, number>;
   since: Date;
-  /** Rolling window of the last `windowSize` calls' flags for this tenant. */
-  window: (readonly DegradeFlag[])[];
+  // Rolling window as a fixed-length circular buffer (sized to
+  // config.windowSize at tenant creation) plus a running per-flag count
+  // within the buffer, so the windowed rate is an O(1) lookup rather than
+  // an O(windowSize) re-scan on every one of the up-to-9 calls per search
+  // (3 flags x escalate-check + summary). Changing windowSize via
+  // configureDegradeMetrics only affects tenants created afterward;
+  // existing tenants keep their current buffer until reset/evicted.
+  windowBuffer: (readonly DegradeFlag[] | undefined)[];
+  windowCursor: number;
+  windowFilled: number;
+  windowFlagCounts: Record<DegradeFlag, number>;
   /** Hysteresis state per flag: is it currently escalated (log.error)? */
   escalated: Record<DegradeFlag, boolean>;
 }
@@ -140,7 +169,10 @@ function newTenantState(): TenantState {
     totalSearches: 0,
     degradeCounts: emptyDegradeCounts(),
     since: new Date(),
-    window: [],
+    windowBuffer: new Array(config.windowSize).fill(undefined),
+    windowCursor: 0,
+    windowFilled: 0,
+    windowFlagCounts: zeroFlagCounts(),
     escalated: emptyEscalated(),
   };
 }
@@ -149,6 +181,38 @@ function newTenantState(): TenantState {
 // it to the end, giving cheap LRU semantics without a separate structure.
 let tenants = new Map<string, TenantState>();
 
+function isEscalated(state: TenantState): boolean {
+  return ALL_DEGRADE_FLAGS.some((flag) => state.escalated[flag]);
+}
+
+// Evicts the oldest tenant that is NOT currently escalated, so an LRU pass
+// doesn't make a live incident disappear from getAllDegradeMetricsSnapshots
+// just because it's also the tenant a host hasn't polled in a while. If
+// every tracked tenant is escalated, capacity still has to be bounded, so
+// the oldest one is evicted anyway — loudly, at error level, since losing
+// an escalated tenant's state is itself notable.
+function evictIfNeeded(): void {
+  if (tenants.size < config.maxTrackedTenants) return;
+  for (const [id, state] of tenants) {
+    if (!isEscalated(state)) {
+      tenants.delete(id);
+      log.warn(
+        `degrade-metrics: evicted tenant ${id} to track a new tenant (max ${config.maxTrackedTenants} tracked)`,
+        { evictedTenantId: id, maxTrackedTenants: config.maxTrackedTenants },
+      );
+      return;
+    }
+  }
+  const oldest = tenants.keys().next().value;
+  if (oldest !== undefined) {
+    log.error(
+      `degrade-metrics: evicting tenant ${oldest} while still escalated — all ${config.maxTrackedTenants} tracked tenants are currently escalated`,
+      { evictedTenantId: oldest, maxTrackedTenants: config.maxTrackedTenants },
+    );
+    tenants.delete(oldest);
+  }
+}
+
 function touchTenant(tenantId: string): TenantState {
   let state = tenants.get(tenantId);
   if (state) {
@@ -156,22 +220,31 @@ function touchTenant(tenantId: string): TenantState {
     tenants.set(tenantId, state);
     return state;
   }
+  evictIfNeeded();
   state = newTenantState();
-  if (tenants.size >= config.maxTrackedTenants) {
-    const oldest = tenants.keys().next().value;
-    if (oldest !== undefined) tenants.delete(oldest);
-  }
   tenants.set(tenantId, state);
   return state;
 }
 
-function windowedRate(window: (readonly DegradeFlag[])[], flag: DegradeFlag): number {
-  if (window.length === 0) return 0;
-  const hits = window.reduce(
-    (n, entry) => (entry.includes(flag) ? n + 1 : n),
-    0,
-  );
-  return hits / window.length;
+function pushToWindow(state: TenantState, flags: readonly DegradeFlag[]): void {
+  const evicted = state.windowBuffer[state.windowCursor];
+  if (evicted) {
+    for (const flag of evicted) {
+      state.windowFlagCounts[flag] = Math.max(0, state.windowFlagCounts[flag] - 1);
+    }
+  } else {
+    state.windowFilled = Math.min(state.windowFilled + 1, config.windowSize);
+  }
+  state.windowBuffer[state.windowCursor] = flags;
+  for (const flag of flags) {
+    state.windowFlagCounts[flag] = (state.windowFlagCounts[flag] ?? 0) + 1;
+  }
+  state.windowCursor = (state.windowCursor + 1) % state.windowBuffer.length;
+}
+
+function windowedRate(state: TenantState, flag: DegradeFlag): number {
+  if (state.windowFilled === 0) return 0;
+  return state.windowFlagCounts[flag] / state.windowFilled;
 }
 
 export interface DegradeMetricsSnapshot {
@@ -181,7 +254,7 @@ export interface DegradeMetricsSnapshot {
   /** Lifetime per-flag counts since `since`. */
   degradeCounts: Record<DegradeFlag, number>;
   since: Date;
-  /** Size of the rolling window backing `windowedDegradeRate`. */
+  /** Number of calls currently backing `windowedDegradeRate` (<= configured windowSize). */
   windowSize: number;
   /**
    * Per-flag rate over the last `windowSize` calls. This — not
@@ -196,14 +269,14 @@ export interface DegradeMetricsSnapshot {
 function toSnapshot(tenantId: string, state: TenantState): DegradeMetricsSnapshot {
   const windowedDegradeRate = {} as Record<DegradeFlag, number>;
   for (const flag of ALL_DEGRADE_FLAGS) {
-    windowedDegradeRate[flag] = windowedRate(state.window, flag);
+    windowedDegradeRate[flag] = windowedRate(state, flag);
   }
   return {
     tenantId,
     totalSearches: state.totalSearches,
     degradeCounts: { ...state.degradeCounts },
     since: state.since,
-    windowSize: state.window.length,
+    windowSize: state.windowFilled,
     windowedDegradeRate,
     escalated: { ...state.escalated },
   };
@@ -227,51 +300,53 @@ export function recordDegrade(
     state.degradeCounts[flag] = (state.degradeCounts[flag] ?? 0) + 1;
   }
 
-  state.window.push(currentFlags);
-  if (state.window.length > config.windowSize) {
-    state.window = state.window.slice(-config.windowSize);
-  }
+  pushToWindow(state, currentFlags);
 
   // Hysteresis, checked on every call so onset mid-window escalates
-  // immediately rather than waiting for the next periodic summary.
+  // immediately rather than waiting for the next periodic summary. Held
+  // off entirely below minSamplesFor(highWatermark): a cold or
+  // freshly-evicted tenant's early rate isn't statistically meaningful yet,
+  // and evaluating it anyway is what pages on noise (see module comment).
   const justEscalated: DegradeFlag[] = [];
-  for (const flag of ALL_DEGRADE_FLAGS) {
-    const rate = windowedRate(state.window, flag);
-    const wasEscalated = state.escalated[flag];
-    if (rate >= config.highWatermark) {
-      state.escalated[flag] = true;
-      if (!wasEscalated) justEscalated.push(flag);
-    } else if (rate <= config.lowWatermark) {
-      state.escalated[flag] = false;
+  if (state.windowFilled >= minSamplesFor(config.highWatermark)) {
+    for (const flag of ALL_DEGRADE_FLAGS) {
+      const rate = windowedRate(state, flag);
+      const wasEscalated = state.escalated[flag];
+      if (rate >= config.highWatermark) {
+        state.escalated[flag] = true;
+        if (!wasEscalated) justEscalated.push(flag);
+      } else if (rate <= config.lowWatermark) {
+        state.escalated[flag] = false;
+      }
+      // Between the watermarks: hold the previous state (hysteresis band).
     }
-    // Between the watermarks: hold the previous state (hysteresis band).
   }
 
   for (const flag of justEscalated) {
-    const rate = windowedRate(state.window, flag);
+    const rate = windowedRate(state, flag);
     log.error(
       `search: degrade rate escalation — tenant ${tenantId} flag "${flag}" ` +
-        `at ${(rate * 100).toFixed(1)}% over the last ${state.window.length} searches ` +
+        `at ${(rate * 100).toFixed(1)}% over the last ${state.windowFilled} searches ` +
         `(threshold ${(config.highWatermark * 100).toFixed(0)}%)`,
-      { tenantId, flag, rate, windowSize: state.window.length },
+      { tenantId, flag, rate, windowSize: state.windowFilled },
     );
   }
 
   if (state.totalSearches % config.summaryInterval !== 0) return;
 
   const rateSummary = ALL_DEGRADE_FLAGS.map(
-    (flag) => `${flag}=${(windowedRate(state.window, flag) * 100).toFixed(1)}%`,
+    (flag) => `${flag}=${(windowedRate(state, flag) * 100).toFixed(1)}%`,
   ).join(", ");
-  const anyEscalated = ALL_DEGRADE_FLAGS.some((flag) => state.escalated[flag]);
+  const anyEscalated = isEscalated(state);
   const summary = {
     tenantId,
     totalSearches: state.totalSearches,
     degradeCounts: { ...state.degradeCounts },
-    windowSize: state.window.length,
+    windowSize: state.windowFilled,
   };
   const message =
     `search: degrade rate summary — tenant ${tenantId}, ` +
-    `${state.totalSearches} total searches, last ${state.window.length}: ${rateSummary}`;
+    `${state.totalSearches} total searches, last ${state.windowFilled}: ${rateSummary}`;
 
   if (anyEscalated) {
     log.error(message, summary);

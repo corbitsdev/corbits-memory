@@ -35,7 +35,10 @@ export { runKnowledgeMigrations } from "./migrations.ts";
 // snapshot and forwards it, rather than the engine owning a /metrics port.
 export {
   getDegradeMetricsSnapshot,
+  getAllDegradeMetricsSnapshots,
+  configureDegradeMetrics,
   type DegradeMetricsSnapshot,
+  type DegradeMetricsConfig,
 } from "./core/degrade-metrics.ts";
 // Granular mount (compose your own)
 export { mountKnowledgeRoutes, type GrantConfig } from "./routes/mount.ts";
