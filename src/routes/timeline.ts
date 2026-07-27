@@ -33,6 +33,7 @@ export function mountTimelineRoute(
             "application/json": { schema: resolver(TimelineResponse) },
           },
         },
+        401: { description: "No principal on the request context" },
         403: { description: "Missing the knowledge:search grant" },
         502: { description: "Timeline query failed" },
       },

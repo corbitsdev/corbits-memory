@@ -4,7 +4,12 @@ import type { GrantRule } from "@intx/authz";
 import type { Context } from "hono";
 import type { RequireGrant, TenantEnv } from "@intx/hub-api";
 
-import { caller, grantGuard, type RouteDeps } from "./deps.ts";
+import {
+  caller,
+  grantGuard,
+  requirePrincipal,
+  type RouteDeps,
+} from "./deps.ts";
 
 function grant(principalId: string, action: string): GrantRule {
   return {
@@ -23,7 +28,10 @@ function grant(principalId: string, action: string): GrantRule {
 const noopRequireGrant: RequireGrant = () => (async () => {}) as never;
 
 // Minimal RouteDeps for unit tests — routes here only touch grants/requireGrant.
-function deps(grants: RouteDeps["grants"], requireGrant = noopRequireGrant): RouteDeps {
+function deps(
+  grants: RouteDeps["grants"],
+  requireGrant = noopRequireGrant,
+): RouteDeps {
   return {
     knowledge: {} as RouteDeps["knowledge"],
     grants,
@@ -55,6 +63,47 @@ describe("caller", () => {
   test("throws a legible error when no principal is on the context", () => {
     const c = ctxWithPrincipal(undefined);
     expect(() => caller(c)).toThrow(/no principal/);
+  });
+});
+
+describe("requirePrincipal", () => {
+  function ctxFor(principal: unknown): {
+    ctx: Context<TenantEnv>;
+    jsonCalls: { body: unknown; status: number }[];
+  } {
+    const jsonCalls: { body: unknown; status: number }[] = [];
+    const ctx = {
+      get: (k: string) => (k === "principal" ? principal : undefined),
+      json: (body: unknown, status: number) => {
+        jsonCalls.push({ body, status });
+        return { body, status };
+      },
+    } as unknown as Context<TenantEnv>;
+    return { ctx, jsonCalls };
+  }
+
+  test("responds 401 when no principal is on the context", async () => {
+    const { ctx, jsonCalls } = ctxFor(undefined);
+    let nextCalled = false;
+    await requirePrincipal()(ctx, async () => {
+      nextCalled = true;
+    });
+    expect(nextCalled).toBe(false);
+    expect(jsonCalls).toHaveLength(1);
+    expect(jsonCalls[0]?.status).toBe(401);
+    expect(jsonCalls[0]?.body).toMatchObject({
+      error: { code: "principal_required" },
+    });
+  });
+
+  test("calls next() when a principal is present", async () => {
+    const { ctx, jsonCalls } = ctxFor({ id: "p1", tenantId: "t1" });
+    let nextCalled = false;
+    await requirePrincipal()(ctx, async () => {
+      nextCalled = true;
+    });
+    expect(nextCalled).toBe(true);
+    expect(jsonCalls).toHaveLength(0);
   });
 });
 

@@ -30,6 +30,7 @@ export function mountCaptureRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
           },
         },
         400: { description: "Invalid request or ACL" },
+        401: { description: "No principal on the request context" },
         403: { description: "Missing the knowledge:capture grant" },
       },
     }),

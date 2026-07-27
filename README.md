@@ -41,7 +41,7 @@ import { loadKnowledgeConfig } from "@corbits/knowledge-engine/config";
 // `app` is your Interchange createApp (Hono<TenantEnv>). Pass the same grant
 // store + condition registry you give createApp/createRequireGrant.
 mountKnowledgeEngine(app, {
-  config: loadKnowledgeConfig(), // or build the object yourself
+  config: loadKnowledgeConfig(),          // or build the object yourself
   grants: { grantStore, conditionRegistry },
 });
 ```

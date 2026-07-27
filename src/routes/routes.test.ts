@@ -113,6 +113,24 @@ function buildApp(
   return { app, captured };
 }
 
+// Mirrors a host that mounts the knowledge routes outside the tenant prefix
+// Interchange's middleware covers — no principal ever lands on the context.
+function buildAppWithoutPrincipal() {
+  const { plane } = stubPlane();
+  const grantConfig = {
+    grantStore: createInMemoryGrantStore([]),
+    conditionRegistry: {},
+  };
+  const deps: RouteDeps = {
+    knowledge: plane,
+    grants: grantConfig,
+    requireGrant: createRequireGrant(grantConfig),
+  };
+  const app = new Hono<TenantEnv>();
+  mountKnowledgeRoutes(app, deps);
+  return app;
+}
+
 const jsonPost = (body: unknown) => ({
   method: "POST",
   headers: { "content-type": "application/json" },
@@ -257,5 +275,29 @@ describe("knowledge HTTP routes", () => {
     expect(await titles(appOther)).toEqual([PUBLIC_TITLE]);
     expect(await titles(appP1)).not.toContain(SECRET_TITLE);
     expect(await titles(appOther)).not.toContain(SECRET_TITLE);
+  });
+
+  test("capture is rejected (401) when no principal is on the context", async () => {
+    const app = buildAppWithoutPrincipal();
+    const res = await app.request(
+      "/api/knowledge/capture",
+      jsonPost({ title: "t", text: "body" }),
+    );
+    expect(res.status).toBe(401);
+  });
+
+  test("search is rejected (401) when no principal is on the context", async () => {
+    const app = buildAppWithoutPrincipal();
+    const res = await app.request(
+      "/api/knowledge/search",
+      jsonPost({ query: "hello" }),
+    );
+    expect(res.status).toBe(401);
+  });
+
+  test("timeline is rejected (401) when no principal is on the context", async () => {
+    const app = buildAppWithoutPrincipal();
+    const res = await app.request("/api/knowledge/timeline");
+    expect(res.status).toBe(401);
   });
 });

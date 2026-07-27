@@ -28,6 +28,7 @@ export function mountSearchRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
           },
         },
         400: { description: "Invalid query" },
+        401: { description: "No principal on the request context" },
         403: { description: "Missing the knowledge:search grant" },
       },
     }),
