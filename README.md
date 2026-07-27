@@ -79,18 +79,33 @@ want env-driven config can build the object directly. See `PRODUCT.md` for the
 shape and the identity/ACL model.
 
 Reranking (`RERANK_BASE_URL` etc.) is optional and TEI-only today; retrieval
-degrades to fusion-only if unset. `RERANK_MAX_DOC_CHARS` (default `1500`)
-bounds how much of each chunk's text is sent per document — TEI rejects the
-whole batch if any single document exceeds the reranker's token limit, and the
-engine's ~700-token chunks routinely exceed `bge-reranker-base`'s 512. The
-budget also reserves space for the query: TEI's limit is on the query+document
-pair, not the document alone, so a long query shrinks the document's share
-before truncation (floored so the document is never cut to nothing).
+degrades to fusion-only if unset. `RERANK_MAX_DOC_CHARS` bounds how much of
+each chunk's text is sent per document — TEI rejects the whole batch if any
+single document exceeds the reranker's token limit, and the engine's
+~700-token chunks routinely exceed `bge-reranker-base`'s 512. Left unset, the
+budget is derived from the resolved model's own advertised token limit (see
+`defaultMaxDocCharsForModel` in `rerank-client.ts`) rather than a single
+constant — the engine's default model, `bge-reranker-v2-m3`, has an
+8,192-token limit, over 16x `bge-reranker-base`'s, so a one-size budget would
+either 413 the smaller model or silently over-truncate every chunk sent to
+the larger one.
+
+The budget also reserves space for the query: TEI's limit is on the
+query+document pair, not the document alone, so a long query shrinks the
+document's share before truncation. If the query alone leaves less than a
+useful minimum for the document, reranking is skipped for that request
+(logged, reported as `"rerank_query_too_long"`) rather than forcing the
+document budget back up and overflowing the pair — truncating the query
+instead was considered and rejected, since it would silently change what the
+user asked.
+
 `mountKnowledgeEngine` validates the default/configured budget against known
 models' advertised limits at startup and throws `RerankConfigError` on a
-mismatch, rather than failing per query — this is safe to throw on because the
-shipped default is chosen to pass validation against `bge-reranker-base`
-out of the box.
+mismatch, rather than failing per query — this is safe to throw on because
+the per-model default is self-consistent by construction, regardless of
+which model is resolved. A replay's `transform_config` can also supply its
+own rerank endpoint/model; that path is validated the same way, at request
+time, and degrades to fused ranking on a mismatch instead of throwing.
 
 Truncation is a real tradeoff, in two ways. First, the reranker scores only
 the head of a chunk while the caller still cites and reads the whole thing, so

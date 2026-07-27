@@ -24,8 +24,14 @@ export type EngineConfig = {
     baseUrl: string | undefined;
     model: string | undefined;
     apiKey: string | undefined;
-    // Per-document character budget sent to the reranker — see
-    // `TEI_MAX_DOC_CHARS` / `validateRerankConfig` in rerank-client.ts.
-    maxDocChars: number;
+    // Per-document character budget sent to the reranker — an explicit
+    // operator override (RERANK_MAX_DOC_CHARS). `undefined` means "derive
+    // from the resolved model's advertised token limit" — see
+    // `defaultMaxDocCharsForModel` / `validateRerankConfig` in
+    // rerank-client.ts. Must NOT be defaulted here: the default depends on
+    // which model is resolved (this object doesn't know), and baking in a
+    // single constant is exactly how a small-model budget got applied to
+    // the default model's much larger context window.
+    maxDocChars: number | undefined;
   };
 };

@@ -60,9 +60,11 @@ export function mountKnowledgeEngine(
   // rerank call for this host WILL 413 and silently degrade to fused
   // ranking, with no per-request signal — a boot-time failure surfaces that
   // once, loudly, instead of leaving reranking quietly broken indefinitely.
-  // This is only safe to throw on because the shipped defaults are
-  // self-consistent (see TEI_MAX_DOC_CHARS) — validation can only fire on an
-  // operator's own override, never spuriously on an unmodified config.
+  // This is only safe to throw on because the per-model default budget
+  // (`defaultMaxDocCharsForModel`) is self-consistent by construction —
+  // validation can only fire on an operator's own `maxDocChars` override,
+  // never spuriously on an unmodified config, regardless of which model
+  // that config resolves to.
   const rerankConfig = toRerankClientConfig(options.config.knowledge.rerank);
   if (rerankConfig) validateRerankConfig(rerankConfig);
 

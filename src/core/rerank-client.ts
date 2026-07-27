@@ -12,8 +12,10 @@ export const RerankClientConfigSchema = type({
   apiStyle: "'tei'|'cohere'|'voyage'",
   "apiKey?": "string",
   "timeoutMs?": "number",
-  // Per-document character budget for TEI requests — see TEI_MAX_DOC_CHARS.
-  // Ignored for cohere/voyage, which advertise much longer context windows.
+  // Per-document character budget for TEI requests — an explicit override;
+  // omit to derive one from the resolved model's advertised token limit (see
+  // `defaultMaxDocCharsForModel`). Ignored for cohere/voyage, which advertise
+  // much longer context windows.
   "maxDocChars?": "number",
 });
 export type RerankClientConfig = typeof RerankClientConfigSchema.infer;
@@ -112,30 +114,21 @@ async function assertOk(res: Response, url: string): Promise<void> {
 
 // Cross-encoders cap the query+document pair, and TEI rejects the WHOLE batch
 // with a 413 if any single document is over — so one long chunk disables
-// reranking for the entire query. The engine chunks at ~700 tokens while
-// `bge-reranker-base` allows 512, which means every real chunk trips it.
+// reranking for the entire query. The engine chunks at ~700 tokens, which
+// already exceeds `bge-reranker-base`/`-large`'s 512-token limit.
 //
 // Truncating keeps reranking working at a known cost: the reranker scores the
 // head of a chunk while the caller still cites and reads the whole thing, so a
 // document whose relevance lives only in its tail scores lower than it should.
-// Ranking the first ~450 tokens beats not ranking at all.
+// Ranking the first N tokens beats not ranking at all.
 //
-// Default is deliberately conservative for `bge-reranker-base` (512 tokens):
-// chars-per-token varies with content, so this assumes as few as ~3
-// chars/token (CHARS_PER_TOKEN_FLOOR below) to avoid overshooting —
-// overshooting costs the entire batch. 1500 chars / 3 = 500 estimated
-// tokens, under the 512 cap with headroom to spare; this is the largest
-// round value that still clears `validateRerankConfig` against
-// bge-reranker-base with the floor below (must satisfy
-// ceil(value / CHARS_PER_TOKEN_FLOOR) <= 512, i.e. value <= 1536).
-// `rerank-client.test.ts` asserts this constant against the real default
-// model so the two can't drift apart again.
+// The budget is derived PER MODEL (`defaultMaxDocCharsForModel`), not a
+// single global constant: `bge-reranker-base` (512 tokens) and
+// `bge-reranker-v2-m3` (8,192 tokens, the engine's actual default — see
+// `DEFAULT_RERANK_MODEL`) need very different budgets, and applying the
+// smaller model's budget unconditionally silently over-truncates every
+// chunk on the default model instead of fixing the 413.
 //
-// Callers with a longer-context reranker (several go to 4K-32K tokens) can
-// raise this via `RerankClientConfig.maxDocChars`; `validateRerankConfig`
-// catches a mismatch against known models' advertised limits up front.
-export const TEI_MAX_DOC_CHARS = 1_500;
-
 // Conservative floor used to estimate tokens from characters, both to
 // validate `maxDocChars` against a model's advertised limit and to size the
 // per-request truncation budget. 3 chars/token covers ordinary
@@ -149,23 +142,58 @@ export const TEI_MAX_DOC_CHARS = 1_500;
 // `RERANK_MAX_DOC_CHARS` well below the computed ceiling.
 const CHARS_PER_TOKEN_FLOOR = 3;
 
-// Minimum document budget worth sending to the reranker. If a query is so
-// long that it alone eats maxDocChars down past this floor, we do NOT force
-// the document budget back up to this floor — that would grow the
-// query+document pair past maxDocChars (the value `validateRerankConfig`
-// vetted against the model's real token limit), reproducing the 413 this
-// module exists to prevent. Instead `rerankTei` throws `RerankQueryTooLongError`
-// and the caller skips reranking for that request, same as any other rerank
-// failure (see hybrid-search.ts's `rerank_unavailable`/soft-degrade path).
-const MIN_DOC_CHARS = 200;
-
 // Token limits for rerankers we know are commonly TEI-served. Deliberately a
-// short, high-confidence list: an unlisted model skips validation rather than
-// asserting a limit we're not sure of.
+// short, high-confidence list.
 export const KNOWN_TEI_RERANK_MODEL_TOKEN_LIMITS: Record<string, number> = {
   "bge-reranker-base": 512,
   "bge-reranker-large": 512,
+  "bge-reranker-v2-m3": 8_192,
 };
+
+// A TEI model absent from the table above resolves to this instead of
+// skipping validation/budget derivation outright — an earlier version did
+// that, which meant an unrecognized (or simply unset) model validated
+// nothing and fell through to a size calibrated for a different model. 512
+// is the smallest limit we know of across common TEI cross-encoders
+// (bge-reranker-base/-large): assuming the smallest known limit is the safe
+// direction to guess wrong in, since it under-uses a model that turns out to
+// support more, rather than risking a 413 on one that supports less.
+// Operators who know their model's real limit should set
+// `RERANK_MAX_DOC_CHARS` explicitly; `validateRerankConfig` still checks
+// that override against this same fallback.
+const CONSERVATIVE_FALLBACK_TOKEN_LIMIT = 512;
+
+function resolveRerankModel(config: Pick<RerankClientConfig, "model">): string {
+  return config.model ?? DEFAULT_RERANK_MODEL;
+}
+
+function tokenLimitForModel(model: string): number {
+  return (
+    KNOWN_TEI_RERANK_MODEL_TOKEN_LIMITS[model] ?? CONSERVATIVE_FALLBACK_TOKEN_LIMIT
+  );
+}
+
+// Fixed token headroom subtracted from a model's advertised limit before
+// converting to a char budget — the same margin the original
+// bge-reranker-base calibration used (512 - 12 = 500 tokens -> 1500 chars).
+// Kept as a flat token count rather than a percentage so it scales the same
+// way regardless of the resolved model's limit.
+const SAFETY_MARGIN_TOKENS = 12;
+
+// The document character budget for a resolved TEI model, used whenever the
+// config doesn't set an explicit `maxDocChars` override. Per-model, not a
+// single constant — see the block comment above.
+export function defaultMaxDocCharsForModel(model: string): number {
+  const tokenLimit = tokenLimitForModel(model);
+  return Math.max(tokenLimit - SAFETY_MARGIN_TOKENS, 0) * CHARS_PER_TOKEN_FLOOR;
+}
+
+// The default budget for the engine's own default TEI model
+// (`DEFAULT_RERANK_MODEL`, bge-reranker-v2-m3) — exported for callers and
+// tests that want "the real default" without re-deriving it.
+export const DEFAULT_MAX_DOC_CHARS = defaultMaxDocCharsForModel(
+  DEFAULT_RERANK_MODEL,
+);
 
 export class RerankConfigError extends Error {
   constructor(message: string) {
@@ -177,24 +205,40 @@ export class RerankConfigError extends Error {
 /**
  * Catches a chunk-size / reranker-limit mismatch at config time instead of
  * at every query (where it previously surfaced as a silent per-batch 413).
- * Only validates TEI configs against a known model's advertised token limit;
- * everything else (unlisted model, cohere/voyage) is left unchecked.
+ * Resolves the model exactly as `rerankTei` does (`config.model ??
+ * DEFAULT_RERANK_MODEL`) so validation runs on the model actually used, not
+ * only when an operator happens to set `model` explicitly. An unrecognized
+ * model is checked against `CONSERVATIVE_FALLBACK_TOKEN_LIMIT` rather than
+ * skipped. Only applies to the TEI path; cohere/voyage are unchecked (see
+ * `rerankCohere`/`rerankVoyage`).
  */
 export function validateRerankConfig(config: RerankClientConfig): void {
-  if (config.apiStyle !== "tei" || !config.model) return;
-  const tokenLimit = KNOWN_TEI_RERANK_MODEL_TOKEN_LIMITS[config.model];
-  if (tokenLimit === undefined) return;
-
-  const maxDocChars = config.maxDocChars ?? TEI_MAX_DOC_CHARS;
+  if (config.apiStyle !== "tei") return;
+  const model = resolveRerankModel(config);
+  const tokenLimit = tokenLimitForModel(model);
+  const maxDocChars = config.maxDocChars ?? defaultMaxDocCharsForModel(model);
   const estimatedMaxTokens = Math.ceil(maxDocChars / CHARS_PER_TOKEN_FLOOR);
   if (estimatedMaxTokens > tokenLimit) {
+    const knownModel = model in KNOWN_TEI_RERANK_MODEL_TOKEN_LIMITS;
     throw new RerankConfigError(
       `Rerank maxDocChars=${maxDocChars} can produce up to ~${estimatedMaxTokens} tokens per document, ` +
-        `exceeding ${config.model}'s ${tokenLimit}-token limit. Lower maxDocChars (RERANK_MAX_DOC_CHARS) ` +
-        `or switch to a longer-context reranker.`,
+        `exceeding ${model}'s ${tokenLimit}-token limit` +
+        `${knownModel ? "" : " (model not recognized; assumed the conservative fallback limit)"}. ` +
+        `Lower maxDocChars (RERANK_MAX_DOC_CHARS) or switch to a longer-context reranker.`,
     );
   }
 }
+
+// Minimum document budget worth sending to the reranker. If a query is so
+// long that it alone eats the resolved model's budget down past this floor,
+// we do NOT force the document budget back up to this floor — that would
+// grow the query+document pair past maxDocChars (the value
+// `validateRerankConfig` vetted against the model's real token limit),
+// reproducing the 413 this module exists to prevent. Instead `rerankTei`
+// throws `RerankQueryTooLongError` and the caller skips reranking for that
+// request, same as any other rerank failure (see hybrid-search.ts's
+// `rerank_unavailable`/soft-degrade path).
+const MIN_DOC_CHARS = 200;
 
 // TEI's limit is on the query+document PAIR, not the document alone — a long
 // query plus a budget-sized document can still overflow the model's cap.
@@ -226,7 +270,8 @@ async function rerankTei(
   config: RerankClientConfig,
   fetchImpl: typeof fetch,
 ): Promise<RerankResult[]> {
-  const maxDocChars = config.maxDocChars ?? TEI_MAX_DOC_CHARS;
+  const model = resolveRerankModel(config);
+  const maxDocChars = config.maxDocChars ?? defaultMaxDocCharsForModel(model);
   const docBudget = resolveDocBudget(maxDocChars, query.length);
   if (docBudget === null) {
     throw new RerankQueryTooLongError(

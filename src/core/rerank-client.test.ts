@@ -1,21 +1,24 @@
 import { describe, expect, it, mock } from "bun:test";
 
 import {
+  DEFAULT_MAX_DOC_CHARS,
+  DEFAULT_RERANK_MODEL,
+  KNOWN_TEI_RERANK_MODEL_TOKEN_LIMITS,
   RerankConfigError,
   RerankHttpError,
   RerankQueryTooLongError,
   RerankTimeoutError,
-  TEI_MAX_DOC_CHARS,
+  defaultMaxDocCharsForModel,
   rerankDocuments,
   validateRerankConfig,
 } from "./rerank-client.ts";
 import type { RerankClientConfig } from "./rerank-client.ts";
 
 // The default env in .env.example ships RERANK_MODEL=bge-reranker-base with
-// RERANK_MAX_DOC_CHARS unset (-> TEI_MAX_DOC_CHARS). That exact combination
-// must not throw — an earlier version of this budget failed its own
-// validation on the shipped defaults, which would have taken down every
-// host that never touched the rerank env vars.
+// RERANK_MAX_DOC_CHARS unset (-> defaultMaxDocCharsForModel's per-model
+// value). That exact combination must not throw — an earlier version of
+// this budget failed its own validation on the shipped defaults, which
+// would have taken down every host that never touched the rerank env vars.
 const DEFAULT_SHIPPED_MODEL = "bge-reranker-base";
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -181,11 +184,18 @@ describe("rerankDocuments", () => {
     ).rejects.toBeInstanceOf(RerankTimeoutError);
   });
 
-  it("truncates oversized TEI document text to the default budget", async () => {
-    const longDoc = { id: "chunk-c", text: "x".repeat(TEI_MAX_DOC_CHARS + 500) };
+  it("truncates oversized TEI document text to the resolved model's default budget", async () => {
+    // teiConfig sets no `model`, so this resolves to DEFAULT_RERANK_MODEL
+    // (bge-reranker-v2-m3) and its own default budget — NOT the smaller
+    // bge-reranker-base-calibrated value. This is the exact case Finding A
+    // covers: the unconfigured default must use the default model's budget.
+    const longDoc = {
+      id: "chunk-c",
+      text: "x".repeat(DEFAULT_MAX_DOC_CHARS + 500),
+    };
     const fetchImpl = mock((_url: string, init: RequestInit) => {
       const body = JSON.parse(init.body as string) as { texts: string[] };
-      expect(body.texts[0]?.length).toBe(TEI_MAX_DOC_CHARS);
+      expect(body.texts[0]?.length).toBe(DEFAULT_MAX_DOC_CHARS);
       return Promise.resolve(jsonResponse([{ index: 0, score: 0.5 }]));
     });
 
@@ -193,6 +203,24 @@ describe("rerankDocuments", () => {
       "", // empty query: isolate document-only truncation from the query reserve
       [longDoc],
       teiConfig,
+      fetchImpl as unknown as typeof fetch,
+    );
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses the smaller bge-reranker-base budget when that model is set explicitly", async () => {
+    const baseBudget = defaultMaxDocCharsForModel("bge-reranker-base");
+    const longDoc = { id: "chunk-c", text: "x".repeat(baseBudget + 500) };
+    const fetchImpl = mock((_url: string, init: RequestInit) => {
+      const body = JSON.parse(init.body as string) as { texts: string[] };
+      expect(body.texts[0]?.length).toBe(baseBudget);
+      return Promise.resolve(jsonResponse([{ index: 0, score: 0.5 }]));
+    });
+
+    await rerankDocuments(
+      "",
+      [longDoc],
+      { ...teiConfig, model: "bge-reranker-base" },
       fetchImpl as unknown as typeof fetch,
     );
     expect(fetchImpl).toHaveBeenCalledTimes(1);
@@ -313,10 +341,10 @@ describe("rerankDocuments", () => {
   });
 
   it("does not truncate documents at or under the budget", async () => {
-    const shortDoc = { id: "chunk-c", text: "x".repeat(TEI_MAX_DOC_CHARS) };
+    const shortDoc = { id: "chunk-c", text: "x".repeat(DEFAULT_MAX_DOC_CHARS) };
     const fetchImpl = mock((_url: string, init: RequestInit) => {
       const body = JSON.parse(init.body as string) as { texts: string[] };
-      expect(body.texts[0]?.length).toBe(TEI_MAX_DOC_CHARS);
+      expect(body.texts[0]?.length).toBe(DEFAULT_MAX_DOC_CHARS);
       return Promise.resolve(jsonResponse([{ index: 0, score: 0.5 }]));
     });
 
@@ -330,13 +358,13 @@ describe("rerankDocuments", () => {
 });
 
 describe("validateRerankConfig", () => {
-  it("passes for the REAL shipped default (TEI_MAX_DOC_CHARS, bge-reranker-base) — the exact combination .env.example ships unmodified", () => {
+  it("passes for the REAL shipped default (bge-reranker-base, its own default budget) — the exact combination .env.example ships unmodified", () => {
     expect(() =>
       validateRerankConfig({
         baseUrl: "https://tei.example.com",
         apiStyle: "tei",
         model: DEFAULT_SHIPPED_MODEL,
-        maxDocChars: TEI_MAX_DOC_CHARS,
+        maxDocChars: defaultMaxDocCharsForModel(DEFAULT_SHIPPED_MODEL),
       }),
     ).not.toThrow();
     // Also exercise the config-omitted path, since that's what
@@ -348,6 +376,39 @@ describe("validateRerankConfig", () => {
         model: DEFAULT_SHIPPED_MODEL,
       }),
     ).not.toThrow();
+  });
+
+  // Finding A: `model` is optional and most deployments never set it, which
+  // resolves to DEFAULT_RERANK_MODEL (bge-reranker-v2-m3, 8,192 tokens) —
+  // not bge-reranker-base. Validation must run against THAT resolution, not
+  // early-return because `config.model` is undefined.
+  it("validates the engine's true default (no model set at all) against DEFAULT_RERANK_MODEL, not bge-reranker-base", () => {
+    expect(() =>
+      validateRerankConfig({
+        baseUrl: "https://tei.example.com",
+        apiStyle: "tei",
+      }),
+    ).not.toThrow();
+
+    // A maxDocChars sized for bge-reranker-base's smaller limit is nowhere
+    // near enough to trip DEFAULT_RERANK_MODEL's much larger one.
+    expect(() =>
+      validateRerankConfig({
+        baseUrl: "https://tei.example.com",
+        apiStyle: "tei",
+        maxDocChars: defaultMaxDocCharsForModel("bge-reranker-base"),
+      }),
+    ).not.toThrow();
+
+    // But a maxDocChars that overflows DEFAULT_RERANK_MODEL's real 8,192-token
+    // limit must still be caught, not skipped because model was omitted.
+    expect(() =>
+      validateRerankConfig({
+        baseUrl: "https://tei.example.com",
+        apiStyle: "tei",
+        maxDocChars: (KNOWN_TEI_RERANK_MODEL_TOKEN_LIMITS[DEFAULT_RERANK_MODEL] ?? 0) * 100,
+      }),
+    ).toThrow(RerankConfigError);
   });
 
   it("passes for a smaller custom budget against a known model with a large enough limit", () => {
@@ -372,13 +433,35 @@ describe("validateRerankConfig", () => {
     ).toThrow(RerankConfigError);
   });
 
-  it("skips validation for an unlisted model", () => {
+  it("passes for bge-reranker-v2-m3 with its own much larger default budget", () => {
+    expect(() =>
+      validateRerankConfig({
+        baseUrl: "https://tei.example.com",
+        apiStyle: "tei",
+        model: "bge-reranker-v2-m3",
+      }),
+    ).not.toThrow();
+  });
+
+  // An unrecognized model no longer skips validation outright — it resolves
+  // to the conservative fallback limit (512 tokens, the smallest known TEI
+  // cross-encoder limit) instead.
+  it("validates an unlisted model against the conservative fallback limit rather than skipping", () => {
     expect(() =>
       validateRerankConfig({
         baseUrl: "https://tei.example.com",
         apiStyle: "tei",
         model: "some-custom-reranker",
         maxDocChars: 100_000,
+      }),
+    ).toThrow(RerankConfigError);
+
+    expect(() =>
+      validateRerankConfig({
+        baseUrl: "https://tei.example.com",
+        apiStyle: "tei",
+        model: "some-custom-reranker",
+        // Within the conservative (512-token) fallback's own default budget.
       }),
     ).not.toThrow();
   });

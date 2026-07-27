@@ -16,7 +16,9 @@ import {
 import { embedTexts, type EmbedClientConfig } from "../core/embed-client.ts";
 import {
   rerankDocuments,
+  RerankConfigError,
   RerankQueryTooLongError,
+  validateRerankConfig,
   type RerankClientConfig,
 } from "../core/rerank-client.ts";
 import { mmrRerank, type MmrItem } from "../core/mmr.ts";
@@ -673,9 +675,11 @@ export function toRerankClientConfig(
   return {
     baseUrl: rerank.baseUrl,
     apiStyle: "tei",
-    maxDocChars: rerank.maxDocChars,
     ...(rerank.model !== undefined ? { model: rerank.model } : {}),
     ...(rerank.apiKey !== undefined ? { apiKey: rerank.apiKey } : {}),
+    ...(rerank.maxDocChars !== undefined
+      ? { maxDocChars: rerank.maxDocChars }
+      : {}),
   };
 }
 
@@ -849,6 +853,14 @@ export async function hybridSearch(
 
   if (rerankConfig) {
     try {
+      // A replay's transform_config can supply its own rerank endpoint/model
+      // (resolvedTuning?.rerank, above) that never passes through
+      // mountKnowledgeEngine's startup validation — validate it here, on the
+      // same terms as the mounted config, so a replay-authored mismatch
+      // degrades to fused ranking (caught below) instead of silently
+      // 413-ing every rerank call for that generation.
+      validateRerankConfig(rerankConfig);
+
       const dedupedForRerank = dedupeCandidatesPerDocument(mergedRows, false);
       const rerankCandidates = dedupedForRerank.slice(
         0,
@@ -907,6 +919,12 @@ export async function hybridSearch(
           { tenantId, error: err.message },
         );
         degraded = [...(degraded ?? []), "rerank_query_too_long"];
+      } else if (err instanceof RerankConfigError) {
+        log.warn(
+          "search: rerank config failed validation (possibly replay-supplied); falling back to fused ranking",
+          { tenantId, generation, error: err.message },
+        );
+        degraded = [...(degraded ?? []), "rerank_unavailable"];
       } else {
         log.warn("search: rerank failed; falling back to fused ranking", {
           tenantId,

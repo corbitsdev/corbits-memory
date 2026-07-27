@@ -1,5 +1,4 @@
 import type { EngineConfig } from "./config.ts";
-import { TEI_MAX_DOC_CHARS } from "./core/rerank-client.ts";
 
 /**
  * SDK mount config — what `mountKnowledgeEngine` consumes.
@@ -34,6 +33,19 @@ function intEnv(name: string, fallback: number): number {
   return n;
 }
 
+// No fallback: `undefined` means "let rerank-client derive the budget from
+// the resolved model" rather than baking in a value calibrated for a
+// different model. See `EngineConfig.rerank.maxDocChars`.
+function optionalIntEnv(name: string): number | undefined {
+  const raw = optionalEnv(name);
+  if (raw === undefined) return undefined;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n <= 0) {
+    throw new Error(`${name} must be a positive integer`);
+  }
+  return n;
+}
+
 /**
  * Build a config from environment variables — a convenience for env-driven
  * deploys. Hosts may also construct `KnowledgeConfig` programmatically.
@@ -55,7 +67,7 @@ export function loadKnowledgeConfig(): KnowledgeConfig {
         baseUrl: optionalEnv("RERANK_BASE_URL"),
         model: optionalEnv("RERANK_MODEL"),
         apiKey: optionalEnv("RERANK_API_KEY"),
-        maxDocChars: intEnv("RERANK_MAX_DOC_CHARS", TEI_MAX_DOC_CHARS),
+        maxDocChars: optionalIntEnv("RERANK_MAX_DOC_CHARS"),
       },
     },
   };
