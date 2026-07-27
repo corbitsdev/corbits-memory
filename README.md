@@ -41,7 +41,7 @@ import { loadKnowledgeConfig } from "@corbits/knowledge-engine/config";
 // `app` is your Interchange createApp (Hono<TenantEnv>). Pass the same grant
 // store + condition registry you give createApp/createRequireGrant.
 mountKnowledgeEngine(app, {
-  config: loadKnowledgeConfig(), // or build the object yourself
+  config: loadKnowledgeConfig(),          // or build the object yourself
   grants: { grantStore, conditionRegistry },
 });
 ```
@@ -108,18 +108,10 @@ import {
   loadKnowledgeConfig,
 } from "@corbits/knowledge-engine";
 
-const knowledge = createKnowledgePlane(loadKnowledgeConfig(), {
-  grantStore,
-  conditionRegistry,
-});
+const knowledge = createKnowledgePlane(loadKnowledgeConfig());
 await knowledge.capture({ tenantId, principalId, title, text });
 await knowledge.close();
 ```
-
-The grant config is required so the plane can evaluate capabilities on the paths
-that check them — `ask()` does its own `knowledge:search` check internally,
-precisely because an in-process caller never passes through the `requireGrant`
-route guard.
 
 `capture()` and `search()` do **not** check the capability grant. They apply
 per-document visibility and block lists, which is not the same question. So if
@@ -139,8 +131,6 @@ const decision = await authorize(
 );
 if (decision.effect !== "allow") throw new Error("not permitted");
 ```
-
-Or just use `ask()`, which cannot be called without that check happening.
 
 Apply the knowledge/vector schema once (idempotent):
 
