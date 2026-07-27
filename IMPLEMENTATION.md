@@ -41,6 +41,12 @@ routes; each reads identity from the context (`caller(c)`) and guards via
 singletons except the logger). Nothing has import-time side effects, so unit
 tests exercise the routes and services directly without a listening server.
 
+Mounting does **not** verify the FTS language against the database at boot —
+see the `knowledge_chunk` section below. A host is expected to either run
+`runKnowledgeMigrations` itself (which verifies) or wire its own readiness
+probe to call `verifyFtsLanguage`; without one of those, a language mismatch
+surfaces as a runtime failure on the plane's first query, not at mount time.
+
 ## Config
 
 There are two config types, both in the SDK:
@@ -136,33 +142,45 @@ read-only against the catalog: `runKnowledgeMigrations` checks after
 applying (the deploy step), and the knowledge plane runs the same check
 once, memoized, before its first query (the serving path) — so a mismatch
 or unmigrated schema fails loudly on first use regardless of who ran the
-migrations. Hosts with a readiness probe can call the exported
-`verifyFtsLanguage` there instead. Chunks are **never** reused across
-versions — every new version gets a fresh full insert of its own chunks.
+migrations. **The serving-path check only runs when something actually
+calls it** — `search()`/`capture()` invoke it lazily and memoize the result,
+but nothing forces that first call to happen at boot. A host that mounts the
+engine without running `runKnowledgeMigrations` itself and without wiring a
+readiness probe will not learn about a language mismatch until the first
+real query or capture fails — not at startup. Hosts that want a boot-time
+guarantee **must** call the exported `verifyFtsLanguage` from their own
+readiness probe; it is not optional belt-and-suspenders, it is the only way
+to get a boot-time check if this SDK instance isn't the one that migrated.
+Chunks are **never** reused across versions — every new version gets a
+fresh full insert of its own chunks.
 
 **Changing `FTS_LANGUAGE` on an already-migrated database** (the mismatch
 `verifyFtsLanguage` throws on) requires rebuilding the generated column —
 `runKnowledgeMigrations` only applies new files and will not retroactively
-alter an existing one. One-time recipe:
+alter an existing one. One-time recipe (verified against a live
+`postgres:16` instance):
 
 ```sql
 BEGIN;
+DROP INDEX IF EXISTS knowledge_chunk_text_fts_idx;
 ALTER TABLE knowledge_chunk DROP COLUMN text_fts;
 ALTER TABLE knowledge_chunk ADD COLUMN text_fts tsvector
   GENERATED ALWAYS AS (to_tsvector('<new_language>', "text")) STORED;
-CREATE INDEX CONCURRENTLY knowledge_chunk_text_fts_idx ON knowledge_chunk USING gin (text_fts);
 COMMIT;
+
+-- Separate statement/connection — CREATE INDEX CONCURRENTLY is rejected
+-- inside any transaction block, unconditionally, since Postgres 8.2. It
+-- cannot be combined with the BEGIN/COMMIT block above.
+CREATE INDEX CONCURRENTLY knowledge_chunk_text_fts_idx ON knowledge_chunk USING gin (text_fts);
 ```
 
 Both `ALTER TABLE` statements take an `ACCESS EXCLUSIVE` lock and force a
 full table rewrite (dropping then re-adding a `STORED` generated column
 always rewrites) — plan for a stall on `knowledge_chunk` for the duration on
-a populated database; run in a maintenance window. `CREATE INDEX
-CONCURRENTLY` cannot run inside the same transaction as the `ALTER`s on some
-Postgres versions — if it errors there, `COMMIT` the `ALTER`s first and run
-the index creation as a separate statement. Only unqualified `pg_catalog`
-config names are supported; a schema-qualified config on this column is
-rejected explicitly by `verifyFtsLanguage` rather than silently mis-parsed.
+a populated database; run in a maintenance window. Only unqualified
+`pg_catalog` config names are supported; a schema-qualified config on this
+column is rejected explicitly by `verifyFtsLanguage` (with this same recipe
+in the error) rather than silently mis-parsed.
 
 ### `knowledge_entity` / `knowledge_edge`
 Lightweight graph rows. `knowledge_entity` has no unique constraint; dedupe on

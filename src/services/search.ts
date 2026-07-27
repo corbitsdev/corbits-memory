@@ -8,7 +8,7 @@ import {
   knowledgeEdge,
   knowledgeVersion,
 } from "../db/schema.ts";
-import { createEmbedRegistrySqlClient } from "../core/embed-sql.ts";
+import { createRawSqlClient } from "../core/embed-sql.ts";
 import {
   cosineDistanceExpr,
   EMBED_TABLE_NAME_PATTERN,
@@ -519,7 +519,7 @@ export async function fetchDenseCandidates(
 
   if (query === "") return null;
 
-  const embedSqlClient = createEmbedRegistrySqlClient(rawSql);
+  const embedSqlClient = createRawSqlClient(rawSql);
   const activeTable = await resolveActiveEmbedTable(embedSqlClient, tenantId);
   if (!activeTable) return null;
 
@@ -639,7 +639,7 @@ async function fetchChunkVectors(
 ): Promise<Map<string, number[]>> {
   if (chunkIds.length === 0) return new Map();
 
-  const embedSqlClient = createEmbedRegistrySqlClient(rawSql);
+  const embedSqlClient = createRawSqlClient(rawSql);
   const activeTable = await resolveActiveEmbedTable(embedSqlClient, tenantId);
   if (!activeTable) return new Map();
 

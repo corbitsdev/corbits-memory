@@ -16,6 +16,3 @@ export function createRawSqlClient(sql: RawSql): EmbedRegistrySqlClient {
     },
   };
 }
-
-/** @deprecated Use `createRawSqlClient` — same bridge, name predates its FTS use. */
-export const createEmbedRegistrySqlClient = createRawSqlClient;

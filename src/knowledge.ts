@@ -63,8 +63,13 @@ export function createKnowledgePlane(config: KnowledgeConfig): KnowledgePlane {
   // (Hibernate validate / Rails check_all_pending!): the mount is
   // synchronous, so "before accepting traffic" becomes a memoized check
   // awaited by the first query. Read-only; migration stays a deploy step.
-  // Hosts with a real readiness probe can call verifyFtsLanguage there
-  // instead — this memo then resolves against an already-verified schema.
+  // NOTE this is a lazy check, not a boot-time one: nothing forces it to run
+  // until the first real search()/capture() call, so a host that neither
+  // runs runKnowledgeMigrations itself nor wires a readiness probe will not
+  // learn about a language mismatch until that first call fails. A host
+  // that wants a real boot-time guarantee MUST call the exported
+  // verifyFtsLanguage from its own readiness probe — this memo then
+  // resolves instantly against the already-verified schema.
   const ensureVerified = createFtsVerification(
     createRawSqlClient(sql),
     engineConfig.ftsLanguage ?? DEFAULT_FTS_LANGUAGE,

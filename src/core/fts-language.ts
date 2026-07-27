@@ -51,6 +51,32 @@ export function createFtsVerification(
     }));
 }
 
+/**
+ * The one-time column-rebuild recipe, shared by every error that needs to
+ * point an operator at it. `CREATE INDEX CONCURRENTLY` is deliberately its
+ * own statement, outside the `BEGIN`/`COMMIT` block: Postgres has rejected
+ * CONCURRENTLY inside a transaction block unconditionally since 8.2 (not a
+ * version-dependent quirk) — wrapping it in the same transaction as the
+ * ALTERs makes this recipe fail outright instead of fixing anything.
+ * Verified against a real postgres:16 container before being written here.
+ */
+function rebuildColumnRecipe(language: string): string {
+  return (
+    `  BEGIN;\n` +
+    `  DROP INDEX IF EXISTS knowledge_chunk_text_fts_idx;\n` +
+    `  ALTER TABLE knowledge_chunk DROP COLUMN text_fts;\n` +
+    `  ALTER TABLE knowledge_chunk ADD COLUMN text_fts tsvector\n` +
+    `    GENERATED ALWAYS AS (to_tsvector('${language}', "text")) STORED;\n` +
+    `  COMMIT;\n\n` +
+    `  -- Separate statement/connection — CANNOT run inside the transaction\n` +
+    `  -- above, or any transaction block, ever:\n` +
+    `  CREATE INDEX CONCURRENTLY knowledge_chunk_text_fts_idx ON knowledge_chunk USING gin (text_fts);\n\n` +
+    `Both ALTER TABLE statements take an ACCESS EXCLUSIVE lock and rewrite the table ` +
+    `(DROP COLUMN then re-adding a STORED generated column forces a full rewrite) — ` +
+    `expect a stall on this table for the duration on a populated database; run during a maintenance window.`
+  );
+}
+
 export interface FtsVerifySqlClient {
   query: (sql: string, params: readonly unknown[]) => Promise<Array<Record<string, unknown>>>;
 }
@@ -106,26 +132,16 @@ export async function verifyFtsLanguage(
     throw new Error(
       `knowledge_chunk.text_fts was built with the schema-qualified text search config "${schema}.${applied}", ` +
         `but FTS_LANGUAGE only supports unqualified pg_catalog configs. ` +
-        `Either drop the schema qualification (move/alias the config into pg_catalog) or rebuild the column — see the recipe below.`,
+        `Either drop the schema qualification (move/alias the config into pg_catalog), or rebuild the column ` +
+        `under an unqualified config name:\n\n${rebuildColumnRecipe(ftsLanguage)}`,
     );
   }
   if (applied !== ftsLanguage) {
     throw new Error(
       `FTS language mismatch: knowledge_chunk.text_fts was built with "${applied}" but the configuration says "${ftsLanguage}". ` +
         `Search would silently stem queries differently than the index.\n\n` +
-        `To rebuild the column under the new language:\n` +
-        `  BEGIN;\n` +
-        `  ALTER TABLE knowledge_chunk DROP COLUMN text_fts;\n` +
-        `  ALTER TABLE knowledge_chunk ADD COLUMN text_fts tsvector\n` +
-        `    GENERATED ALWAYS AS (to_tsvector('${ftsLanguage}', "text")) STORED;\n` +
-        `  CREATE INDEX CONCURRENTLY knowledge_chunk_text_fts_idx ON knowledge_chunk USING gin (text_fts);\n` +
-        `  COMMIT;\n\n` +
-        `Both ALTER TABLE statements take an ACCESS EXCLUSIVE lock and rewrite the table ` +
-        `(DROP COLUMN then re-adding a STORED generated column forces a full rewrite) — ` +
-        `expect a stall on this table for the duration on a populated database; run during a ` +
-        `maintenance window. CREATE INDEX CONCURRENTLY cannot run inside the same transaction as ` +
-        `the ALTERs on some Postgres versions — if it errors there, commit the ALTERs first, then ` +
-        `run the index creation separately. Or, fix FTS_LANGUAGE back to "${applied}" instead.`,
+        `To rebuild the column under the new language:\n\n${rebuildColumnRecipe(ftsLanguage)}\n\n` +
+        `Or, fix FTS_LANGUAGE back to "${applied}" instead.`,
     );
   }
 }
