@@ -978,7 +978,7 @@ export async function hybridSearch(
   // One call per invocation, covering every degrade path above (dense down,
   // rerank down, rerank query-too-long) AND the fully healthy case
   // (`degraded` undefined) — see core/degrade-metrics.ts.
-  recordDegrade(degraded);
+  recordDegrade(tenantId, degraded);
 
   return {
     hits,

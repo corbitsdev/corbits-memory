@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { type EmbedClientConfig, probeEmbedDims } from "./embed-client.ts";
-import { log } from "../log.ts";
+import { formatCaughtError, log } from "../log.ts";
 
 // Dims are dynamic and discovered, never hard-coded — the dimension travels
 // with exactly one artifact: the knowledge_embed_model.dims column,
@@ -102,12 +102,10 @@ export async function activateEmbedModel(
       [],
     );
   } catch (err) {
+    const errMessage = formatCaughtError(err);
     log.warn(
-      "embed-model-registry: hnsw index creation failed; falling back to ivfflat",
-      {
-        indexName,
-        error: err instanceof Error ? err.message : String(err),
-      },
+      `embed-model-registry: hnsw index creation failed; falling back to ivfflat: ${errMessage}`,
+      { indexName, error: errMessage },
     );
     await client.query(
       `CREATE INDEX IF NOT EXISTS ${indexName} ON ${tableName} USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100)`,

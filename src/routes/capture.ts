@@ -3,7 +3,7 @@ import type { TenantEnv } from "@intx/hub-api";
 import { describeRoute, resolver, validator } from "hono-openapi";
 import { type } from "arktype";
 
-import { log } from "../log.ts";
+import { formatCaughtError, log } from "../log.ts";
 import { parseAcl } from "../acl.ts";
 import type { RouteDeps } from "./deps.ts";
 import { caller, grantGuard } from "./deps.ts";
@@ -60,7 +60,8 @@ export function mountCaptureRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
         });
         return c.json({ status: "captured" });
       } catch (err) {
-        log.error("knowledge capture failed", { err });
+        const errMessage = formatCaughtError(err);
+        log.error(`knowledge capture failed: ${errMessage}`, { err });
         return c.json({ error: "capture failed" }, 502);
       }
     },
