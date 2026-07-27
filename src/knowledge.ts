@@ -15,6 +15,10 @@ import {
   KnowledgeSearchInputError,
   type HybridSearchResult,
 } from "./services/search.ts";
+import {
+  listTimelineEvents,
+  type TimelineEvent,
+} from "./services/timeline.ts";
 import type { KnowledgeConfig } from "./mount-config.ts";
 
 export type KnowledgeIdentity = {
@@ -39,6 +43,10 @@ export type KnowledgeCaptureParams = KnowledgeIdentity & {
   attributes?: Record<string, string | number | boolean | null>;
 };
 
+export type KnowledgeTimelineParams = KnowledgeIdentity & {
+  limit?: number;
+};
+
 export class KnowledgeError extends Error {
   constructor(
     public readonly status: number,
@@ -52,8 +60,11 @@ export class KnowledgeError extends Error {
 export type KnowledgePlane = {
   search(params: KnowledgeSearchParams): Promise<HybridSearchResult>;
   capture(params: KnowledgeCaptureParams): Promise<void>;
+  timeline(params: KnowledgeTimelineParams): Promise<TimelineEvent[]>;
   close(): Promise<void>;
 };
+
+export type { TimelineEvent };
 
 export function createKnowledgePlane(config: KnowledgeConfig): KnowledgePlane {
   // Resolve once here so EngineConfig.ftsLanguage is concrete for every
@@ -96,6 +107,7 @@ export function createKnowledgePlane(config: KnowledgeConfig): KnowledgePlane {
 
         // Block-list post-filter: docs may store acl_block as a list of
         // principal ids. Engine visibility does not model block lists yet.
+        // Shared with timeline via readBlockList / blockedDocumentIds.
         if (result.hits.length === 0) return result;
         const docIds = Array.from(
           new Set(result.hits.map((h) => h.document_id)),
@@ -130,7 +142,11 @@ export function createKnowledgePlane(config: KnowledgeConfig): KnowledgePlane {
         const hits = result.hits.filter((h) => !blocked.has(h.document_id));
         // result.evidence is already "none" only when there were no hits, so
         // a post-filter that empties the list is the only way to reach "none".
-        return { ...result, hits, evidence: hits.length === 0 ? "none" : result.evidence };
+        return {
+          ...result,
+          hits,
+          evidence: hits.length === 0 ? "none" : result.evidence,
+        };
       } catch (err) {
         if (err instanceof KnowledgeSearchInputError) {
           throw new KnowledgeError(400, err.message);
@@ -170,6 +186,15 @@ export function createKnowledgePlane(config: KnowledgeConfig): KnowledgePlane {
           contentHash: "", // recomputed canonically in adapt-and-plan
           ...(Object.keys(attributes).length > 0 ? { attributes } : {}),
         },
+      });
+    },
+
+    async timeline(params) {
+      return listTimelineEvents({
+        db,
+        tenantId: params.tenantId,
+        principalId: params.principalId,
+        ...(params.limit !== undefined ? { limit: params.limit } : {}),
       });
     },
 
