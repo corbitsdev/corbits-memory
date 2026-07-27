@@ -77,7 +77,7 @@ GET  /api/knowledge/timeline
 Requests are authenticated upstream by Interchange (however the host chose);
 the SDK routes assume a resolved principal on the context.
 
-### Document ACL (who may surface on search) — set at capture
+### Document ACL (who may surface on search/timeline) — set at capture
 
 Optional on capture; default is scope-wide (the company brain), or
 private-to-subject.
@@ -90,9 +90,12 @@ acl?: {
 }
 ```
 
-Search filters by scope first, then applies the document ACL against the
-caller's subject. Block wins over allow. (Group/grant-based ACLs are rejected
-until membership lands.)
+Search and timeline both filter by scope first, then apply the document ACL
+against the caller's subject. Block wins over allow. (Group/grant-based ACLs
+are rejected until membership lands.) Timeline reads durable document state —
+not a process-local capture ring — so ACL changes and restarts do not leak
+titles.
+
 
 ## Ingestion
 
