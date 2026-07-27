@@ -22,6 +22,7 @@ import {
   type RerankClientConfig,
 } from "../core/rerank-client.ts";
 import { mmrRerank, type MmrItem } from "../core/mmr.ts";
+import { recordDegrade } from "../core/degrade-metrics.ts";
 import {
   authorityBoostMultiplier,
   clampOverfetchMultiplier,
@@ -973,6 +974,11 @@ export async function hybridSearch(
         }
       : undefined;
   const evidence = deriveHybridEvidence(lexicalRows, hits.length, rerankedTop);
+
+  // One call per invocation, covering every degrade path above (dense down,
+  // rerank down, rerank query-too-long) AND the fully healthy case
+  // (`degraded` undefined) — see core/degrade-metrics.ts.
+  recordDegrade(degraded);
 
   return {
     hits,

@@ -30,6 +30,13 @@ export type { KnowledgePlane } from "./knowledge.ts";
 export { CaptureLog, type CaptureEvent } from "./capture-log.ts";
 // Migrations
 export { runKnowledgeMigrations } from "./migrations.ts";
+// Degrade metrics — no metrics dependency exists in this package (see
+// core/degrade-metrics.ts); a host with its own metrics backend polls this
+// snapshot and forwards it, rather than the engine owning a /metrics port.
+export {
+  getDegradeMetricsSnapshot,
+  type DegradeMetricsSnapshot,
+} from "./core/degrade-metrics.ts";
 // Granular mount (compose your own)
 export { mountKnowledgeRoutes, type GrantConfig } from "./routes/mount.ts";
 
