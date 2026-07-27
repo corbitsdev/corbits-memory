@@ -26,7 +26,6 @@ const noopRequireGrant: RequireGrant = () => (async () => {}) as never;
 function deps(grants: RouteDeps["grants"], requireGrant = noopRequireGrant): RouteDeps {
   return {
     knowledge: {} as RouteDeps["knowledge"],
-    captureLog: {} as RouteDeps["captureLog"],
     grants,
     requireGrant,
   };

@@ -51,13 +51,6 @@ export function mountCaptureRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
           visibility: parsed.visibility,
           blockPrincipalIds: parsed.block,
         });
-        deps.captureLog.record({
-          at: new Date().toISOString(),
-          title,
-          source: "api",
-          tenantId: scopeId,
-          principalId: subjectId,
-        });
         return c.json({ status: "captured" });
       } catch (err) {
         const errMessage = formatCaughtError(err);
