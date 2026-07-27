@@ -28,10 +28,7 @@ function grant(principalId: string, action: string): GrantRule {
 const noopRequireGrant: RequireGrant = () => (async () => {}) as never;
 
 // Minimal RouteDeps for unit tests — routes here only touch grants/requireGrant.
-function deps(
-  grants: RouteDeps["grants"],
-  requireGrant = noopRequireGrant,
-): RouteDeps {
+function deps(grants: RouteDeps["grants"], requireGrant = noopRequireGrant): RouteDeps {
   return {
     knowledge: {} as RouteDeps["knowledge"],
     grants,

@@ -17,10 +17,7 @@ const TimelineResponse = type({
   }).array(),
 });
 
-export function mountTimelineRoute(
-  app: Hono<TenantEnv>,
-  deps: RouteDeps,
-): void {
+export function mountTimelineRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
   app.get(
     "/api/knowledge/timeline",
     describeRoute({
