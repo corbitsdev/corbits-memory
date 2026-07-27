@@ -4,7 +4,7 @@ import { and, desc, eq } from "drizzle-orm";
 import type { Db, RawSql } from "../db/client.ts";
 import type { EngineConfig } from "../config.ts";
 import { newId } from "../core/id.ts";
-import { log } from "../log.ts";
+import { formatCaughtError, log } from "../log.ts";
 import { stableStringify } from "../core/hash.ts";
 import { LIVE_GENERATION } from "../core/generation.ts";
 import {
@@ -517,27 +517,26 @@ async function embedInsertedChunksWithConfig(
     );
 
     if (result.clientError) {
-      log.warn("capture: embedding client failed; chunks remain pending", {
-        tenantId,
-        chunkCount: chunks.length,
-        error: result.clientError,
-      });
+      log.warn(
+        `capture: embedding client failed; chunks remain pending: ${result.clientError}`,
+        { tenantId, chunkCount: chunks.length, error: result.clientError },
+      );
       return { degraded: true };
     }
     if (result.rejected.length > 0) {
-      log.warn("capture: some chunks were rejected during embedding", {
-        tenantId,
-        rejected: result.rejected,
-      });
+      log.warn(
+        `capture: ${result.rejected.length} chunk(s) rejected during embedding`,
+        { tenantId, rejected: result.rejected },
+      );
       return { degraded: true };
     }
     return { degraded: false };
   } catch (err) {
-    log.warn("capture: embedding pass failed; chunks remain pending", {
-      tenantId,
-      chunkCount: chunks.length,
-      error: err instanceof Error ? err.message : String(err),
-    });
+    const errMessage = formatCaughtError(err);
+    log.warn(
+      `capture: embedding pass failed; chunks remain pending: ${errMessage}`,
+      { tenantId, chunkCount: chunks.length, error: errMessage },
+    );
     return { degraded: true };
   }
 }

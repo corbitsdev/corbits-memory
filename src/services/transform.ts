@@ -3,7 +3,7 @@ import { and, desc, eq, gte, lte } from "drizzle-orm";
 import type { Db, RawSql } from "../db/client.ts";
 import type { EngineConfig } from "../config.ts";
 import { newId } from "../core/id.ts";
-import { log } from "../log.ts";
+import { formatCaughtError, log } from "../log.ts";
 import { rawCapture, transformConfig, transformRun } from "../db/schema.ts";
 import {
   TransformConfigParamsSchema,
@@ -400,26 +400,33 @@ export async function runTransform(
         if (result.status === "captured") versionCount++;
       } catch (err) {
         failedCount++;
-        const message = err instanceof Error ? err.message : String(err);
+        const message = formatCaughtError(err);
         firstError ??= message;
-        log.error("transform run: one raw_capture row failed to re-derive", {
-          runId,
-          configId: configRow.id,
-          tenantId: configRow.tenantId,
-          rawCaptureId: row.id,
-          error: message,
-        });
+        log.error(
+          `transform run: one raw_capture row failed to re-derive: ${message}`,
+          {
+            runId,
+            configId: configRow.id,
+            tenantId: configRow.tenantId,
+            rawCaptureId: row.id,
+            error: message,
+          },
+        );
       }
     }
   } catch (err) {
     failedCount++;
-    firstError ??= err instanceof Error ? err.message : String(err);
-    log.error("transform run failed before per-row derivation completed", {
-      runId,
-      configId: configRow.id,
-      tenantId: configRow.tenantId,
-      error: firstError,
-    });
+    const message = formatCaughtError(err);
+    firstError ??= message;
+    log.error(
+      `transform run failed before per-row derivation completed: ${message}`,
+      {
+        runId,
+        configId: configRow.id,
+        tenantId: configRow.tenantId,
+        error: firstError,
+      },
+    );
   }
 
   const status = failedCount === 0 ? "completed" : "failed";

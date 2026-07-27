@@ -22,6 +22,7 @@ import {
   type RerankClientConfig,
 } from "../core/rerank-client.ts";
 import { mmrRerank, type MmrItem } from "../core/mmr.ts";
+import { recordDegrade } from "../core/degrade-metrics.ts";
 import {
   authorityBoostMultiplier,
   clampOverfetchMultiplier,
@@ -33,7 +34,7 @@ import {
   toRankedCandidates,
   type DegradeFlag,
 } from "../core/hybrid-search.ts";
-import { log } from "../log.ts";
+import { formatCaughtError, log } from "../log.ts";
 import { resolveGenerationSearchParams } from "./transform.ts";
 import type {
   SearchChannel,
@@ -806,10 +807,11 @@ export async function hybridSearch(
       denseRows = dense;
     }
   } catch (err) {
-    log.warn("search: dense retrieval failed; falling back to lexical only", {
-      tenantId,
-      error: err instanceof Error ? err.message : String(err),
-    });
+    const errMessage = formatCaughtError(err);
+    log.warn(
+      `search: dense retrieval failed; falling back to lexical only: ${errMessage}`,
+      { tenantId, error: errMessage },
+    );
     degraded = ["dense_unavailable"];
   }
 
@@ -915,21 +917,22 @@ export async function hybridSearch(
     } catch (err) {
       if (err instanceof RerankQueryTooLongError) {
         log.warn(
-          "search: rerank skipped; query too long for the document budget, falling back to fused ranking",
+          `search: rerank skipped; query too long for the document budget, falling back to fused ranking: ${err.message}`,
           { tenantId, error: err.message },
         );
         degraded = [...(degraded ?? []), "rerank_query_too_long"];
       } else if (err instanceof RerankConfigError) {
         log.warn(
-          "search: rerank config failed validation (possibly replay-supplied); falling back to fused ranking",
+          `search: rerank config failed validation (possibly replay-supplied); falling back to fused ranking: ${err.message}`,
           { tenantId, generation, error: err.message },
         );
         degraded = [...(degraded ?? []), "rerank_unavailable"];
       } else {
-        log.warn("search: rerank failed; falling back to fused ranking", {
-          tenantId,
-          error: err instanceof Error ? err.message : String(err),
-        });
+        const errMessage = formatCaughtError(err);
+        log.warn(
+          `search: rerank failed; falling back to fused ranking: ${errMessage}`,
+          { tenantId, error: errMessage },
+        );
         degraded = [...(degraded ?? []), "rerank_unavailable"];
       }
       truncated = dedupeCandidatesPerDocument(
@@ -971,6 +974,11 @@ export async function hybridSearch(
         }
       : undefined;
   const evidence = deriveHybridEvidence(lexicalRows, hits.length, rerankedTop);
+
+  // One call per invocation, covering every degrade path above (dense down,
+  // rerank down, rerank query-too-long) AND the fully healthy case
+  // (`degraded` undefined) — see core/degrade-metrics.ts.
+  recordDegrade(tenantId, degraded);
 
   return {
     hits,

@@ -3,7 +3,7 @@ import type { TenantEnv } from "@intx/hub-api";
 import { describeRoute, resolver, validator } from "hono-openapi";
 import { type } from "arktype";
 
-import { log } from "../log.ts";
+import { formatCaughtError, log } from "../log.ts";
 import { KnowledgeError } from "../knowledge.ts";
 import { SearchResponseSchema } from "../core/schemas/search.ts";
 import type { RouteDeps } from "./deps.ts";
@@ -45,7 +45,8 @@ export function mountSearchRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
         });
         return c.json(result);
       } catch (err) {
-        log.error("knowledge search failed", { err });
+        const errMessage = formatCaughtError(err);
+        log.error(`knowledge search failed: ${errMessage}`, { err });
         if (err instanceof KnowledgeError) {
           return c.json({ error: err.message }, err.status as 400);
         }

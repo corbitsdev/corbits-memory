@@ -3,7 +3,7 @@
  * and hybrid-search services directly — no HTTP hop.
  */
 import type { EngineConfig } from "./config.ts";
-import { log } from "./log.ts";
+import { formatCaughtError, log } from "./log.ts";
 import { createDb, type Db, type RawSql } from "./db/client.ts";
 import type { VisibilitySpec } from "./core/schemas/document.ts";
 import { captureDocument } from "./services/capture.ts";
@@ -87,12 +87,14 @@ export function createKnowledgePlane(config: KnowledgeConfig): KnowledgePlane {
           let list: unknown;
           try {
             list = JSON.parse(raw);
-          } catch {
+          } catch (err) {
             // Unparseable block list → fail closed: hide the doc rather than
             // risk surfacing something a corrupt ACL meant to block.
-            log.warn("search: unparseable acl_block, blocking document", {
-              documentId: row.id,
-            });
+            const errMessage = formatCaughtError(err);
+            log.warn(
+              `search: unparseable acl_block, blocking document: ${errMessage}`,
+              { documentId: row.id, error: errMessage },
+            );
             blocked.add(row.id);
             continue;
           }
