@@ -23,14 +23,23 @@ function grant(principalId: string, action: string): GrantRule {
 }
 
 const PRINCIPAL = "p1";
+const OTHER = "p2";
 const TENANT = "t1";
 
+const SECRET_TITLE = "Q3 layoffs — draft list";
+const PUBLIC_TITLE = "team standup notes";
+
 // A knowledge plane stub that records captures and returns fixed results.
+// Timeline applies a simple ACL model so route tests can prove the route
+// never invents titles and always scopes by the caller's principal.
 function stubPlane(opts?: {
-  timeline?: TimelineEvent[] | ((p: { principalId: string; tenantId: string }) => TimelineEvent[]);
+  timelineCatalog?: Array<
+    TimelineEvent & { visibleTo: readonly string[] | "tenant" }
+  >;
 }) {
   const captured: { title: string; tenantId: string; principalId: string }[] =
     [];
+  const catalog = opts?.timelineCatalog ?? [];
   const plane: KnowledgePlane = {
     search: async () => ({ hits: [], evidence: "none" }),
     capture: async (p) => {
@@ -41,8 +50,13 @@ function stubPlane(opts?: {
       });
     },
     timeline: async (p) => {
-      if (typeof opts?.timeline === "function") return opts.timeline(p);
-      return opts?.timeline ?? [];
+      return catalog
+        .filter(
+          (e) =>
+            e.tenantId === p.tenantId &&
+            (e.visibleTo === "tenant" || e.visibleTo.includes(p.principalId)),
+        )
+        .map(({ visibleTo: _v, ...event }) => event);
     },
     close: async () => {},
   };
@@ -52,7 +66,9 @@ function stubPlane(opts?: {
 function buildApp(
   grants: GrantRule[],
   opts?: {
-    timeline?: TimelineEvent[] | ((p: { principalId: string; tenantId: string }) => TimelineEvent[]);
+    timelineCatalog?: Array<
+      TimelineEvent & { visibleTo: readonly string[] | "tenant" }
+    >;
     principalId?: string;
   },
 ) {
@@ -103,6 +119,28 @@ const jsonPost = (body: unknown) => ({
   body: JSON.stringify(body),
 });
 
+const TIMELINE_CATALOG: Array<
+  TimelineEvent & { visibleTo: readonly string[] | "tenant" }
+> = [
+  {
+    at: "2026-01-02T00:00:00.000Z",
+    title: PUBLIC_TITLE,
+    source: "mcp",
+    tenantId: TENANT,
+    principalId: "alice",
+    visibleTo: "tenant",
+  },
+  {
+    at: "2026-01-01T00:00:00.000Z",
+    title: SECRET_TITLE,
+    source: "mcp",
+    tenantId: TENANT,
+    principalId: "alice",
+    // Private to alice only — p1 must never see this title on the wire.
+    visibleTo: ["alice"],
+  },
+];
+
 describe("knowledge HTTP routes", () => {
   test("capture with the capture grant writes under the caller's scope", async () => {
     const { app, captured } = buildApp([
@@ -120,12 +158,33 @@ describe("knowledge HTTP routes", () => {
   });
 
   test("capture without the capture grant is 403", async () => {
-    const { app } = buildApp([grant(PRINCIPAL, "search")]);
+    const { app, captured } = buildApp([grant(PRINCIPAL, "search")]);
     const res = await app.request(
       "/api/knowledge/capture",
       jsonPost({ title: "t", text: "body" }),
     );
     expect(res.status).toBe(403);
+    expect(captured).toHaveLength(0);
+  });
+
+  test("capture validates the body (400 on missing text)", async () => {
+    const { app } = buildApp([grant(PRINCIPAL, "capture")]);
+    const res = await app.request(
+      "/api/knowledge/capture",
+      jsonPost({ title: "t" }),
+    );
+    expect(res.status).toBe(400);
+  });
+
+  test("search with the search grant returns a result", async () => {
+    const { app } = buildApp([grant(PRINCIPAL, "search")]);
+    const res = await app.request(
+      "/api/knowledge/search",
+      jsonPost({ query: "hello" }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { evidence: string };
+    expect(body.evidence).toBe("none");
   });
 
   test("search requires the search grant", async () => {
@@ -152,38 +211,51 @@ describe("knowledge HTTP routes", () => {
     expect(res.status).toBe(403);
   });
 
-  test("timeline returns only events the plane surfaces for the caller", async () => {
-    // The plane is the ACL boundary: a blocked/private title must never be in
-    // the events the plane returns. The route must not re-add or leak them.
-    const visible: TimelineEvent = {
-      at: "2026-01-01T00:00:00.000Z",
-      title: "team standup notes",
-      source: "mcp",
-      tenantId: TENANT,
-      principalId: "alice",
-    };
+  test("timeline never returns a title private to another principal", async () => {
+    // Catalog contains a private secret title. Caller PRINCIPAL is not on
+    // its visibleTo list — the plane filters by principalId the route passes.
     const { app } = buildApp([grant(PRINCIPAL, "search")], {
-      timeline: [visible],
+      timelineCatalog: TIMELINE_CATALOG,
+      principalId: PRINCIPAL,
     });
     const res = await app.request("/api/knowledge/timeline");
     expect(res.status).toBe(200);
     const body = (await res.json()) as { events: TimelineEvent[] };
-    expect(body.events).toEqual([visible]);
-    expect(body.events.map((e) => e.title)).not.toContain(
-      "Q3 layoffs — draft list",
-    );
+    expect(body.events.map((e) => e.title)).toEqual([PUBLIC_TITLE]);
+    expect(body.events.map((e) => e.title)).not.toContain(SECRET_TITLE);
   });
 
-  test("timeline passes the caller's principal and tenant to the plane", async () => {
-    let seen: { principalId: string; tenantId: string } | undefined;
-    const { app } = buildApp([grant(PRINCIPAL, "search")], {
-      timeline: (p) => {
-        seen = p;
-        return [];
-      },
+  test("timeline returns a private title only to the allowed principal", async () => {
+    const { app } = buildApp([grant("alice", "search")], {
+      timelineCatalog: TIMELINE_CATALOG,
+      principalId: "alice",
     });
     const res = await app.request("/api/knowledge/timeline");
     expect(res.status).toBe(200);
-    expect(seen).toEqual({ principalId: PRINCIPAL, tenantId: TENANT });
+    const body = (await res.json()) as { events: TimelineEvent[] };
+    expect(body.events.map((e) => e.title).sort()).toEqual(
+      [PUBLIC_TITLE, SECRET_TITLE].sort(),
+    );
+  });
+
+  test("timeline scopes by the caller's principal (different principal → different events)", async () => {
+    const { app: appP1 } = buildApp([grant(PRINCIPAL, "search")], {
+      timelineCatalog: TIMELINE_CATALOG,
+      principalId: PRINCIPAL,
+    });
+    const { app: appOther } = buildApp([grant(OTHER, "search")], {
+      timelineCatalog: TIMELINE_CATALOG,
+      principalId: OTHER,
+    });
+    const titles = async (app: Hono<TenantEnv>) => {
+      const res = await app.request("/api/knowledge/timeline");
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { events: TimelineEvent[] };
+      return body.events.map((e) => e.title);
+    };
+    expect(await titles(appP1)).toEqual([PUBLIC_TITLE]);
+    expect(await titles(appOther)).toEqual([PUBLIC_TITLE]);
+    expect(await titles(appP1)).not.toContain(SECRET_TITLE);
+    expect(await titles(appOther)).not.toContain(SECRET_TITLE);
   });
 });

@@ -38,7 +38,7 @@ export type KnowledgeCaptureParams = KnowledgeIdentity & {
   adapter?: string;
   externalRef?: string;
   visibility?: VisibilitySpec;
-  /** Principal ids blocked from seeing this doc (stored for search post-filter). */
+  /** Principal ids blocked from seeing this doc (stored for read-path post-filter). */
   blockPrincipalIds?: string[];
   attributes?: Record<string, string | number | boolean | null>;
 };

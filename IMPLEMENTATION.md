@@ -478,7 +478,8 @@ Each route is guarded with `grantGuard(deps, action)`, which applies the host's
 |---|---|---|---|
 | `POST /api/knowledge/capture` | `capture` | `{ title, text, acl? }` | `200 { status: "captured" }`; `400` on validation |
 | `POST /api/knowledge/search` | `search` | `{ query, k? }` (k 1–50) | `200 SearchResponse` (`{ hits[], evidence, degraded? }`); `400` on bad input |
-| `GET /api/knowledge/timeline` | `search` | — | `200 { events }` — durable recent documents for the caller's scope, filtered with the same visibility SQL + `acl_block` post-filter as search |
+| `GET /api/knowledge/timeline` | `search` | — | `200 { events: [{ at, title, source, tenantId, principalId }] }` — durable recent documents for the caller's scope (`last_seen_at` DESC), filtered with the same visibility SQL + `acl_block` post-filter as search. Wire `source` is the document adapter (HTTP capture defaults to `"mcp"`). One event per document (active live version), not per capture attempt. |
+
 
 `mountKnowledgeRoutes` and `mountKnowledgeEngine` both mount the three HTTP routes. MCP is a separate package (`@corbitsdev/hono-openapi-mcp`).
 

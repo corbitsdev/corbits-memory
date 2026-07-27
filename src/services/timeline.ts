@@ -2,16 +2,17 @@
  * Durable capture timeline: recent knowledge_document rows for a principal,
  * filtered with the same visibility SQL and acl_block post-filter as search.
  */
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, type SQL } from "drizzle-orm";
 
-import { isDocumentBlockedForPrincipal } from "../acl.ts";
+import {
+  isBlockedForPrincipal,
+  parseAclBlockAttribute,
+} from "../acl.ts";
 import { LIVE_GENERATION } from "../core/generation.ts";
 import type { Db } from "../db/client.ts";
 import { knowledgeDocument, knowledgeVersion } from "../db/schema.ts";
 import { log } from "../log.ts";
 import { visibilityPredicateSql } from "./search.ts";
-
-
 
 export type TimelineEvent = {
   at: string;
@@ -26,7 +27,8 @@ export type TimelineRow = {
   title: string;
   tenantId: string;
   adapter: string;
-  createdAt: Date;
+  /** Activity time used for ordering and the wire `at` field (last_seen_at). */
+  lastSeenAt: Date;
   attributes: unknown;
   principalId: string | null;
 };
@@ -39,6 +41,32 @@ export type ListTimelineParams = {
 };
 
 export const DEFAULT_TIMELINE_LIMIT = 100;
+
+/**
+ * Active live-generation version join. Exported so unit tests pin the join
+ * predicates without a live Postgres.
+ */
+export function timelineActiveVersionJoin(): SQL | undefined {
+  return and(
+    eq(knowledgeVersion.documentId, knowledgeDocument.id),
+    eq(knowledgeVersion.status, "active"),
+    eq(knowledgeVersion.generation, LIVE_GENERATION),
+  );
+}
+
+/**
+ * Tenant + visibility WHERE clause — same visibilityPredicateSql as search.
+ * Exported so unit tests pin the SQL composition to listTimelineEvents.
+ */
+export function timelineWhere(
+  tenantId: string,
+  principalId: string,
+): SQL | undefined {
+  return and(
+    eq(knowledgeDocument.tenantId, tenantId),
+    visibilityPredicateSql(principalId),
+  );
+}
 
 /**
  * Pure block post-filter used by listTimelineEvents. Exported for unit tests
@@ -60,19 +88,14 @@ export function filterTimelineRowsForPrincipal(
       row.attributes && typeof row.attributes === "object"
         ? (row.attributes as Record<string, unknown>)
         : null;
-    const raw = attributes?.["acl_block"];
-    // Detect fail-closed separately so we can log a count without ids.
-    if (typeof raw === "string" && raw.length > 0) {
-      try {
-        JSON.parse(raw);
-      } catch {
-        failClosedCount += 1;
-        continue;
-      }
+    const parsed = parseAclBlockAttribute(attributes?.["acl_block"]);
+    if (parsed.kind === "fail_closed") {
+      failClosedCount += 1;
+      continue;
     }
-    if (isDocumentBlockedForPrincipal(attributes, principalId)) continue;
+    if (isBlockedForPrincipal(parsed, principalId)) continue;
     events.push({
-      at: row.createdAt.toISOString(),
+      at: row.lastSeenAt.toISOString(),
       title: row.title,
       source: row.adapter,
       tenantId: row.tenantId,
@@ -85,6 +108,9 @@ export function filterTimelineRowsForPrincipal(
 /**
  * Recent captures visible to `principalId` under the same ACL rules as search.
  * Visibility is applied in SQL; acl_block is a post-filter (fail-closed).
+ *
+ * One row per document (active live version), ordered by last_seen_at DESC.
+ * Wire `source` is the document adapter (HTTP capture defaults to "mcp").
  */
 export async function listTimelineEvents(
   params: ListTimelineParams,
@@ -102,26 +128,14 @@ export async function listTimelineEvents(
       title: knowledgeDocument.title,
       tenantId: knowledgeDocument.tenantId,
       adapter: knowledgeDocument.adapter,
-      createdAt: knowledgeDocument.createdAt,
+      lastSeenAt: knowledgeDocument.lastSeenAt,
       attributes: knowledgeDocument.attributes,
       principalId: knowledgeVersion.createdByPrincipalId,
     })
     .from(knowledgeDocument)
-    .innerJoin(
-      knowledgeVersion,
-      and(
-        eq(knowledgeVersion.documentId, knowledgeDocument.id),
-        eq(knowledgeVersion.status, "active"),
-        eq(knowledgeVersion.generation, LIVE_GENERATION),
-      ),
-    )
-    .where(
-      and(
-        eq(knowledgeDocument.tenantId, params.tenantId),
-        visibilityPredicateSql(params.principalId),
-      ),
-    )
-    .orderBy(desc(knowledgeDocument.createdAt))
+    .innerJoin(knowledgeVersion, timelineActiveVersionJoin())
+    .where(timelineWhere(params.tenantId, params.principalId))
+    .orderBy(desc(knowledgeDocument.lastSeenAt))
     .limit(overfetch);
 
   const { events, failClosedCount } = filterTimelineRowsForPrincipal(
