@@ -5,8 +5,8 @@ Thanks for considering a contribution to Knowledge Engine.
 ## Running it locally
 
 ```bash
-git clone https://github.com/corbitsdev/knowledge-engine.git
-cd knowledge-engine
+git clone https://github.com/corbitsdev/corbits-knowledge-engine.git
+cd corbits-knowledge-engine
 docker compose up -d   # pgvector Postgres on localhost:5434
 cp .env.example .env    # edit as needed — see README.md's quickstart
 bun install
