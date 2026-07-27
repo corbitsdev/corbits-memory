@@ -120,7 +120,12 @@ export async function listTimelineEvents(
     DEFAULT_TIMELINE_LIMIT,
   );
   // Overfetch so silent block drops still leave a full page when possible.
-  const overfetch = Math.min(limit * 3, DEFAULT_TIMELINE_LIMIT * 3);
+  // Always scan at least DEFAULT_TIMELINE_LIMIT candidates so a small `limit`
+  // is not starved by a dense recent block list.
+  const overfetch = Math.min(
+    Math.max(limit * 3, DEFAULT_TIMELINE_LIMIT),
+    DEFAULT_TIMELINE_LIMIT * 3,
+  );
 
   const rows = await params.db
     .select({

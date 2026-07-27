@@ -486,8 +486,9 @@ Each route is guarded with `grantGuard(deps, action)`, which applies the host's
 The document ACL (`acl` on capture) is validated by `parseAcl` — mode
 `scope|tenant|private|allowlist`, `subjects` only (groups/grants rejected until
 membership lands). `parseAcl` is the single write-path ACL validator.
-`parseAclBlockAttribute` / `isDocumentBlockedForPrincipal` are the shared
-read-path block helpers used by both search and timeline.
+`parseAclBlockAttribute` / `isBlockedForPrincipal` (and the thin
+`isDocumentBlockedForPrincipal` wrapper) are the shared read-path block
+helpers used by both search and timeline.
 
 
 ## Observability

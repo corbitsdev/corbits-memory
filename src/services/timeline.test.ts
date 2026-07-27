@@ -3,9 +3,12 @@ import { PgDialect } from "drizzle-orm/pg-core";
 import { desc } from "drizzle-orm";
 
 import { LIVE_GENERATION } from "../core/generation.ts";
+import type { Db } from "../db/client.ts";
 import { knowledgeDocument } from "../db/schema.ts";
 import {
+  DEFAULT_TIMELINE_LIMIT,
   filterTimelineRowsForPrincipal,
+  listTimelineEvents,
   timelineActiveVersionJoin,
   timelineWhere,
   type TimelineRow,
@@ -23,6 +26,33 @@ function row(
     attributes: {},
     principalId: "alice",
     ...overrides,
+  };
+}
+
+/** Minimal drizzle-shaped chain that returns fixed rows from `.limit()`. */
+function mockDb(rows: TimelineRow[]): {
+  db: Db;
+  get limitSeen(): number | null;
+} {
+  let limitSeen: number | null = null;
+  const chain = {
+    from: () => chain,
+    innerJoin: () => chain,
+    where: () => chain,
+    orderBy: () => chain,
+    limit: (n: number) => {
+      limitSeen = n;
+      return Promise.resolve(rows);
+    },
+  };
+  const db = {
+    select: () => chain,
+  } as unknown as Db;
+  return {
+    db,
+    get limitSeen() {
+      return limitSeen;
+    },
   };
 }
 
@@ -113,6 +143,52 @@ describe("filterTimelineRowsForPrincipal", () => {
     ];
     const { events } = filterTimelineRowsForPrincipal(rows, "p1", 100);
     expect(events[0]?.principalId).toBe("");
+  });
+});
+
+describe("listTimelineEvents (production path via mock db)", () => {
+  it("applies acl_block post-filter so blocked titles never reach the wire", async () => {
+    const SECRET = "Q3 layoffs — draft list";
+    const rows: TimelineRow[] = [
+      row({ id: "1", title: "team standup notes" }),
+      row({
+        id: "2",
+        title: SECRET,
+        attributes: { acl_block: JSON.stringify(["p1"]) },
+      }),
+      row({
+        id: "3",
+        title: "corrupt-should-not-leak",
+        attributes: { acl_block: "{not-json" },
+      }),
+    ];
+    const mock = mockDb(rows);
+    const events = await listTimelineEvents({
+      db: mock.db,
+      tenantId: "t1",
+      principalId: "p1",
+      limit: 10,
+    });
+    expect(events.map((e) => e.title)).toEqual(["team standup notes"]);
+    expect(events.map((e) => e.title)).not.toContain(SECRET);
+    expect(events.map((e) => e.title)).not.toContain("corrupt-should-not-leak");
+    // Small limit still overfetches at least DEFAULT_TIMELINE_LIMIT candidates.
+    expect(mock.limitSeen).toBe(DEFAULT_TIMELINE_LIMIT);
+  });
+
+  it("caps page size at the requested limit after filtering", async () => {
+    const rows: TimelineRow[] = Array.from({ length: 5 }, (_, i) =>
+      row({ id: String(i), title: `doc-${i}` }),
+    );
+    const mock = mockDb(rows);
+    const events = await listTimelineEvents({
+      db: mock.db,
+      tenantId: "t1",
+      principalId: "p1",
+      limit: 2,
+    });
+    expect(events).toHaveLength(2);
+    expect(events.map((e) => e.title)).toEqual(["doc-0", "doc-1"]);
   });
 });
 

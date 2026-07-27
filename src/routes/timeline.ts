@@ -31,6 +31,7 @@ export function mountTimelineRoute(app: Hono<TenantEnv>, deps: RouteDeps): void 
           },
         },
         403: { description: "Missing the knowledge:search grant" },
+        502: { description: "Timeline query failed" },
       },
     }),
     grantGuard(deps, "search"),

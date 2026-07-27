@@ -105,7 +105,7 @@ export function createKnowledgePlane(config: KnowledgeConfig): KnowledgePlane {
           k: params.k,
         });
 
-        // Block-list post-filter: docs may store acl_block as a list of
+// Block-list post-filter: docs may store acl_block as a list of
         // principal ids. Engine visibility does not model block lists yet.
         // Shared with timeline via readBlockList / blockedDocumentIds.
         if (result.hits.length === 0) return result;
