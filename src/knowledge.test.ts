@@ -325,7 +325,7 @@ describe("ask() — missing generate", () => {
       grantStore: createInMemoryGrantStore([grant("search")]),
       conditionRegistry: {},
     };
-    const plane = createKnowledgePlane(askConfig, grants);
+const plane = createKnowledgePlane(askConfig, grants);
     try {
       await plane.ask({ tenantId: TENANT, principalId: PRINCIPAL, query: "q" });
       throw new Error("expected ask() to reject");
