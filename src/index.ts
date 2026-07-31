@@ -16,8 +16,6 @@ import {
   type GrantConfig,
   type RouteDeps,
 } from "./routes/mount.ts";
-import { toRerankClientConfig } from "./services/search.ts";
-import { validateRerankConfig } from "./core/rerank-client.ts";
 
 // Config
 export type { KnowledgeConfig } from "./mount-config.ts";
@@ -25,7 +23,24 @@ export { loadKnowledgeConfig } from "./mount-config.ts";
 export type { EngineConfig } from "./config.ts";
 export { RerankConfigError } from "./core/rerank-client.ts";
 // Knowledge plane
-export type { KnowledgePlane, TimelineEvent } from "./knowledge.ts";
+//
+// `createKnowledgePlane` is exported so a host can capture or search outside a
+// request — a CLI seeder, a batch ingester, or a test — without standing up a
+// Hono app just to get a plane. Callers acting on behalf of a user are
+// responsible for the capability check `requireGrant` would have performed; see
+// the README. Rerank config is validated at construction (same as mount).
+export { createKnowledgePlane } from "./knowledge.ts";
+export type {
+  HybridSearchResult,
+  KnowledgeCaptureParams,
+  KnowledgeIdentity,
+  KnowledgePlane,
+  KnowledgeSearchParams,
+  SearchHit,
+  TimelineEvent,
+  VisibilitySpec,
+} from "./knowledge.ts";
+export { KnowledgeError } from "./knowledge.ts";
 // Migrations
 export { runKnowledgeMigrations } from "./migrations.ts";
 // Degrade metrics — no metrics dependency exists in this package (see
@@ -67,20 +82,8 @@ export function mountKnowledgeEngine(
   app: Hono<TenantEnv>,
   options: MountKnowledgeEngineOptions,
 ): MountedKnowledgeEngine {
-  // Catch a chunk-size / reranker-limit mismatch here, at mount time, rather
-  // than silently on every search once the reranker starts rejecting
-  // batches. This throws instead of warning: a mismatch here means every
-  // rerank call for this host WILL 413 and silently degrade to fused
-  // ranking, with no per-request signal — a boot-time failure surfaces that
-  // once, loudly, instead of leaving reranking quietly broken indefinitely.
-  // This is only safe to throw on because the per-model default budget
-  // (`defaultMaxDocCharsForModel`) is self-consistent by construction —
-  // validation can only fire on an operator's own `maxDocChars` override,
-  // never spuriously on an unmodified config, regardless of which model
-  // that config resolves to.
-  const rerankConfig = toRerankClientConfig(options.config.knowledge.rerank);
-  if (rerankConfig) validateRerankConfig(rerankConfig);
-
+  // Rerank config validation runs inside createKnowledgePlane so standalone
+  // construction and the mount path share one check.
   const knowledge = createKnowledgePlane(options.config);
   const deps: RouteDeps = {
     knowledge,

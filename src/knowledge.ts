@@ -9,10 +9,12 @@ import { createDb, type Db, type RawSql } from "./db/client.ts";
 import { createFtsVerification, parseFtsLanguage } from "./core/fts-language.ts";
 import { createRawSqlClient } from "./core/embed-sql.ts";
 import type { VisibilitySpec } from "./core/schemas/document.ts";
+import { validateRerankConfig } from "./core/rerank-client.ts";
 import { captureDocument } from "./services/capture.ts";
 import {
   hybridSearch,
   KnowledgeSearchInputError,
+  toRerankClientConfig,
   type HybridSearchResult,
 } from "./services/search.ts";
 import {
@@ -20,6 +22,11 @@ import {
   type TimelineEvent,
 } from "./services/timeline.ts";
 import type { KnowledgeConfig } from "./mount-config.ts";
+
+// Re-export so hosts typing plane.search() results don't reach into services/.
+export type { HybridSearchResult } from "./services/search.ts";
+export type { SearchHit } from "./core/schemas/search.ts";
+export type { VisibilitySpec } from "./core/schemas/document.ts";
 
 export type KnowledgeIdentity = {
   principalId: string;
@@ -67,6 +74,20 @@ export type KnowledgePlane = {
 export type { TimelineEvent };
 
 export function createKnowledgePlane(config: KnowledgeConfig): KnowledgePlane {
+  // Catch a chunk-size / reranker-limit mismatch at construction time, rather
+  // than silently on every search once the reranker starts rejecting batches.
+  // Throws instead of warning: a mismatch means every rerank call for this
+  // host WILL 413 and silently degrade to fused ranking, with no per-request
+  // signal — a construction-time failure surfaces that once, loudly.
+  // Safe to throw because the per-model default budget
+  // (`defaultMaxDocCharsForModel`) is self-consistent by construction —
+  // validation can only fire on an operator's own `maxDocChars` override,
+  // never spuriously on an unmodified config.
+  // Lives here (not only in mountKnowledgeEngine) so standalone construction
+  // cannot silently degrade on a bad override.
+  const rerankConfig = toRerankClientConfig(config.knowledge.rerank);
+  if (rerankConfig) validateRerankConfig(rerankConfig);
+
   // Resolve once here so EngineConfig.ftsLanguage is concrete for every
   // service — loadKnowledgeConfig already runs parseFtsLanguage, but a
   // hand-built EngineConfig may still carry an empty/absent value; this is

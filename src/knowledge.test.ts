@@ -1,9 +1,11 @@
 /**
- * Wiring coverage for the search post-filter in knowledge.ts.
+ * Plane construction + search wiring coverage for knowledge.ts.
  *
- * acl.test.ts covers blockedDocumentIds itself; this file pins the call site so
- * deleting or inverting the post-filter fails the suite. Uses mock.module and
- * restores the real modules afterwards so later files keep working.
+ * - Construction: rerank maxDocChars validation runs in createKnowledgePlane.
+ * - Search wiring: acl.test.ts covers blockedDocumentIds itself; the post-filter
+ *   call site is pinned here so deleting or inverting it fails the suite.
+ *   Uses mock.module and restores the real modules afterwards so later files
+ *   keep working.
  */
 import {
   afterAll,
@@ -14,7 +16,9 @@ import {
   mock,
 } from "bun:test";
 
+import { RerankConfigError } from "./core/rerank-client.ts";
 import type { SearchHit } from "./core/schemas/search.ts";
+import { createKnowledgePlane } from "./knowledge.ts";
 import type { KnowledgeConfig } from "./mount-config.ts";
 import * as realDb from "./db/client.ts";
 import * as realSearch from "./services/search.ts";
@@ -52,7 +56,7 @@ function hit(documentId: string): SearchHit {
   };
 }
 
-const config: KnowledgeConfig = {
+const wiringConfig: KnowledgeConfig = {
   knowledge: {
     databaseUrl: "postgres://localhost:5432/nonexistent-test-db",
     dbPoolMax: 1,
@@ -78,6 +82,45 @@ function ftsUnsafe(sqlText: string): Promise<Array<Record<string, unknown>>> {
   }
   return Promise.resolve([{ expr: ENGLISH_FTS_EXPR }]);
 }
+
+function baseConfig(
+  rerank: KnowledgeConfig["knowledge"]["rerank"],
+): KnowledgeConfig {
+  return {
+    knowledge: {
+      // Validation runs before createDb — a bad URL is fine as long as we throw
+      // first and never open a connection.
+      databaseUrl: "postgres://localhost:5432/nonexistent-test-db",
+      dbPoolMax: 1,
+      ftsLanguage: "english",
+      embed: {
+        baseUrl: "http://embed",
+        model: "m",
+        apiStyle: "openai",
+        apiKey: undefined,
+      },
+      rerank,
+    },
+  };
+}
+
+describe("createKnowledgePlane — construction validation", () => {
+  it("throws RerankConfigError when maxDocChars overflows a known TEI model", () => {
+    // Proves validateRerankConfig runs inside createKnowledgePlane (not only
+    // mountKnowledgeEngine): a standalone plane with a bad override must fail
+    // construction, not silently degrade on every later search.
+    expect(() =>
+      createKnowledgePlane(
+        baseConfig({
+          baseUrl: "https://tei.example.com",
+          model: "bge-reranker-base",
+          apiKey: undefined,
+          maxDocChars: 5_000,
+        }),
+      ),
+    ).toThrow(RerankConfigError);
+  });
+});
 
 describe("createKnowledgePlane.search — ACL post-filter wiring", () => {
   const hybridSearch = mock(() =>
@@ -146,10 +189,10 @@ describe("createKnowledgePlane.search — ACL post-filter wiring", () => {
       ]),
     );
 
-    const { createKnowledgePlane } = await import(
+    const { createKnowledgePlane: makePlane } = await import(
       `./knowledge.ts?wiring-blocked=${Date.now()}`
     );
-    const plane = createKnowledgePlane(config);
+    const plane = makePlane(wiringConfig);
     const result = await plane.search({
       tenantId: TENANT,
       principalId: PRINCIPAL,
@@ -185,10 +228,10 @@ describe("createKnowledgePlane.search — ACL post-filter wiring", () => {
       ]),
     );
 
-    const { createKnowledgePlane } = await import(
+    const { createKnowledgePlane: makePlane } = await import(
       `./knowledge.ts?wiring-unreadable=${Date.now()}`
     );
-    const plane = createKnowledgePlane(config);
+    const plane = makePlane(wiringConfig);
     const result = await plane.search({
       tenantId: TENANT,
       principalId: PRINCIPAL,

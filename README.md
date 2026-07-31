@@ -87,6 +87,51 @@ app.use("/api/knowledge/*", async (c, next) => {
 
 Without it every knowledge route returns **401 `principal_required`**.
 
+### Capturing and searching outside a request
+
+`mountKnowledgeEngine` returns the `KnowledgePlane` it built, and the plane takes
+identity as data — so an in-process caller passes `{tenantId, principalId}`
+explicitly rather than faking a request context:
+
+```ts
+const { knowledge } = mountKnowledgeEngine(app, { config, grants });
+
+await knowledge.search({ tenantId, principalId, query: "…", k: 6 });
+```
+
+For a CLI seeder, a batch ingester, or a test with no app at all, construct a
+plane directly:
+
+```ts
+import {
+  createKnowledgePlane,
+  loadKnowledgeConfig,
+} from "@corbits/knowledge-engine";
+
+const knowledge = createKnowledgePlane(loadKnowledgeConfig());
+await knowledge.capture({ tenantId, principalId, title, text });
+await knowledge.close();
+```
+
+`capture()` and `search()` do **not** check the capability grant. They apply
+per-document visibility and block lists, which is not the same question. So if
+the caller is acting on behalf of a user rather than as an operator, check it
+yourself:
+
+```ts
+import { authorize } from "@intx/authz";
+
+const decision = await authorize(
+  grantStore,
+  principalId,
+  tenantId,
+  "knowledge",
+  "search",
+  conditionRegistry,
+);
+if (decision.effect !== "allow") throw new Error("not permitted");
+```
+
 Apply the knowledge/vector schema once (idempotent):
 
 ```ts

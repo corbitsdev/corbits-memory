@@ -11,6 +11,8 @@ SDK never creates one; it mounts onto yours. Nothing else ships in this repo.**
 
 1. **Public surface**: `mountKnowledgeEngine(app, opts)` drops the knowledge
    plane + routes onto an Interchange `createApp`;
+   `createKnowledgePlane(config)` builds the same plane without mounting HTTP
+   (CLI seeders, batch ingesters, tests);
    `runKnowledgeMigrations(url)` applies the pgvector schema;
    `loadKnowledgeConfig()` / `KnowledgeConfig` is the mount config.
 2. **The SDK authenticates nothing.** Identity is the request principal, read
@@ -41,6 +43,7 @@ Claude Code / Codex / Workbench (clients)
 │  Host Interchange createApp              │
 │    resolves principal + tenant + grants  │
 │  + mountKnowledgeEngine(app, opts)       │
+│    or createKnowledgePlane(config)       │
 │    reads c.get("principal") from context │
 │    guards via host requireGrant(...)     │
 │         │  in-process                    │
@@ -65,6 +68,8 @@ Access is gated by the host's grant system: pass `grants` (the same
 `{ grantStore, conditionRegistry }` you give `createApp`) to
 `mountKnowledgeEngine`. HTTP routes run `requireGrant("knowledge", <action>)`
 (`capture` for capture, `search` for search/timeline).
+`createKnowledgePlane` builds the same plane without routes — callers acting
+for a user must check the capability themselves (see README).
 
 ### On the wire
 
