@@ -4,10 +4,7 @@
  */
 import { and, desc, eq, type SQL } from "drizzle-orm";
 
-import {
-  isDocumentBlockedForPrincipal,
-  parseAclBlockAttribute,
-} from "../acl.ts";
+import { readBlockList } from "../acl.ts";
 import { LIVE_GENERATION } from "../core/generation.ts";
 import type { Db } from "../db/client.ts";
 import { knowledgeDocument, knowledgeVersion } from "../db/schema.ts";
@@ -69,35 +66,49 @@ export function timelineWhere(
 }
 
 /**
+ * Whether a timeline row is withheld from `principalId` under the same
+ * fail-closed `readBlockList` rules search uses via `blockedDocumentIds`.
+ *
+ * Returns why so callers can log unreadable ACLs without inventing a second
+ * membership interpretation.
+ */
+export function timelineRowBlock(
+  attributes: Record<string, unknown> | null,
+  principalId: string,
+): "allow" | "blocked" | "unreadable" {
+  const read = readBlockList(attributes?.["acl_block"]);
+  if (read.kind === "absent") return "allow";
+  if (read.kind === "unreadable") return "unreadable";
+  return read.principalIds.includes(principalId) ? "blocked" : "allow";
+}
+
+/**
  * Pure block post-filter used by listTimelineEvents. Exported for unit tests
  * so the leak guard does not need a live Postgres.
  *
- * Rows that fail closed (corrupt acl_block) are dropped and counted in the
- * returned `failClosedCount` so callers can log without leaking document ids.
+ * Rows that fail closed (unreadable acl_block) are dropped; their ids are
+ * returned in `unreadableIds` for capped audit logging (same posture as search).
  */
 export function filterTimelineRowsForPrincipal(
   rows: readonly TimelineRow[],
   principalId: string,
   limit: number,
-): { events: TimelineEvent[]; failClosedCount: number } {
+): { events: TimelineEvent[]; unreadableIds: string[] } {
   const events: TimelineEvent[] = [];
-  let failClosedCount = 0;
+  const unreadableIds: string[] = [];
   for (const row of rows) {
     if (events.length >= limit) break;
     const attributes =
       row.attributes && typeof row.attributes === "object"
         ? (row.attributes as Record<string, unknown>)
         : null;
-    // Single gate shared with search: isDocumentBlockedForPrincipal.
-    if (isDocumentBlockedForPrincipal(attributes, principalId)) {
-      // Count fail-closed for aggregate logging only (no document ids).
-      if (
-        parseAclBlockAttribute(attributes?.["acl_block"]).kind === "fail_closed"
-      ) {
-        failClosedCount += 1;
-      }
+    // Same gate as search: readBlockList fail-closed membership.
+    const decision = timelineRowBlock(attributes, principalId);
+    if (decision === "unreadable") {
+      unreadableIds.push(row.id);
       continue;
     }
+    if (decision === "blocked") continue;
     events.push({
       at: row.lastSeenAt.toISOString(),
       title: row.title,
@@ -106,13 +117,13 @@ export function filterTimelineRowsForPrincipal(
       principalId: row.principalId ?? "",
     });
   }
-  return { events, failClosedCount };
+  return { events, unreadableIds };
 }
 
 /**
  * Recent captures visible to `principalId` under the same ACL rules as search.
- * Visibility is applied in SQL; acl_block is a post-filter via
- * isDocumentBlockedForPrincipal (fail-closed on corrupt JSON).
+ * Visibility is applied in SQL; acl_block is a post-filter via `readBlockList`
+ * (the same helper search uses through `blockedDocumentIds`).
  *
  * One row per document (active live version), ordered by last_seen_at DESC.
  * Wire `source` is the document adapter (HTTP capture defaults to "mcp").
@@ -149,16 +160,22 @@ export async function listTimelineEvents(
     .orderBy(desc(knowledgeDocument.lastSeenAt))
     .limit(overfetch);
 
-  const { events, failClosedCount } = filterTimelineRowsForPrincipal(
+  const { events, unreadableIds } = filterTimelineRowsForPrincipal(
     rows,
     params.principalId,
     limit,
   );
 
-  if (failClosedCount > 0) {
+  if (unreadableIds.length > 0) {
+    const sampleLimit = 20;
+    const documentIds = unreadableIds.slice(0, sampleLimit);
+    const more =
+      unreadableIds.length > sampleLimit
+        ? ` (+${unreadableIds.length - sampleLimit} more)`
+        : "";
     log.warn(
-      `timeline: unparseable acl_block, withheld ${failClosedCount} document(s)`,
-      { withheld: failClosedCount },
+      `timeline: ${unreadableIds.length} document(s) had an unreadable acl_block; withholding: ${documentIds.join(", ")}${more}`,
+      { count: unreadableIds.length, documentIds },
     );
   }
 

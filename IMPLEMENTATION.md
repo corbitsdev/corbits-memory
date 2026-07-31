@@ -502,11 +502,12 @@ The document ACL (`acl` on capture) is validated by `parseAcl` — mode
 `scope|tenant|private|allowlist`, `subjects` only (groups/grants rejected until
 membership lands). `parseAcl` is the single write-path ACL validator.
 
-Read-path block lists use one gate: **`isDocumentBlockedForPrincipal`**
-(search post-filter and timeline `filterTimelineRowsForPrincipal` both call
-it). Lower-level `parseAclBlockAttribute` / `isBlockedForPrincipal` exist for
-parse-detail logging (fail-closed JSON errors) and unit tests — they are not
-a second interpretation of membership.
+Read-path block lists use one gate: **`readBlockList`** (search via
+`blockedDocumentIds`, timeline via `timelineRowBlock` /
+`filterTimelineRowsForPrincipal`). Both paths share fail-closed semantics —
+native jsonb arrays, JSON strings, unreadable shapes, and missing search rows
+are withheld. There is no second, weaker interpreter of membership.
+
 
 ## Observability
 

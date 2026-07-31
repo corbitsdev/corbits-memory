@@ -10,6 +10,7 @@ import {
   filterTimelineRowsForPrincipal,
   listTimelineEvents,
   timelineActiveVersionJoin,
+  timelineRowBlock,
   timelineWhere,
   type TimelineRow,
 } from "./timeline.ts";
@@ -56,6 +57,36 @@ function mockDb(rows: TimelineRow[]): {
   };
 }
 
+describe("timelineRowBlock (readBlockList gate shared with search)", () => {
+  it("allows absent and empty block lists", () => {
+    expect(timelineRowBlock(null, "p1")).toBe("allow");
+    expect(timelineRowBlock({}, "p1")).toBe("allow");
+    expect(timelineRowBlock({ acl_block: "[]" }, "p1")).toBe("allow");
+    expect(timelineRowBlock({ acl_block: [] }, "p1")).toBe("allow");
+  });
+
+  it("blocks membership for both JSON-string and native array encodings", () => {
+    expect(
+      timelineRowBlock({ acl_block: JSON.stringify(["p1"]) }, "p1"),
+    ).toBe("blocked");
+    expect(timelineRowBlock({ acl_block: ["p1"] }, "p1")).toBe("blocked");
+    expect(timelineRowBlock({ acl_block: ["other"] }, "p1")).toBe("allow");
+  });
+
+  it("fail-closes on unreadable shapes (non-string, non-array, corrupt JSON)", () => {
+    expect(timelineRowBlock({ acl_block: 42 }, "p1")).toBe("unreadable");
+    expect(timelineRowBlock({ acl_block: { subjects: ["p1"] } }, "p1")).toBe(
+      "unreadable",
+    );
+    expect(timelineRowBlock({ acl_block: "{not-json" }, "p1")).toBe(
+      "unreadable",
+    );
+    expect(timelineRowBlock({ acl_block: ["p1", 2] }, "p1")).toBe(
+      "unreadable",
+    );
+  });
+});
+
 describe("filterTimelineRowsForPrincipal", () => {
   it("keeps tenant-visible events and drops blocked titles for the caller", () => {
     const rows: TimelineRow[] = [
@@ -71,12 +102,12 @@ describe("filterTimelineRowsForPrincipal", () => {
         attributes: { acl_block: JSON.stringify(["other"]) },
       }),
     ];
-    const { events, failClosedCount } = filterTimelineRowsForPrincipal(
+    const { events, unreadableIds } = filterTimelineRowsForPrincipal(
       rows,
       "p1",
       100,
     );
-    expect(failClosedCount).toBe(0);
+    expect(unreadableIds).toEqual([]);
     expect(events.map((e) => e.title)).toEqual([
       "team standup notes",
       "ok for everyone",
@@ -93,12 +124,35 @@ describe("filterTimelineRowsForPrincipal", () => {
       }),
       row({ id: "ok", title: "visible" }),
     ];
-    const { events, failClosedCount } = filterTimelineRowsForPrincipal(
+    const { events, unreadableIds } = filterTimelineRowsForPrincipal(
       rows,
       "p1",
       100,
     );
-    expect(failClosedCount).toBe(1);
+    expect(unreadableIds).toEqual(["bad"]);
+    expect(events.map((e) => e.title)).toEqual(["visible"]);
+  });
+
+  it("fail-closes on native non-string acl_block (the pre-#9 fail-open hole)", () => {
+    const rows: TimelineRow[] = [
+      row({
+        id: "num",
+        title: "must not leak",
+        attributes: { acl_block: 42 },
+      }),
+      row({
+        id: "native-block",
+        title: "native array blocked",
+        attributes: { acl_block: ["p1"] },
+      }),
+      row({ id: "ok", title: "visible" }),
+    ];
+    const { events, unreadableIds } = filterTimelineRowsForPrincipal(
+      rows,
+      "p1",
+      100,
+    );
+    expect(unreadableIds).toEqual(["num"]);
     expect(events.map((e) => e.title)).toEqual(["visible"]);
   });
 
@@ -161,6 +215,11 @@ describe("listTimelineEvents (production path via mock db)", () => {
         title: "corrupt-should-not-leak",
         attributes: { acl_block: "{not-json" },
       }),
+      row({
+        id: "4",
+        title: "non-string-should-not-leak",
+        attributes: { acl_block: 42 },
+      }),
     ];
     const mock = mockDb(rows);
     const events = await listTimelineEvents({
@@ -172,6 +231,9 @@ describe("listTimelineEvents (production path via mock db)", () => {
     expect(events.map((e) => e.title)).toEqual(["team standup notes"]);
     expect(events.map((e) => e.title)).not.toContain(SECRET);
     expect(events.map((e) => e.title)).not.toContain("corrupt-should-not-leak");
+    expect(events.map((e) => e.title)).not.toContain(
+      "non-string-should-not-leak",
+    );
     // Small limit still overfetches at least DEFAULT_TIMELINE_LIMIT candidates.
     expect(mock.limitSeen).toBe(DEFAULT_TIMELINE_LIMIT);
   });
