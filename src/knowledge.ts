@@ -5,7 +5,7 @@
 import type { EngineConfig } from "./config.ts";
 import { formatCaughtError, log } from "./log.ts";
 import { createDb, type Db, type RawSql } from "./db/client.ts";
-import { createFtsVerification, DEFAULT_FTS_LANGUAGE } from "./core/fts-language.ts";
+import { createFtsVerification, parseFtsLanguage } from "./core/fts-language.ts";
 import { createRawSqlClient } from "./core/embed-sql.ts";
 import type { VisibilitySpec } from "./core/schemas/document.ts";
 import { captureDocument } from "./services/capture.ts";
@@ -55,7 +55,14 @@ export type KnowledgePlane = {
 };
 
 export function createKnowledgePlane(config: KnowledgeConfig): KnowledgePlane {
-  const engineConfig: EngineConfig = config.knowledge;
+  // Resolve once here so EngineConfig.ftsLanguage is concrete for every
+  // service — loadKnowledgeConfig already runs parseFtsLanguage, but a
+  // hand-built EngineConfig may still carry an empty/absent value; this is
+  // the single defaulting site services rely on.
+  const engineConfig: EngineConfig = {
+    ...config.knowledge,
+    ftsLanguage: parseFtsLanguage(config.knowledge.ftsLanguage),
+  };
   const { db, sql }: { db: Db; sql: RawSql } = createDb(engineConfig);
   const deps = { db, sql, config: engineConfig };
 
@@ -72,7 +79,7 @@ export function createKnowledgePlane(config: KnowledgeConfig): KnowledgePlane {
   // resolves instantly against the already-verified schema.
   const ensureVerified = createFtsVerification(
     createRawSqlClient(sql),
-    engineConfig.ftsLanguage ?? DEFAULT_FTS_LANGUAGE,
+    engineConfig.ftsLanguage,
   );
 
   return {

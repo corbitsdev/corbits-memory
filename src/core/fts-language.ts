@@ -11,10 +11,19 @@ export const DEFAULT_FTS_LANGUAGE = "english";
 /** Placeholder in migration SQL replaced with the validated language. */
 export const FTS_LANGUAGE_TOKEN = "{{FTS_LANGUAGE}}";
 
-// Deliberately excludes `.` — only unqualified pg_catalog text search configs
-// are supported (see the schema-qualified handling in verifyFtsLanguage
-// below for why: this repo made a choice, not an oversight).
-const FTS_LANGUAGE_PATTERN = /^[a-z_]{1,63}$/;
+// Shared charset for config names at the boundary (parse) and when reading
+// the applied generation expression back from the catalog (verify). Plain
+// lowercase letters + underscore, max 63 (Postgres identifier length).
+// Digits are excluded — no stock pg_ts_config uses them — so parse and verify
+// agree: a name accepted at config time is always parseable from the catalog.
+// Deliberately excludes `.` too: only unqualified pg_catalog text search
+// configs are supported (see the schema-qualified handling in
+// verifyFtsLanguage below — a choice, not an oversight).
+const FTS_CONFIG_NAME = "[a-z_]{1,63}";
+const FTS_LANGUAGE_PATTERN = new RegExp(`^${FTS_CONFIG_NAME}$`);
+const APPLIED_REGCONFIG_RE = new RegExp(
+  `'(?:(${FTS_CONFIG_NAME})\\.)?(${FTS_CONFIG_NAME})'::regconfig`,
+);
 
 /**
  * Resolve an operator-supplied language (env or option) at the boundary:
@@ -121,7 +130,7 @@ export async function verifyFtsLanguage(
   // the column. Surface that explicitly rather than falling through to the
   // generic "could not read" error, which would misdirect the operator into
   // debugging a parser bug that isn't there.
-  const match = /'(?:([a-z_][a-z0-9_]*)\.)?([a-z_][a-z0-9_]*)'::regconfig/.exec(expr);
+  const match = APPLIED_REGCONFIG_RE.exec(expr);
   if (match === null) {
     throw new Error(
       `Could not read the applied FTS language from knowledge_chunk.text_fts: ${expr}`,

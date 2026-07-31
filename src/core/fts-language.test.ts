@@ -24,6 +24,8 @@ describe("parseFtsLanguage", () => {
     expect(() => parseFtsLanguage("English")).toThrow();
     expect(() => parseFtsLanguage("en-US")).toThrow();
     expect(() => parseFtsLanguage("english'; DROP TABLE x; --")).toThrow();
+    // Digits excluded so parse and the applied-expression regex stay aligned.
+    expect(() => parseFtsLanguage("foo2")).toThrow();
   });
 });
 
