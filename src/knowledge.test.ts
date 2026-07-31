@@ -22,6 +22,11 @@ import * as realSearch from "./services/search.ts";
 const PRINCIPAL = "p1";
 const TENANT = "t1";
 
+type DocAclRow = {
+  id: string;
+  attributes: { acl_block?: unknown };
+};
+
 function hit(documentId: string): SearchHit {
   return {
     chunk_id: `chunk-${documentId}`,
@@ -48,6 +53,7 @@ const config: KnowledgeConfig = {
   knowledge: {
     databaseUrl: "postgres://localhost:5432/nonexistent-test-db",
     dbPoolMax: 1,
+    ftsLanguage: "english",
     embed: {
       baseUrl: "http://embed",
       model: "m",
@@ -72,7 +78,7 @@ describe("createKnowledgePlane.search — ACL post-filter wiring", () => {
   );
 
   const sql = Object.assign(
-    mock(() =>
+    mock((): Promise<DocAclRow[]> =>
       Promise.resolve([
         {
           id: "d-blocked",
@@ -99,16 +105,13 @@ describe("createKnowledgePlane.search — ACL post-filter wiring", () => {
   });
 
   afterAll(() => {
-    // Restore so later test files still see the real modules.
     mock.module("./db/client.ts", () => realDb);
     mock.module("./services/search.ts", () => realSearch);
   });
 
   it("drops hits that blockedDocumentIds withholds (call-site coverage)", async () => {
-    // Hybrid returns two docs; the SQL post-filter rows mark d-blocked as
-    // listing this principal and d-open as free. If knowledge.ts stops calling
-    // blockedDocumentIds (or keeps the blocked set instead of filtering it
-    // out), this assertion fails.
+    // If knowledge.ts stops calling blockedDocumentIds (or keeps the blocked set
+    // instead of filtering it out), this assertion fails.
     hybridSearch.mockClear();
     hybridSearch.mockImplementation(() =>
       Promise.resolve({
@@ -131,7 +134,7 @@ describe("createKnowledgePlane.search — ACL post-filter wiring", () => {
     );
 
     const { createKnowledgePlane } = await import(
-      `./knowledge.ts?wiring=${Date.now()}`
+      `./knowledge.ts?wiring-blocked=${Date.now()}`
     );
     const plane = createKnowledgePlane(config);
     const result = await plane.search({
