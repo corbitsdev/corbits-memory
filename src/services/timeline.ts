@@ -5,7 +5,7 @@
 import { and, desc, eq, type SQL } from "drizzle-orm";
 
 import {
-  isBlockedForPrincipal,
+  isDocumentBlockedForPrincipal,
   parseAclBlockAttribute,
 } from "../acl.ts";
 import { LIVE_GENERATION } from "../core/generation.ts";
@@ -88,12 +88,16 @@ export function filterTimelineRowsForPrincipal(
       row.attributes && typeof row.attributes === "object"
         ? (row.attributes as Record<string, unknown>)
         : null;
-    const parsed = parseAclBlockAttribute(attributes?.["acl_block"]);
-    if (parsed.kind === "fail_closed") {
-      failClosedCount += 1;
+    // Single gate shared with search: isDocumentBlockedForPrincipal.
+    if (isDocumentBlockedForPrincipal(attributes, principalId)) {
+      // Count fail-closed for aggregate logging only (no document ids).
+      if (
+        parseAclBlockAttribute(attributes?.["acl_block"]).kind === "fail_closed"
+      ) {
+        failClosedCount += 1;
+      }
       continue;
     }
-    if (isBlockedForPrincipal(parsed, principalId)) continue;
     events.push({
       at: row.lastSeenAt.toISOString(),
       title: row.title,
@@ -107,10 +111,12 @@ export function filterTimelineRowsForPrincipal(
 
 /**
  * Recent captures visible to `principalId` under the same ACL rules as search.
- * Visibility is applied in SQL; acl_block is a post-filter (fail-closed).
+ * Visibility is applied in SQL; acl_block is a post-filter via
+ * isDocumentBlockedForPrincipal (fail-closed on corrupt JSON).
  *
  * One row per document (active live version), ordered by last_seen_at DESC.
  * Wire `source` is the document adapter (HTTP capture defaults to "mcp").
+ * Wire `principalId` is knowledge_version.created_by_principal_id.
  */
 export async function listTimelineEvents(
   params: ListTimelineParams,

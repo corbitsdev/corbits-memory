@@ -94,8 +94,10 @@ Search and timeline both filter by scope first, then apply the document ACL
 against the caller's subject. Block wins over allow. (Group/grant-based ACLs
 are rejected until membership lands.) Timeline reads durable document state —
 not a process-local capture ring — so ACL changes and restarts do not leak
-titles.
-
+titles. Each timeline event's `source` is the document adapter (HTTP capture
+defaults to `"mcp"`; it is no longer hardcoded `"api"`), and `principalId` is
+the capturing actor on the active version (`created_by_principal_id`), not the
+caller of the timeline request.
 
 ## Ingestion
 
