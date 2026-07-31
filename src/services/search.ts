@@ -473,6 +473,21 @@ interface FetchDenseCandidatesArgs {
   generation?: string | undefined;
 }
 
+// Whether this pool's pgvector understands hnsw.iterative_scan, learned
+// from the first dense query rather than re-probed on every call.
+const iterativeScanSupport = new WeakMap<RawSql, boolean>();
+
+/**
+ * The hnsw.ef_search value for a dense query: the overfetch limit clamped
+ * into [40, 1000]. pgvector accepts 1..1000 (default 40); flooring at 40 is
+ * a product choice so we never run worse than the GUC default, and 1000 is
+ * the GUC hard max. Non-finite input falls back to the default.
+ */
+export function hnswEfSearch(overfetchLimit: number): number {
+  const limit = Number.isFinite(overfetchLimit) ? Math.floor(overfetchLimit) : 40;
+  return Math.max(40, Math.min(1000, limit));
+}
+
 // Dense channel: embeds the query, then runs an ANN cosine-distance query
 // against the tenant's ACTIVE embedding table only (never a superseded or
 // inactive model's table), joined back to knowledge_chunk/version/document
@@ -510,6 +525,8 @@ export async function fetchDenseCandidates(
 
   const [vector] = await embedTexts([query], embedClientConfig, fetchImpl);
   if (!vector) return null;
+
+  const efSearch = hnswEfSearch(overfetchLimit);
 
   // Placeholder numbering depends on whether a principal is present: the
   // null-principal fragment (VISIBILITY_PREDICATE_RAW_SQL_NULL_PRINCIPAL)
@@ -552,7 +569,35 @@ export async function fetchDenseCandidates(
     LIMIT ${limitParam}
   `;
 
-  const rows = await rawSql.unsafe(sqlText, params as never[]);
+  // pgvector post-filters hnsw scans: with the default ef_search (40) a
+  // selective tenant/ACL predicate can starve the LIMIT even though matches
+  // exist. ef_search widens the fixed candidate pool; iterative_scan
+  // (pgvector >= 0.8) additionally keeps scanning until the limit is
+  // satisfied. Both are SET LOCAL, so nothing leaks into pooled session
+  // state. relaxed_order can slightly disorder the dense channel's neighbor
+  // ranks (and those ranks ARE the dense RRF input) — intentional trade-off
+  // for selective-filter recall over strict distance order.
+  const rows = await rawSql.begin(async (tx) => {
+    await tx.unsafe(`SET LOCAL hnsw.ef_search = ${efSearch}`);
+    const support = iterativeScanSupport.get(rawSql);
+    if (support === true) {
+      await tx.unsafe("SET LOCAL hnsw.iterative_scan = 'relaxed_order'");
+    } else if (support === undefined) {
+      try {
+        await tx.savepoint((sp) =>
+          sp.unsafe("SET LOCAL hnsw.iterative_scan = 'relaxed_order'"),
+        );
+        iterativeScanSupport.set(rawSql, true);
+      } catch (err) {
+        // 42704 (unrecognized configuration parameter) = pgvector < 0.8;
+        // the savepoint rollback un-poisons the transaction and ef_search
+        // alone still applies. Anything else is a real failure.
+        if ((err as { code?: string }).code !== "42704") throw err;
+        iterativeScanSupport.set(rawSql, false);
+      }
+    }
+    return tx.unsafe(sqlText, params as never[]);
+  });
 
   return (rows as unknown as Array<Record<string, unknown>>).map((row) => ({
     chunkId: row["chunk_id"] as string,
