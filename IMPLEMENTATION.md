@@ -299,7 +299,10 @@ search); otherwise it throws `KnowledgeSearchInputError` (400).
 3. **Dense channel** — `fetchDenseCandidates`: embeds the query
    (`embedTexts`), resolves the tenant's single active embedding table
    (`resolveActiveEmbedTable` — **not** generation-scoped, see limitation
-   below), runs a raw-SQL cosine-distance ANN query (`embedding <=> $vector`)
+   below), runs a raw-SQL cosine-distance ANN query via `cosineDistanceExpr`
+   (`e.embedding <=> $vector` up to 2000 dims, or the matching
+   `(e.embedding::halfvec(N)) <=> $vector::halfvec(N)` expression above that
+   so the halfvec HNSW index is used)
    against that table joined back to
    `knowledge_chunk`/`knowledge_version`/`knowledge_document` with the
    **exact same visibility predicate**, hand-mirrored as

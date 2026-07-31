@@ -189,10 +189,15 @@ describe("activateEmbedModel", () => {
     expect(indexQuery?.sql).not.toContain("ivfflat");
 
     // The planner only uses an expression index when the query reproduces
-    // the indexed expression verbatim — pin the two to the same string.
-    const indexedExpr = `(embedding::halfvec(${dims}))`;
-    expect(indexQuery?.sql).toContain(`(${indexedExpr} halfvec_cosine_ops)`);
-    expect(cosineDistanceExpr("embedding", "$1", dims).startsWith(indexedExpr)).toBe(true);
+    // the indexed expression. DDL indexes bare `embedding`; production dense
+    // search (search.ts) passes the table-qualified alias `e.embedding` —
+    // pin the query identity the live path actually emits.
+    expect(indexQuery?.sql).toContain(
+      `((embedding::halfvec(${dims})) halfvec_cosine_ops)`,
+    );
+    expect(cosineDistanceExpr("e.embedding", "$1", dims)).toBe(
+      `(e.embedding::halfvec(${dims})) <=> $1::halfvec(${dims})`,
+    );
   });
 
   it("does not fall back to ivfflat when halfvec index creation fails", async () => {
