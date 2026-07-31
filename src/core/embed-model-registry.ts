@@ -2,12 +2,43 @@ import { createHash, randomUUID } from "node:crypto";
 import { type EmbedClientConfig, probeEmbedDims } from "./embed-client.ts";
 import { formatCaughtError, log } from "../log.ts";
 
+// pgvector's hnsw/ivfflat indexes on the `vector` type cap at 2000 dims; an
+// expression index over `halfvec` (half-precision) raises the cap to 4000.
+// Index DDL and the dense query's ORDER BY expression must agree exactly —
+// an expression index is only used when the query reproduces the indexed
+// expression verbatim — which is why both live in this module.
+export const VECTOR_INDEX_MAX_DIMS = 2000;
+export const HALFVEC_INDEX_MAX_DIMS = 4000;
+
+/**
+ * The cosine-distance ORDER BY expression matching the index that
+ * `activateEmbedModel` created for a table of `dims` dimensions. `column`
+ * and `vectorParam` are caller-controlled SQL fragments; `dims` is
+ * validated here because it is interpolated.
+ */
+export function cosineDistanceExpr(
+  column: string,
+  vectorParam: string,
+  dims: number,
+): string {
+  if (!Number.isInteger(dims) || dims <= 0) {
+    throw new Error(`cosineDistanceExpr: dims must be a positive integer, got ${dims}`);
+  }
+  if (dims <= VECTOR_INDEX_MAX_DIMS) {
+    return `${column} <=> ${vectorParam}::vector`;
+  }
+  return `(${column}::halfvec(${dims})) <=> ${vectorParam}::halfvec(${dims})`;
+}
+
 // Dims are dynamic and discovered, never hard-coded — the dimension travels
 // with exactly one artifact: the knowledge_embed_model.dims column,
 // discovered here at configure time. Never resurrect an EMBED_DIM constant
 // anywhere in this module.
 export const MIN_EMBED_DIMS = 64;
-export const MAX_EMBED_DIMS = 4096;
+// Upper bound is pgvector's halfvec index cap: above 4000 dims no index type
+// can serve the cosine query, so activation rejects the model outright
+// rather than accepting a table that silently degrades to sequential scan.
+export const MAX_EMBED_DIMS = HALFVEC_INDEX_MAX_DIMS;
 
 export class DimsOutOfBoundsError extends Error {
   constructor(public readonly dims: number) {
@@ -96,19 +127,35 @@ export async function activateEmbedModel(
   );
 
   const indexName = `${tableName}_hnsw_idx`;
-  try {
+  if (dims <= VECTOR_INDEX_MAX_DIMS) {
+    try {
+      await client.query(
+        `CREATE INDEX IF NOT EXISTS ${indexName} ON ${tableName} USING hnsw (embedding vector_cosine_ops)`,
+        [],
+      );
+    } catch (err) {
+      const errMessage = formatCaughtError(err);
+      log.warn(
+        `embed-model-registry: hnsw index creation failed; falling back to ivfflat: ${errMessage}`,
+        { indexName, error: errMessage },
+      );
+      await client.query(
+        `CREATE INDEX IF NOT EXISTS ${indexName} ON ${tableName} USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100)`,
+        [],
+      );
+    }
+  } else {
+    // The expression here must stay character-identical to what
+    // cosineDistanceExpr emits for these dims, or the planner ignores the
+    // index. No ivfflat fallback on this path: halfvec requires
+    // pgvector >= 0.7.0 and every such release has hnsw, so a failure here
+    // means the extension is too old for halfvec at all — let activation
+    // fail loudly at this boundary rather than accept an unindexable model.
+    // IF NOT EXISTS also retrofits the index onto a table created before
+    // halfvec support existed; on a large populated table this build can
+    // take a while.
     await client.query(
-      `CREATE INDEX IF NOT EXISTS ${indexName} ON ${tableName} USING hnsw (embedding vector_cosine_ops)`,
-      [],
-    );
-  } catch (err) {
-    const errMessage = formatCaughtError(err);
-    log.warn(
-      `embed-model-registry: hnsw index creation failed; falling back to ivfflat: ${errMessage}`,
-      { indexName, error: errMessage },
-    );
-    await client.query(
-      `CREATE INDEX IF NOT EXISTS ${indexName} ON ${tableName} USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100)`,
+      `CREATE INDEX IF NOT EXISTS ${indexName} ON ${tableName} USING hnsw ((embedding::halfvec(${dims})) halfvec_cosine_ops)`,
       [],
     );
   }
