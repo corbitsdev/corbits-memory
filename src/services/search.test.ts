@@ -242,7 +242,7 @@ describe("deriveHybridEvidence", () => {
 });
 
 describe("hnswEfSearch", () => {
-  it("clamps to pgvector's [40, 1000] bounds", () => {
+  it("clamps to the product floor of 40 and the GUC max of 1000", () => {
     expect(hnswEfSearch(0)).toBe(40);
     expect(hnswEfSearch(1)).toBe(40);
     expect(hnswEfSearch(40)).toBe(40);

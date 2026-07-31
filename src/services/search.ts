@@ -479,8 +479,9 @@ const iterativeScanSupport = new WeakMap<RawSql, boolean>();
 
 /**
  * The hnsw.ef_search value for a dense query: the overfetch limit clamped
- * to pgvector's bounds — never below the GUC's default (40), never above
- * its hard maximum (1000). Non-finite input falls back to the default.
+ * into [40, 1000]. pgvector accepts 1..1000 (default 40); flooring at 40 is
+ * a product choice so we never run worse than the GUC default, and 1000 is
+ * the GUC hard max. Non-finite input falls back to the default.
  */
 export function hnswEfSearch(overfetchLimit: number): number {
   const limit = Number.isFinite(overfetchLimit) ? Math.floor(overfetchLimit) : 40;
@@ -573,7 +574,9 @@ export async function fetchDenseCandidates(
   // exist. ef_search widens the fixed candidate pool; iterative_scan
   // (pgvector >= 0.8) additionally keeps scanning until the limit is
   // satisfied. Both are SET LOCAL, so nothing leaks into pooled session
-  // state. relaxed_order is safe downstream: RRF fuses by rank and re-sorts.
+  // state. relaxed_order can slightly disorder the dense channel's neighbor
+  // ranks (and those ranks ARE the dense RRF input) — intentional trade-off
+  // for selective-filter recall over strict distance order.
   const rows = await rawSql.begin(async (tx) => {
     await tx.unsafe(`SET LOCAL hnsw.ef_search = ${efSearch}`);
     const support = iterativeScanSupport.get(rawSql);
