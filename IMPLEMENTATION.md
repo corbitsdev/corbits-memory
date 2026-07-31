@@ -157,9 +157,11 @@ not in any migration file. Created at runtime by
 `(baseUrl, modelId)` pair is used:
 ```sql
 CREATE TABLE IF NOT EXISTS knowledge_embedding_<key> (
-  chunk_id text PRIMARY KEY REFERENCES knowledge_chunk (id) ON DELETE CASCADE,
+  chunk_id text PRIMARY KEY,
   tenant_id text NOT NULL,
-  embedding vector(<dims>)
+  embedding vector(<dims>),
+  CONSTRAINT knowledge_embedding_<key>_chunk_fk
+    FOREIGN KEY (chunk_id) REFERENCES knowledge_chunk (id) ON DELETE CASCADE
 )
 ```
 plus a `(tenant_id, chunk_id)` index (created on every activation, so it

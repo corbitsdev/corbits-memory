@@ -142,7 +142,10 @@ describe("activateEmbedModel", () => {
     expect(createTableQuery?.sql).toContain(result.tableName);
     expect(createTableQuery?.sql).toContain("vector(768)");
     expect(createTableQuery?.sql).toContain(
-      "chunk_id text PRIMARY KEY REFERENCES knowledge_chunk (id) ON DELETE CASCADE",
+      `CONSTRAINT ${result.tableName}_chunk_fk`,
+    );
+    expect(createTableQuery?.sql).toContain(
+      "FOREIGN KEY (chunk_id) REFERENCES knowledge_chunk (id) ON DELETE CASCADE",
     );
 
     const tenantIndexQuery = queries.find((q) => q.sql.includes("_tenant_chunk_idx"));
