@@ -113,9 +113,17 @@ export function createKnowledgePlane(config: KnowledgeConfig): KnowledgePlane {
           params.principalId,
         );
         if (unreadable.length > 0) {
+          // Cap the sample so a large withhold batch cannot flood logs; count
+          // is always present so the full size is still auditable.
+          const sampleLimit = 20;
+          const documentIds = unreadable.slice(0, sampleLimit);
+          const more =
+            unreadable.length > sampleLimit
+              ? ` (+${unreadable.length - sampleLimit} more)`
+              : "";
           log.warn(
-            `search: ${unreadable.length} document(s) had an unreadable acl_block or missing row; withholding`,
-            { count: unreadable.length },
+            `search: ${unreadable.length} document(s) had an unreadable acl_block or missing row; withholding: ${documentIds.join(", ")}${more}`,
+            { count: unreadable.length, documentIds },
           );
         }
         if (blocked.size === 0) return result;

@@ -80,6 +80,13 @@ describe("readBlockList", () => {
     expect(readBlockList("")).toEqual({ kind: "absent" });
   });
 
+  test("whitespace-only string is absent, not unreadable", () => {
+    // Blank storage is nothing rather than a list we failed to read — same
+    // as empty string. A pure-whitespace value is not a present ACL.
+    expect(readBlockList("   ")).toEqual({ kind: "absent" });
+    expect(readBlockList("\t\n")).toEqual({ kind: "absent" });
+  });
+
   test("an empty list blocks nobody but is still a list", () => {
     expect(readBlockList([])).toEqual({ kind: "list", principalIds: [] });
     expect(readBlockList("[]")).toEqual({ kind: "list", principalIds: [] });
@@ -155,6 +162,19 @@ describe("blockedDocumentIds", () => {
     const { blocked, unreadable } = blockedDocumentIds(
       ["d1", "d2"],
       [row("d1"), row("d2", null)],
+      "p1",
+    );
+    expect([...blocked]).toEqual([]);
+    expect(unreadable).toEqual([]);
+  });
+
+  test("a row whose attributes column is null is absent, not unreadable", () => {
+    // attributes is jsonb NOT NULL DEFAULT '{}' in schema, but the reader
+    // still accepts null rows so a soft-schema drift cannot fail closed on
+    // every document.
+    const { blocked, unreadable } = blockedDocumentIds(
+      ["d1"],
+      [{ id: "d1", attributes: null }],
       "p1",
     );
     expect([...blocked]).toEqual([]);
