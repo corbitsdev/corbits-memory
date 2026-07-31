@@ -27,6 +27,9 @@ type DocAclRow = {
   attributes: { acl_block?: unknown };
 };
 
+/** Satisfies createFtsVerification → createRawSqlClient(sql).unsafe on the search path. */
+const ENGLISH_FTS_EXPR = "to_tsvector('english'::regconfig, text)";
+
 function hit(documentId: string): SearchHit {
   return {
     chunk_id: `chunk-${documentId}`,
@@ -69,6 +72,13 @@ const config: KnowledgeConfig = {
   },
 };
 
+function ftsUnsafe(sqlText: string): Promise<Array<Record<string, unknown>>> {
+  if (sqlText.includes("pg_ts_config")) {
+    return Promise.resolve([{ ok: 1 }]);
+  }
+  return Promise.resolve([{ expr: ENGLISH_FTS_EXPR }]);
+}
+
 describe("createKnowledgePlane.search — ACL post-filter wiring", () => {
   const hybridSearch = mock(() =>
     Promise.resolve({
@@ -90,7 +100,10 @@ describe("createKnowledgePlane.search — ACL post-filter wiring", () => {
         },
       ]),
     ),
-    { end: mock(() => Promise.resolve()) },
+    {
+      end: mock(() => Promise.resolve()),
+      unsafe: mock((sqlText: string) => ftsUnsafe(sqlText)),
+    },
   );
 
   beforeAll(() => {
