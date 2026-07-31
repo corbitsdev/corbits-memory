@@ -6,7 +6,7 @@ import { type } from "arktype";
 import { formatCaughtError, log } from "../log.ts";
 import { parseAcl } from "../acl.ts";
 import type { RouteDeps } from "./deps.ts";
-import { caller, grantGuard } from "./deps.ts";
+import { caller, grantGuard, requirePrincipal } from "./deps.ts";
 
 const CaptureRequest = type({
   title: "string >= 1",
@@ -30,9 +30,11 @@ export function mountCaptureRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
           },
         },
         400: { description: "Invalid request or ACL" },
+        401: { description: "No principal on the request context" },
         403: { description: "Missing the knowledge:capture grant" },
       },
     }),
+    requirePrincipal(),
     grantGuard(deps, "capture"),
     validator("json", CaptureRequest),
     async (c) => {

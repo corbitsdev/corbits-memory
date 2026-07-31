@@ -5,7 +5,7 @@ import { type } from "arktype";
 
 import { formatCaughtError, log } from "../log.ts";
 import type { RouteDeps } from "./deps.ts";
-import { caller, grantGuard } from "./deps.ts";
+import { caller, grantGuard, requirePrincipal } from "./deps.ts";
 
 const TimelineResponse = type({
   events: type({
@@ -30,10 +30,12 @@ export function mountTimelineRoute(app: Hono<TenantEnv>, deps: RouteDeps): void 
             "application/json": { schema: resolver(TimelineResponse) },
           },
         },
+        401: { description: "No principal on the request context" },
         403: { description: "Missing the knowledge:search grant" },
         502: { description: "Timeline query failed" },
       },
     }),
+    requirePrincipal(),
     grantGuard(deps, "search"),
     async (c) => {
       const { scopeId, subjectId } = caller(c);

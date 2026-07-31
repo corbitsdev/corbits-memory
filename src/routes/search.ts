@@ -7,7 +7,7 @@ import { formatCaughtError, log } from "../log.ts";
 import { KnowledgeError } from "../knowledge.ts";
 import { SearchResponseSchema } from "../core/schemas/search.ts";
 import type { RouteDeps } from "./deps.ts";
-import { caller, grantGuard } from "./deps.ts";
+import { caller, grantGuard, requirePrincipal } from "./deps.ts";
 
 const SearchRequest = type({
   query: "string >= 1",
@@ -28,9 +28,11 @@ export function mountSearchRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
           },
         },
         400: { description: "Invalid query" },
+        401: { description: "No principal on the request context" },
         403: { description: "Missing the knowledge:search grant" },
       },
     }),
+    requirePrincipal(),
     grantGuard(deps, "search"),
     validator("json", SearchRequest),
     async (c) => {

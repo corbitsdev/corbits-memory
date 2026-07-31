@@ -51,6 +51,42 @@ That mounts `POST /api/knowledge/capture`, `POST /api/knowledge/search`, and
 `requireGrant("knowledge", <action>)`. Clients never send tenant or principal —
 identity is the context principal.
 
+### The host must resolve tenant + principal for `/api/knowledge/*`
+
+These routes read `c.get("principal")`, but they mount at `/api/knowledge/*` —
+**outside** `/api/tenants/:tenantId/*`, which is where Interchange's own
+`createResolveTenant` middleware is scoped and where it reads the tenant from
+the path param. Nothing populates the context for our prefix, so the host has to:
+
+```ts
+// Mount BEFORE mountKnowledgeEngine — the grant guard runs first and needs a
+// principal on the context.
+app.use("/api/knowledge/*", async (c, next) => {
+  const user = c.get("user");
+  if (!user) return c.json({ error: "unauthorized" }, 401);
+
+  // Your choice how the tenant is selected — a header, a subdomain, or the
+  // user's only membership. There is no path param to read.
+  const tenantRow = await resolveTenantSomehow(c);
+  const principalRow = await db.query.principal.findFirst({
+    where: and(
+      eq(principal.tenantId, tenantRow.id),
+      eq(principal.kind, "user"),
+      eq(principal.refId, user.id),
+    ),
+  });
+  if (!principalRow) return c.json({ error: "not a member" }, 403);
+  if (principalRow.status !== "active")
+    return c.json({ error: "inactive" }, 403);
+
+  c.set("tenant", tenantRow);
+  c.set("principal", principalRow);
+  await next();
+});
+```
+
+Without it every knowledge route returns **401 `principal_required`**.
+
 Apply the knowledge/vector schema once (idempotent):
 
 ```ts

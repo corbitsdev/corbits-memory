@@ -36,6 +36,43 @@ export function caller(c: Context<TenantEnv>): {
   return { scopeId: principal.tenantId, subjectId: principal.id };
 }
 
+/**
+ * Reject the request if the host has not put a principal on the context.
+ *
+ * Must run BEFORE `grantGuard`. Interchange's `requireGrant` reads
+ * `principal.id` without a guard of its own, so on an unresolved context it
+ * throws `TypeError: undefined is not an object` and the host sees a 500 with a
+ * stack trace pointing into Interchange — which reads as this SDK being broken
+ * rather than as the host missing middleware. `caller()` below has a perfectly
+ * good error message for exactly this case, but it never gets to run.
+ *
+ * These routes mount at `/api/knowledge/*`, outside the
+ * `/api/tenants/:tenantId/*` prefix that Interchange's `createResolveTenant`
+ * covers, so an unresolved context is the DEFAULT for a host that just calls
+ * `mountKnowledgeEngine`. See the README for the middleware the host supplies.
+ */
+export function requirePrincipal(): MiddlewareHandler<TenantEnv> {
+  return async (c, next) => {
+    if (!c.get("principal")) {
+      return c.json(
+        {
+          error: {
+            code: "principal_required",
+            message:
+              "No principal on the request context. The knowledge routes mount " +
+              "at /api/knowledge/*, which is outside Interchange's " +
+              "/api/tenants/:tenantId/* tenant middleware — the host must " +
+              "resolve tenant + principal for this prefix. See the " +
+              "@corbits/knowledge-engine README.",
+          },
+        },
+        401,
+      );
+    }
+    await next();
+  };
+}
+
 /** Route-guard middleware for a knowledge action (Interchange `requireGrant`). */
 export function grantGuard(
   deps: RouteDeps,
