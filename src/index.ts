@@ -41,6 +41,7 @@ export {
   type DegradeMetricsConfig,
 } from "./core/degrade-metrics.ts";
 export {
+  DEFAULT_FTS_LANGUAGE,
   type FtsVerifySqlClient,
   parseFtsLanguage,
   verifyFtsLanguage,
