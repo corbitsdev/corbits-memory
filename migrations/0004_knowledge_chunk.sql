@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS "knowledge_chunk" (
   "text" text NOT NULL,
   "role" text,
   "created_at" timestamp NOT NULL DEFAULT now(),
-  "text_fts" tsvector GENERATED ALWAYS AS (to_tsvector('english', "text")) STORED
+  "text_fts" tsvector GENERATED ALWAYS AS (to_tsvector('{{FTS_LANGUAGE}}', "text")) STORED
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS "knowledge_chunk_version_ordinal_uniq"

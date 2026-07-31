@@ -55,6 +55,8 @@ Apply the knowledge/vector schema once (idempotent):
 
 ```ts
 import { runKnowledgeMigrations } from "@corbits/knowledge-engine/migrations";
+// Reads FTS_LANGUAGE from the environment (default "english") and fails
+// loudly if the database was migrated under a different language.
 await runKnowledgeMigrations(process.env.KNOWLEDGE_DATABASE_URL);
 ```
 

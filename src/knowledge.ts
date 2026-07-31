@@ -5,6 +5,8 @@
 import type { EngineConfig } from "./config.ts";
 import { formatCaughtError, log } from "./log.ts";
 import { createDb, type Db, type RawSql } from "./db/client.ts";
+import { createFtsVerification, parseFtsLanguage } from "./core/fts-language.ts";
+import { createRawSqlClient } from "./core/embed-sql.ts";
 import type { VisibilitySpec } from "./core/schemas/document.ts";
 import { captureDocument } from "./services/capture.ts";
 import {
@@ -53,13 +55,37 @@ export type KnowledgePlane = {
 };
 
 export function createKnowledgePlane(config: KnowledgeConfig): KnowledgePlane {
-  const engineConfig: EngineConfig = config.knowledge;
+  // Resolve once here so EngineConfig.ftsLanguage is concrete for every
+  // service — loadKnowledgeConfig already runs parseFtsLanguage, but a
+  // hand-built EngineConfig may still carry an empty/absent value; this is
+  // the single defaulting site services rely on.
+  const engineConfig: EngineConfig = {
+    ...config.knowledge,
+    ftsLanguage: parseFtsLanguage(config.knowledge.ftsLanguage),
+  };
   const { db, sql }: { db: Db; sql: RawSql } = createDb(engineConfig);
   const deps = { db, sql, config: engineConfig };
+
+  // Serving-path schema validation, industry-standard fail-fast shape
+  // (Hibernate validate / Rails check_all_pending!): the mount is
+  // synchronous, so "before accepting traffic" becomes a memoized check
+  // awaited by the first query. Read-only; migration stays a deploy step.
+  // NOTE this is a lazy check, not a boot-time one: nothing forces it to run
+  // until the first real search()/capture() call, so a host that neither
+  // runs runKnowledgeMigrations itself nor wires a readiness probe will not
+  // learn about a language mismatch until that first call fails. A host
+  // that wants a real boot-time guarantee MUST call the exported
+  // verifyFtsLanguage from its own readiness probe — this memo then
+  // resolves instantly against the already-verified schema.
+  const ensureVerified = createFtsVerification(
+    createRawSqlClient(sql),
+    engineConfig.ftsLanguage,
+  );
 
   return {
     async search(params) {
       try {
+        await ensureVerified();
         const result = await hybridSearch(deps, {
           tenantId: params.tenantId,
           principalId: params.principalId,
@@ -116,6 +142,7 @@ export function createKnowledgePlane(config: KnowledgeConfig): KnowledgePlane {
     },
 
     async capture(params) {
+      await ensureVerified();
       const adapter = params.adapter ?? "mcp";
       const externalRef =
         params.externalRef ??

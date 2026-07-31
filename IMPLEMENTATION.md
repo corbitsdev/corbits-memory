@@ -41,6 +41,12 @@ routes; each reads identity from the context (`caller(c)`) and guards via
 singletons except the logger). Nothing has import-time side effects, so unit
 tests exercise the routes and services directly without a listening server.
 
+Mounting does **not** verify the FTS language against the database at boot —
+see the `knowledge_chunk` section below. A host is expected to either run
+`runKnowledgeMigrations` itself (which verifies) or wire its own readiness
+probe to call `verifyFtsLanguage`; without one of those, a language mismatch
+surfaces as a runtime failure on the plane's first query, not at mount time.
+
 ## Config
 
 There are two config types, both in the SDK:
@@ -61,6 +67,7 @@ fallback)` parses a positive integer or throws.
 |---|---|---|---|
 |  `KNOWLEDGE_DATABASE_URL` | **yes** | — | the engine's own pgvector Postgres |
 | `DB_POOL_MAX` | no | `8` | postgres-js pool size |
+| `FTS_LANGUAGE` | no | `english` | text search config for the lexical channel; fixed into the generated column at migration time — changing it later requires rebuilding the column (recipe below), and `runKnowledgeMigrations` fails loudly if config and column disagree. Unqualified `pg_catalog` config names only — a schema-qualified config (`myschema.mycfg`) is rejected explicitly, both when configuring and when read back from an already-migrated column. |
 | `EMBED_BASE_URL` | **yes** | — | embed endpoint root, no path suffix |
 | `EMBED_MODEL` | **yes** | — | model id/name passed to the embed endpoint |
 | `EMBED_API_STYLE` | no | `"openai"` | `"openai" \| "tei" \| "ollama"` |
@@ -128,8 +135,52 @@ alongside, the live ones unless a caller explicitly searches that generation.
 An ordered slice of a version's text, keyed by `(version_id, ordinal)`
 (unique). Carries a generated-always `text_fts tsvector` column (GIN-indexed)
 that powers the lexical search channel — this is the only place FTS is
-computed; no separate FTS table exists. Chunks are **never** reused across
-versions — every new version gets a fresh full insert of its own chunks.
+computed; no separate FTS table exists. Its language comes from
+`FTS_LANGUAGE` at migration time; the query side binds the same configured
+language as a `regconfig` parameter. The invariant is verified twice, both
+read-only against the catalog: `runKnowledgeMigrations` checks after
+applying (the deploy step), and the knowledge plane runs the same check
+once, memoized, before its first query (the serving path) — so a mismatch
+or unmigrated schema fails loudly on first use regardless of who ran the
+migrations. **The serving-path check only runs when something actually
+calls it** — `search()`/`capture()` invoke it lazily and memoize the result,
+but nothing forces that first call to happen at boot. A host that mounts the
+engine without running `runKnowledgeMigrations` itself and without wiring a
+readiness probe will not learn about a language mismatch until the first
+real query or capture fails — not at startup. Hosts that want a boot-time
+guarantee **must** call the exported `verifyFtsLanguage` from their own
+readiness probe; it is not optional belt-and-suspenders, it is the only way
+to get a boot-time check if this SDK instance isn't the one that migrated.
+Chunks are **never** reused across versions — every new version gets a
+fresh full insert of its own chunks.
+
+**Changing `FTS_LANGUAGE` on an already-migrated database** (the mismatch
+`verifyFtsLanguage` throws on) requires rebuilding the generated column —
+`runKnowledgeMigrations` only applies new files and will not retroactively
+alter an existing one. One-time recipe (verified against a live
+`postgres:16` instance):
+
+```sql
+BEGIN;
+DROP INDEX IF EXISTS knowledge_chunk_text_fts_idx;
+ALTER TABLE knowledge_chunk DROP COLUMN text_fts;
+ALTER TABLE knowledge_chunk ADD COLUMN text_fts tsvector
+  GENERATED ALWAYS AS (to_tsvector('<new_language>', "text")) STORED;
+COMMIT;
+
+-- Separate statement/connection — CREATE INDEX CONCURRENTLY is rejected
+-- inside any transaction block, unconditionally, since Postgres 8.2. It
+-- cannot be combined with the BEGIN/COMMIT block above.
+CREATE INDEX CONCURRENTLY knowledge_chunk_text_fts_idx ON knowledge_chunk USING gin (text_fts);
+```
+
+Both `ALTER TABLE` statements take an `ACCESS EXCLUSIVE` lock and force a
+full table rewrite (dropping then re-adding a `STORED` generated column
+always rewrites) — plan for a stall on `knowledge_chunk` for the duration on
+a populated database; run in a maintenance window. Only unqualified
+`pg_catalog` config names are supported; a schema-qualified config on this
+column is rejected explicitly by `verifyFtsLanguage` (with this same recipe
+in the error) rather than silently mis-parsed.
 
 ### `knowledge_entity` / `knowledge_edge`
 Lightweight graph rows. `knowledge_entity` has no unique constraint; dedupe on
@@ -303,7 +354,8 @@ search); otherwise it throws `KnowledgeSearchInputError` (400).
    `overfetch`, `rerank`); every field it doesn't supply falls back to the
    engine's own defaults. Live search never pays for this lookup.
 2. **Lexical channel** — `fetchLexicalCandidates`: Postgres full-text search
-   (`ts_rank` against `plainto_tsquery('english', query)` over
+   (`ts_rank` against `plainto_tsquery` in the configured `FTS_LANGUAGE`,
+   bound as a `regconfig` parameter, over
    `knowledge_chunk.text_fts`), joined to `knowledge_version` (filtered to
    `status = 'active'` and the resolved `generation`) and `knowledge_document`
    (filtered by `visibilityPredicateSql`), optionally further filtered by

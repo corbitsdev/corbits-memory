@@ -26,7 +26,7 @@ import type {
   EntityHint,
 } from "../core/schemas/adapted-document.ts";
 import type { KnowledgeEdgeHint } from "../core/schemas/entity-edge.ts";
-import { createEmbedRegistrySqlClient } from "../core/embed-sql.ts";
+import { createRawSqlClient } from "../core/embed-sql.ts";
 import { activateEmbedModel } from "../core/embed-model-registry.ts";
 import { EmbedClientConfigSchema, type EmbedClientConfig } from "../core/embed-client.ts";
 import { embedChunks, type EmbeddableChunk } from "../core/embed-worker.ts";
@@ -500,7 +500,7 @@ async function embedInsertedChunksWithConfig(
   if (chunks.length === 0) return { degraded: false };
 
   try {
-    const client = createEmbedRegistrySqlClient(sql);
+    const client = createRawSqlClient(sql);
 
     const activeTable = await activateEmbedModel(
       client,
