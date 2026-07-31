@@ -26,12 +26,6 @@ Requires Bun 1.2+.
 bun add @corbits/knowledge-engine
 ```
 
-Until the package is on npm, install from the repository:
-
-```bash
-bun add github:corbitsdev/corbits-knowledge-engine
-```
-
 ## Mount it
 
 ```ts
