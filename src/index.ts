@@ -10,7 +10,11 @@ import type { Hono } from "hono";
 import { createRequireGrant, type TenantEnv } from "@intx/hub-api";
 
 import type { KnowledgeConfig } from "./mount-config.ts";
-import { createKnowledgePlane, type KnowledgePlane } from "./knowledge.ts";
+import {
+  createKnowledgePlane,
+  type Generate,
+  type KnowledgePlane,
+} from "./knowledge.ts";
 import {
   mountKnowledgeRoutes,
   type GrantConfig,
@@ -29,18 +33,25 @@ export { RerankConfigError } from "./core/rerank-client.ts";
 // Hono app just to get a plane. Callers acting on behalf of a user are
 // responsible for the capability check `requireGrant` would have performed; see
 // the README. Rerank config is validated at construction (same as mount).
+// Pass `grants` + optional `generate` when the host will call `ask()`.
 export { createKnowledgePlane } from "./knowledge.ts";
 export type {
+  AskCitation,
+  AskResult,
+  ChatMessage,
+  Generate,
   HybridSearchResult,
+  KnowledgeAskParams,
   KnowledgeCaptureParams,
   KnowledgeIdentity,
   KnowledgePlane,
+  KnowledgePlaneOptions,
   KnowledgeSearchParams,
   SearchHit,
   TimelineEvent,
   VisibilitySpec,
 } from "./knowledge.ts";
-export { KnowledgeError } from "./knowledge.ts";
+export { KnowledgeError, KnowledgeNotPermittedError } from "./knowledge.ts";
 // Migrations
 export { runKnowledgeMigrations } from "./migrations.ts";
 // Degrade metrics — no metrics dependency exists in this package (see
@@ -68,9 +79,18 @@ export type MountKnowledgeEngineOptions = {
    * The host's grant store + condition registry — the same pair it passes to
    * `createApp`/`createRequireGrant`. Required: HTTP routes are guarded with
    * `requireGrant("knowledge", <action>)`. The SDK never leaves a route
-   * unguarded.
+   * unguarded. Also required for in-process `ask()`.
    */
   grants: GrantConfig;
+  /**
+   * How `ask()` reaches a model. Omit if this host only captures and searches;
+   * `ask()` then fails with a 501 naming what is missing.
+   *
+   * The engine owns no generation client on purpose — Interchange's
+   * `@intx/inference` already has provider adapters, tenant-scoped credentials,
+   * retry, audit and authz gates. Wire this to that rather than to a bare fetch.
+   */
+  generate?: Generate;
 };
 
 export type MountedKnowledgeEngine = {
@@ -83,8 +103,11 @@ export function mountKnowledgeEngine(
   options: MountKnowledgeEngineOptions,
 ): MountedKnowledgeEngine {
   // Rerank config validation runs inside createKnowledgePlane so standalone
-  // construction and the mount path share one check.
-  const knowledge = createKnowledgePlane(options.config);
+  // construction and the mount path share one check. Pass grants + generate so
+  // the returned plane's ask() is grant-checked and can synthesize answers.
+  const knowledge = createKnowledgePlane(options.config, options.grants, {
+    ...(options.generate ? { generate: options.generate } : {}),
+  });
   const deps: RouteDeps = {
     knowledge,
     grants: options.grants,

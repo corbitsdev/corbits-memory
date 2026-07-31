@@ -42,6 +42,7 @@ function stubPlane(opts?: {
   const catalog = opts?.timelineCatalog ?? [];
   const plane: KnowledgePlane = {
     search: async () => ({ hits: [], evidence: "none" }),
+    ask: async () => ({ text: "", citations: [], evidence: "none" }),
     capture: async (p) => {
       captured.push({
         title: p.title,
