@@ -11,14 +11,13 @@ src/
   index.ts                # mountKnowledgeEngine / mountKnowledgeRoutes
   mount-config.ts         # KnowledgeConfig + loadKnowledgeConfig() — the mount config
   config.ts               # EngineConfig — the core vector-plane config (db + embed + rerank)
-  knowledge.ts            # createKnowledgePlane — capture/search against pgvector
-  acl.ts                  # parseAcl — document ACL (scope/tenant/private/allowlist)
-  capture-log.ts          # in-memory recent-capture ring buffer (timeline)
+  knowledge.ts            # createKnowledgePlane — capture/search/timeline against pgvector
+  acl.ts                  # parseAcl + shared acl_block read-path helpers
   log.ts                  # getLogger(["knowledge-engine"]) from @intx/log
   migrations.ts           # runKnowledgeMigrations(url)
   routes/                 # the mounted routes
     mount.ts              # mountKnowledgeRoutes (HTTP)
-    deps.ts               # RouteDeps, caller(c) (context identity), grantGuard, readJsonBody
+    deps.ts               # RouteDeps, caller(c) (context identity), grantGuard
     capture.ts, search.ts, timeline.ts
   db/
     schema.ts             # Drizzle table defs for every fixed-shape table
@@ -26,6 +25,7 @@ src/
   services/
     capture.ts            # captureDocument, deriveFromRawCapture — the write path
     search.ts             # hybridSearch and every retrieval-candidate query
+    timeline.ts           # listTimelineEvents — durable recent docs + ACL filter
     transform.ts          # transform_config CRUD + runTransform (replay)
   core/                   # framework-agnostic, mostly pure (chunking, embed/rerank
                           # clients, authority, hybrid fusion, MMR, schemas)
@@ -478,13 +478,36 @@ Each route is guarded with `grantGuard(deps, action)`, which applies the host's
 |---|---|---|---|
 | `POST /api/knowledge/capture` | `capture` | `{ title, text, acl? }` | `200 { status: "captured" }`; `400` on validation |
 | `POST /api/knowledge/search` | `search` | `{ query, k? }` (k 1–50) | `200 SearchResponse` (`{ hits[], evidence, degraded? }`); `400` on bad input |
-| `GET /api/knowledge/timeline` | `search` | — | `200 { events }` for the caller's scope |
+| `GET /api/knowledge/timeline` | `search` | — | `200 { events: [{ at, title, source, tenantId, principalId }] }` — durable recent documents for the caller's scope (`last_seen_at` DESC), filtered with the same visibility SQL + `acl_block` post-filter as search. One event per document (active live version), not per capture attempt. See wire field notes below. |
 
 `mountKnowledgeRoutes` and `mountKnowledgeEngine` both mount the three HTTP routes. MCP is a separate package (`@corbitsdev/hono-openapi-mcp`).
 
+### Timeline wire fields (vs the old CaptureLog ring)
+
+The process-local CaptureLog hardcoded `source: "api"` and recorded the
+HTTP caller's `subjectId` as `principalId` at capture time. The durable
+timeline maps different columns:
+
+| Wire field | Source column / meaning |
+|---|---|
+| `at` | `knowledge_document.last_seen_at` (ISO) — re-captures rise in the feed |
+| `title` | `knowledge_document.title` |
+| `source` | `knowledge_document.adapter` (HTTP capture defaults to `"mcp"`, not `"api"`) |
+| `tenantId` | `knowledge_document.tenant_id` |
+| `principalId` | `knowledge_version.created_by_principal_id` of the active live version (empty string when null) — the capturing actor stored on the version, not the request principal of a later timeline read |
+
+### ACL validators
+
 The document ACL (`acl` on capture) is validated by `parseAcl` — mode
 `scope|tenant|private|allowlist`, `subjects` only (groups/grants rejected until
-membership lands). `parseAcl` is the single ACL validator.
+membership lands). `parseAcl` is the single write-path ACL validator.
+
+Read-path block lists use one gate: **`readBlockList`** (search via
+`blockedDocumentIds`, timeline via `timelineRowBlock` /
+`filterTimelineRowsForPrincipal`). Both paths share fail-closed semantics —
+native jsonb arrays, JSON strings, unreadable shapes, and missing search rows
+are withheld. There is no second, weaker interpreter of membership.
+
 
 ## Observability
 

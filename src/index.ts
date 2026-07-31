@@ -10,7 +10,6 @@ import type { Hono } from "hono";
 import { createRequireGrant, type TenantEnv } from "@intx/hub-api";
 
 import type { KnowledgeConfig } from "./mount-config.ts";
-import { CaptureLog } from "./capture-log.ts";
 import { createKnowledgePlane, type KnowledgePlane } from "./knowledge.ts";
 import {
   mountKnowledgeRoutes,
@@ -25,9 +24,8 @@ export type { KnowledgeConfig } from "./mount-config.ts";
 export { loadKnowledgeConfig } from "./mount-config.ts";
 export type { EngineConfig } from "./config.ts";
 export { RerankConfigError } from "./core/rerank-client.ts";
-// Knowledge plane + capture log
-export type { KnowledgePlane } from "./knowledge.ts";
-export { CaptureLog, type CaptureEvent } from "./capture-log.ts";
+// Knowledge plane
+export type { KnowledgePlane, TimelineEvent } from "./knowledge.ts";
 // Migrations
 export { runKnowledgeMigrations } from "./migrations.ts";
 // Degrade metrics — no metrics dependency exists in this package (see
@@ -62,7 +60,6 @@ export type MountKnowledgeEngineOptions = {
 
 export type MountedKnowledgeEngine = {
   knowledge: KnowledgePlane;
-  captureLog: CaptureLog;
 };
 
 /** Mount the knowledge HTTP routes over one knowledge plane. */
@@ -85,13 +82,11 @@ export function mountKnowledgeEngine(
   if (rerankConfig) validateRerankConfig(rerankConfig);
 
   const knowledge = createKnowledgePlane(options.config);
-  const captureLog = new CaptureLog();
   const deps: RouteDeps = {
     knowledge,
-    captureLog,
     grants: options.grants,
     requireGrant: createRequireGrant(options.grants),
   };
   mountKnowledgeRoutes(app, deps);
-  return { knowledge, captureLog };
+  return { knowledge };
 }

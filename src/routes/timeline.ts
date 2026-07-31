@@ -3,6 +3,7 @@ import type { TenantEnv } from "@intx/hub-api";
 import { describeRoute, resolver } from "hono-openapi";
 import { type } from "arktype";
 
+import { formatCaughtError, log } from "../log.ts";
 import type { RouteDeps } from "./deps.ts";
 import { caller, grantGuard } from "./deps.ts";
 
@@ -24,21 +25,31 @@ export function mountTimelineRoute(app: Hono<TenantEnv>, deps: RouteDeps): void 
       summary: "Recent captures for the caller's scope",
       responses: {
         200: {
-          description: "Recent capture events",
+          description: "Recent capture events visible to the caller",
           content: {
             "application/json": { schema: resolver(TimelineResponse) },
           },
         },
         403: { description: "Missing the knowledge:search grant" },
+        502: { description: "Timeline query failed" },
       },
     }),
     grantGuard(deps, "search"),
-    (c) => {
-      const { scopeId } = caller(c);
-      const events = deps.captureLog
-        .list(100)
-        .filter((e) => e.tenantId === scopeId);
-      return c.json({ events });
+    async (c) => {
+      const { scopeId, subjectId } = caller(c);
+      try {
+        const events = await deps.knowledge.timeline({
+          tenantId: scopeId,
+          principalId: subjectId,
+        });
+        return c.json({ events });
+      } catch (err) {
+        const errMessage = formatCaughtError(err);
+        log.error(`knowledge timeline failed: ${errMessage}`, {
+          error: errMessage,
+        });
+        return c.json({ error: "timeline failed" }, 502);
+      }
     },
   );
 }

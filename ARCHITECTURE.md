@@ -69,7 +69,8 @@ model.
 - `POST /api/knowledge/capture` — ingest content (raw + derive).
 - `POST /api/knowledge/search` — hybrid retrieval: FTS + dense (pgvector) → RRF
   fusion → cross-encoder rerank → bounded authority/recency boosts → MMR.
-- `GET /api/knowledge/timeline` — recent captures for the caller's scope.
+- `GET /api/knowledge/timeline` — recent captures for the caller's scope,
+  filtered with the same document ACL as search (visibility + block list).
 
 MCP is not part of this package — mount `@corbitsdev/hono-openapi-mcp` to expose
 these routes as MCP tools.

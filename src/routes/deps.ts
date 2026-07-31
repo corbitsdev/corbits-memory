@@ -2,7 +2,6 @@ import type { Context, MiddlewareHandler } from "hono";
 import type { RequireGrant, TenantEnv } from "@intx/hub-api";
 import type { ConditionRegistry, GrantStore } from "@intx/authz";
 
-import type { CaptureLog } from "../capture-log.ts";
 import type { KnowledgePlane } from "../knowledge.ts";
 
 /**
@@ -16,7 +15,6 @@ export type GrantConfig = {
 
 export type RouteDeps = {
   knowledge: KnowledgePlane;
-  captureLog: CaptureLog;
   /** Route-guard middleware factory (Interchange `createRequireGrant`). */
   requireGrant: RequireGrant;
   /** The grant store, kept for callers that need imperative checks. */
