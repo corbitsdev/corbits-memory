@@ -159,8 +159,21 @@ not in any migration file. Created at runtime by
 CREATE TABLE IF NOT EXISTS knowledge_embedding_<key> (
   chunk_id text PRIMARY KEY,
   tenant_id text NOT NULL,
-  embedding vector(<dims>)
+  embedding vector(<dims>),
+  CONSTRAINT knowledge_embedding_<key>_chunk_fk
+    FOREIGN KEY (chunk_id) REFERENCES knowledge_chunk (id) ON DELETE CASCADE
 )
+```
+plus a `(tenant_id, chunk_id)` index (created on every activation, so it
+retrofits onto older tables). The FK completes the hard-delete cascade
+chain document -> version -> chunk -> embedding. `CREATE TABLE IF NOT
+EXISTS` cannot add the FK to a table created before it existed; that gap is
+accepted (no populated pre-FK installs exist). If hard deletes are ever
+introduced against such a table, run once, per embedding table:
+```sql
+ALTER TABLE knowledge_embedding_<key>
+  ADD CONSTRAINT knowledge_embedding_<key>_chunk_fk
+  FOREIGN KEY (chunk_id) REFERENCES knowledge_chunk (id) ON DELETE CASCADE;
 ```
 plus an HNSW index: `vector_cosine_ops` up to 2000 dims (falling back to
 `ivfflat` if the Postgres/pgvector build lacks the `hnsw` access method), or

@@ -141,9 +141,29 @@ describe("activateEmbedModel", () => {
     const createTableQuery = queries.find((q) => q.sql.includes("CREATE TABLE IF NOT EXISTS"));
     expect(createTableQuery?.sql).toContain(result.tableName);
     expect(createTableQuery?.sql).toContain("vector(768)");
+    expect(createTableQuery?.sql).toContain(
+      `CONSTRAINT ${result.tableName}_chunk_fk`,
+    );
+    expect(createTableQuery?.sql).toContain(
+      "FOREIGN KEY (chunk_id) REFERENCES knowledge_chunk (id) ON DELETE CASCADE",
+    );
 
-    const indexQuery = queries.find((q) => q.sql.includes("CREATE INDEX"));
+    const tenantIndexQuery = queries.find((q) => q.sql.includes("_tenant_chunk_idx"));
+    expect(tenantIndexQuery?.sql).toBe(
+      `CREATE INDEX IF NOT EXISTS ${result.tableName}_tenant_chunk_idx ON ${result.tableName} (tenant_id, chunk_id)`,
+    );
+
+    const indexQuery = queries.find((q) => q.sql.includes("USING hnsw"));
     expect(indexQuery?.sql).toContain("USING hnsw");
+  });
+
+  it("re-issues the tenant index on every activation so pre-existing tables are retrofitted", async () => {
+    const { client, queries } = createMockClient();
+    await activateEmbedModel(client, "tenant-1", baseConfig, fixtureFetch(768));
+    await activateEmbedModel(client, "tenant-1", baseConfig, fixtureFetch(768));
+
+    const tenantIndexQueries = queries.filter((q) => q.sql.includes("_tenant_chunk_idx"));
+    expect(tenantIndexQueries).toHaveLength(2);
   });
 
   it("falls back to ivfflat when hnsw creation fails", async () => {
@@ -183,7 +203,7 @@ describe("activateEmbedModel", () => {
     const result = await activateEmbedModel(client, "tenant-1", baseConfig, fixtureFetch(dims));
 
     expect(result.dims).toBe(dims);
-    const indexQuery = queries.find((q) => q.sql.includes("CREATE INDEX"));
+    const indexQuery = queries.find((q) => q.sql.includes("USING hnsw"));
     expect(indexQuery?.sql).toContain("USING hnsw");
     expect(indexQuery?.sql).toContain("halfvec_cosine_ops");
     expect(indexQuery?.sql).not.toContain("ivfflat");
