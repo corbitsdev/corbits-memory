@@ -393,7 +393,6 @@ export function createKnowledgePlane(
       return synthesizeAnswer(params.query, result, options.generate);
     },
 
-
     async capture(params) {
       await ensureVerified();
       const adapter = params.adapter ?? "mcp";

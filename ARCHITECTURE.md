@@ -72,6 +72,13 @@ model.
 - `GET /api/knowledge/timeline` — recent captures for the caller's scope,
   filtered with the same document ACL as search (visibility + block list).
 
+It also returns an in-process `KnowledgePlane` (`capture`, `search`, `ask`).
+`ask()` is grant-checked in-process (callers bypass the HTTP `requireGrant`
+guard), searches as the asking principal, grounds a prompt from hit `snippet`
+text (search truncates snippets to ≤240 chars today — that is the MVP
+grounding limit), and calls a host-injected `generate` function. The engine
+owns no generation client; hosts wire `generate` to their inference layer.
+
 MCP is not part of this package — mount `@corbitsdev/hono-openapi-mcp` to expose
 these routes as MCP tools.
 

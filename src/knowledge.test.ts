@@ -350,7 +350,7 @@ describe("ask() — allow path", () => {
       expect(messages[1]?.content).toContain("the relevant snippet");
       return Promise.resolve("Answer from context [1].");
     });
-    const plane = createKnowledgePlane(askConfig, grants, { generate });
+const plane = createKnowledgePlane(askConfig, grants, { generate });
     // Stub search so this unit test never needs a live Postgres. ask() looks
     // up plane.search at call time, so reassignment is the wiring under test.
     plane.search = mock(() =>

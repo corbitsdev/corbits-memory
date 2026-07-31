@@ -164,13 +164,16 @@ const { text, citations, evidence } = await knowledge.ask({
    call came through the HTTP route guard, so it can never be forgotten.
 2. Searches as that principal (`hybridSearch`), so per-document visibility and
    block lists apply exactly as they do for `search()`.
-3. Assembles a grounded context block from the hits' `snippet` text, truncated
-   to a character budget.
+3. Assembles a grounded context block from the hits' `snippet` text (search
+   truncates each snippet to ≤240 chars today — that is the MVP grounding
+   limit), then truncates the assembled block to a character budget. Citation
+   numbers are sequential among entries actually included in the prompt.
 4. Calls the **host-supplied** `generate` function with a system prompt that
    instructs answering only from context and refusing explicitly when the
    context doesn't contain the answer.
-5. Returns the answer text, the citations actually used (matched to the `[N]`
-   markers in the prompt), and the search's evidence level.
+5. Returns the answer text, the citations included in the prompt (matched to
+   the `[N]` markers the model was asked to use), and the search's evidence
+   level.
 
 ### The engine owns no generation client
 
