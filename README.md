@@ -2,8 +2,9 @@
 
 A knowledge capture + search engine you **mount** onto an [Interchange](https://github.com/corbitsdev) hub.
 
-`mountKnowledgeEngine(app, opts)` adds hybrid semantic + keyword search and
-capture (with per-document ACLs) to your Interchange `createApp`.
+`mountKnowledgeEngine(app, opts)` adds hybrid semantic + keyword search, capture
+(with per-document ACLs), and a grant-checked in-process `ask()` to your
+Interchange `createApp`.
 
 MCP is a separate concern: mount `@corbitsdev/hono-openapi-mcp` to expose these
 (or any documented) routes as MCP tools — no MCP code lives in this package.
@@ -19,6 +20,24 @@ to an embedding endpoint you configure — any OpenAI-compatible, TEI, or
 Ollama-style API.
 
 Requires Bun 1.2+.
+
+## What you get
+
+- **Capture / search / timeline** HTTP routes, each guarded with
+  `requireGrant("knowledge", <action>)`. Timeline titles use the same document
+  ACL as search (visibility modes + fail-closed block lists).
+- **Grant-checked `ask()`** on the plane: retrieves as the principal, grounds a
+  host-supplied `generate` callback, returns citations. Safe to call outside
+  HTTP because the capability check lives inside the method.
+- **Out-of-band plane** via `createKnowledgePlane` for CLI seeders, batch
+  ingesters, and tests — no Hono app required.
+- **Configurable lexical language** (`FTS_LANGUAGE`, default `english`) baked
+  into the generated tsvector at migration time and verified at query time.
+- **Multi-model embeddings** with per-model tables; models above 2000 dims use
+  halfvec expression indexes (up to 4000) so dense search can still hit an index.
+- **Optional cross-encoder rerank** (TEI, Cohere v2, or Voyage). Retrieval
+  degrades to fusion-only when unset. Hosts can poll degrade-metrics snapshots
+  to surface silent degradation without the engine owning a `/metrics` port.
 
 ## Install
 
@@ -221,45 +240,46 @@ bun run db:setup                                       # apply the knowledge sch
 `loadKnowledgeConfig()` reads the environment (see `.env.example`) and returns a
 `KnowledgeConfig` — just the vector DB and model endpoints. Hosts that don't
 want env-driven config can build the object directly. See `PRODUCT.md` for the
-shape and the identity/ACL model.
+shape and the identity/ACL model, and `IMPLEMENTATION.md` for env vars and
+service internals.
 
-Reranking (`RERANK_BASE_URL` etc.) is optional and TEI-only today; retrieval
-degrades to fusion-only if unset. `RERANK_MAX_DOC_CHARS` bounds how much of
-each chunk's text is sent per document — TEI rejects the whole batch if any
-single document exceeds the reranker's token limit, and the engine's
-~700-token chunks routinely exceed `bge-reranker-base`'s 512. Left unset, the
-budget is derived from the resolved model's own advertised token limit (see
-`defaultMaxDocCharsForModel` in `rerank-client.ts`) rather than a single
-constant — the engine's default model, `bge-reranker-v2-m3`, has an
-8,192-token limit, over 16x `bge-reranker-base`'s, so a one-size budget would
-either 413 the smaller model or silently over-truncate every chunk sent to
-the larger one.
+### Reranking
 
-The budget also reserves space for the query: TEI's limit is on the
-query+document pair, not the document alone, so a long query shrinks the
-document's share before truncation. If the query alone leaves less than a
-useful minimum for the document, reranking is skipped for that request
-(logged, reported as `"rerank_query_too_long"`) rather than forcing the
-document budget back up and overflowing the pair — truncating the query
-instead was considered and rejected, since it would silently change what the
-user asked.
+Reranking is optional (`RERANK_BASE_URL` etc.). Supported API styles are **TEI,
+Cohere v2, and Voyage**; retrieval degrades to fusion-only when no base URL is
+set.
 
-`mountKnowledgeEngine` validates the default/configured budget against known
-models' advertised limits at startup and throws `RerankConfigError` on a
-mismatch, rather than failing per query — this is safe to throw on because
-the per-model default is self-consistent by construction, regardless of
-which model is resolved. A replay's `transform_config` can also supply its
-own rerank endpoint/model; that path is validated the same way, at request
-time, and degrades to fused ranking on a mismatch instead of throwing.
+Document character budgets (`RERANK_MAX_DOC_CHARS`) and startup validation
+against known model token limits apply to the **TEI path only** — TEI rejects
+the whole batch if any single document exceeds the cross-encoder's limit, and
+the engine's ~700-token chunks routinely exceed `bge-reranker-base`'s 512.
+Left unset, the budget is derived from the resolved model's advertised token
+limit rather than a single constant (the engine default, `bge-reranker-v2-m3`,
+has an 8,192-token limit — over 16× `bge-reranker-base` — so a one-size budget
+would either 413 the smaller model or over-truncate the larger one).
 
-Truncation is a real tradeoff, in two ways. First, the reranker scores only
-the head of a chunk while the caller still cites and reads the whole thing, so
-a document whose relevance lives in its tail ranks lower than it deserves.
-Second, the char budget is an estimate, not a guarantee: it assumes as few as
-~3 characters per token, which holds for ordinary prose but not for CJK text,
-minified code, base64, or other dense content that can run closer to ~1
-char/token — those corpora can still overflow the reranker's real token limit
-even after truncation. Lower `RERANK_MAX_DOC_CHARS` for such corpora.
+The TEI budget also reserves space for the query (the limit is on the
+query+document pair). If the query alone leaves less than a useful minimum for
+the document, reranking is skipped for that request (logged, reported as
+`"rerank_query_too_long"`) rather than truncating the query.
+
+`mountKnowledgeEngine` validates the TEI budget against known models at startup
+and throws `RerankConfigError` on a mismatch. A replay's `transform_config` can
+supply its own rerank endpoint/model; that path is validated the same way at
+request time and degrades to fused ranking on a mismatch instead of throwing.
+
+Truncation is a real tradeoff: the reranker scores only the head of a chunk
+while callers still cite the whole thing, and the char budget is an estimate
+(~3 chars/token for prose — denser content like CJK, minified code, or base64
+can still overflow). Lower `RERANK_MAX_DOC_CHARS` for those corpora.
+
+### Degrade metrics
+
+When retrieval degrades (missing embed model, rerank failure, query-too-long,
+and similar), the engine records counters you can poll — there is no metrics
+port in this package. Export `getDegradeMetricsSnapshot` /
+`getAllDegradeMetricsSnapshots` (and optional `configureDegradeMetrics`) and
+forward them from the host's own metrics backend.
 
 ## Testing
 
