@@ -355,3 +355,174 @@ describe("fetchDenseCandidates hnsw tuning", () => {
     await expect(fetchDenseCandidates(args(fake.rawSql))).rejects.toThrow("connection reset");
   });
 });
+
+// Regression coverage for the fusion-bypass bug: kinds/entityIds used to be
+// applied only to fetchLexicalCandidates, so a document that didn't match
+// the caller's filter could still reach the caller through the dense
+// channel once RRF fusion merged both result sets. This exercises
+// fetchDenseCandidates directly with a fake postgres handle that behaves
+// like a real one WOULD for the query fetchDenseCandidates builds: it reads
+// the actual SQL text and bound params off the call and only returns rows
+// that satisfy whatever kind/entity predicate is (or isn't) present. If the
+// implementation stopped sending the predicate to the dense query, this
+// fake would fall back to returning every row — unfiltered, exactly like a
+// live Postgres would with no WHERE clause — and the assertions below
+// would fail.
+describe("fetchDenseCandidates kind/entity filtering", () => {
+  const MODEL_ROW = { model_key: "bbbbbbbbbbbbbbbb", model_id: "m", dims: 768 };
+
+  // Two chunks the ANN scan would surface on pure semantic similarity: one
+  // belongs to a document of kind "task" linked to entity "e-match", the
+  // other to kind "note" linked to no requested entity. A caller filtering
+  // by kinds: ["task"] or entityIds: ["e-match"] must never see "chunk-note".
+  const DENSE_ROWS: Array<Record<string, unknown>> = [
+    {
+      chunk_id: "chunk-task",
+      document_id: "doc-task",
+      version_id: "ver-task",
+      version: 1,
+      status: "active",
+      title: "Task doc",
+      kind: "task",
+      adapter: "artifact",
+      external_ref: "artifact:task",
+      created_by_kind: "human",
+      generator_agent_id: null,
+      snippet_text: "matches on kind and entity",
+      occurred_at: new Date("2026-01-01T00:00:00Z").toISOString(),
+      authority: 0.5,
+    },
+    {
+      chunk_id: "chunk-note",
+      document_id: "doc-note",
+      version_id: "ver-note",
+      version: 1,
+      status: "active",
+      title: "Note doc",
+      kind: "note",
+      adapter: "artifact",
+      external_ref: "artifact:note",
+      created_by_kind: "human",
+      generator_agent_id: null,
+      snippet_text: "surfaced purely by semantic similarity",
+      occurred_at: new Date("2026-01-01T00:00:00Z").toISOString(),
+      authority: 0.5,
+    },
+  ];
+
+  // doc-task is linked to entity "e-match"; doc-note is linked to nothing.
+  const ENTITY_LINKS: Record<string, string[]> = {
+    "doc-task": ["e-match"],
+    "doc-note": [],
+  };
+
+  function openaiEmbedFetch(): typeof fetch {
+    return (() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ data: [{ embedding: [0.1, 0.2] }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      )) as unknown as typeof fetch;
+  }
+
+  // Behaves like a real Postgres connection would for exactly the queries
+  // fetchDenseCandidates issues: model-registry lookup, then the dense
+  // SELECT itself, evaluating whatever kind/entity predicate the SQL text
+  // actually contains against the canned dataset above.
+  function fakeRawSql() {
+    type FakeTx = {
+      unsafe: (sqlText: string, params?: unknown[]) => Promise<unknown[]>;
+      savepoint: (fn: (sp: FakeTx) => Promise<unknown>) => Promise<unknown>;
+    };
+    function evaluate(sqlText: string, params: unknown[]): unknown[] {
+      let rows = DENSE_ROWS;
+      const kindMatch = sqlText.match(/kd\.kind = ANY\(\$(\d+)/);
+      if (kindMatch) {
+        const kinds = params[Number(kindMatch[1]) - 1] as string[];
+        rows = rows.filter((r) => kinds.includes(r["kind"] as string));
+      }
+      const entityMatch = sqlText.match(/ke\.to_ref = ANY\(\$(\d+)/);
+      if (entityMatch) {
+        const entityIds = params[Number(entityMatch[1]) - 1] as string[];
+        rows = rows.filter((r) =>
+          (ENTITY_LINKS[r["document_id"] as string] ?? []).some((e) =>
+            entityIds.includes(e),
+          ),
+        );
+      }
+      return rows;
+    }
+    const tx: FakeTx = {
+      unsafe: (sqlText: string, params: unknown[] = []) => {
+        if (sqlText.includes("ORDER BY")) {
+          return Promise.resolve(evaluate(sqlText, params));
+        }
+        return Promise.resolve([]);
+      },
+      savepoint: (fn: (sp: FakeTx) => Promise<unknown>) => fn(tx),
+    };
+    const rawSql = {
+      unsafe: (sqlText: string) =>
+        Promise.resolve(
+          sqlText.includes("FROM knowledge_embed_model") ? [MODEL_ROW] : [],
+        ),
+      begin: (cb: (t: FakeTx) => Promise<unknown>) => cb(tx),
+    };
+    return rawSql as unknown as Parameters<typeof fetchDenseCandidates>[0]["sql"];
+  }
+
+  function baseArgs(sql: Parameters<typeof fetchDenseCandidates>[0]["sql"]) {
+    return {
+      sql,
+      embedClientConfig: {
+        baseUrl: "https://embed.example.com",
+        modelId: "m",
+        apiStyle: "openai" as const,
+      },
+      fetchImpl: openaiEmbedFetch(),
+      tenantId: "tenant-1",
+      principalId: null,
+      query: "hello",
+      overfetchLimit: 250,
+    };
+  }
+
+  it("excludes a semantically-similar chunk whose document kind does not match `kinds`", async () => {
+    const rows = await fetchDenseCandidates({
+      ...baseArgs(fakeRawSql()),
+      kinds: ["task"],
+    });
+    const chunkIds = rows?.map((r) => r.chunkId) ?? [];
+    expect(chunkIds).toContain("chunk-task");
+    expect(chunkIds).not.toContain("chunk-note");
+  });
+
+  it("excludes a semantically-similar chunk whose document is not linked to any requested entityId", async () => {
+    const rows = await fetchDenseCandidates({
+      ...baseArgs(fakeRawSql()),
+      entityIds: ["e-match"],
+    });
+    const chunkIds = rows?.map((r) => r.chunkId) ?? [];
+    expect(chunkIds).toContain("chunk-task");
+    expect(chunkIds).not.toContain("chunk-note");
+  });
+
+  it("applies no kind/entity predicate — and returns every semantically-similar chunk — when neither filter is provided", async () => {
+    const rows = await fetchDenseCandidates(baseArgs(fakeRawSql()));
+    const chunkIds = rows?.map((r) => r.chunkId) ?? [];
+    expect(chunkIds).toContain("chunk-task");
+    expect(chunkIds).toContain("chunk-note");
+  });
+
+  it("treats an empty kinds/entityIds array as no filter, same as lexical", async () => {
+    const rows = await fetchDenseCandidates({
+      ...baseArgs(fakeRawSql()),
+      kinds: [],
+      entityIds: [],
+    });
+    const chunkIds = rows?.map((r) => r.chunkId) ?? [];
+    expect(chunkIds).toContain("chunk-task");
+    expect(chunkIds).toContain("chunk-note");
+  });
+});

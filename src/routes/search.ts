@@ -9,11 +9,9 @@ import { SearchResponseSchema } from "../core/schemas/search.ts";
 import type { RouteDeps } from "./deps.ts";
 import { caller, grantGuard, requirePrincipal } from "./deps.ts";
 
-// `kinds`/`entity_ids` scope the LEXICAL retrieval leg only — the dense
-// channel has no equivalent predicate, so fused results can still include a
-// hit that reached the result purely via semantic similarity and does not
-// match the requested kind/entity. See the `kinds`/`entityIds` doc comments
-// on KnowledgeSearchParams (knowledge.ts) for the full explanation.
+// `kinds`/`entity_ids` scope every retrieval channel — see the
+// `kinds`/`entityIds` doc comments on KnowledgeSearchParams (knowledge.ts)
+// for the full explanation.
 //
 // An empty array on either field is equivalent to omitting it — "no filter"
 // — not "match nothing", and does not satisfy the requirement that an empty
@@ -32,11 +30,9 @@ export function mountSearchRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
       tags: ["knowledge"],
       summary: "Hybrid semantic + keyword search",
       description:
-        "`kinds`/`entity_ids` scope the lexical (keyword) retrieval leg " +
-        "only; the dense/semantic leg has no such predicate, so a hit " +
-        "surfaced purely by semantic similarity can appear in results " +
-        "without matching the requested kind or entity. Treat these as a " +
-        "relevance hint, not an exact post-fusion filter.",
+        "`kinds`/`entity_ids` scope every retrieval channel (lexical and " +
+        "dense) before results are fused, so every hit matches the " +
+        "requested kind/entity.",
       responses: {
         200: {
           description: "Ranked hits with evidence",
