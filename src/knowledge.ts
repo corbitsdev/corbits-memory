@@ -58,19 +58,19 @@ export type KnowledgeIdentity = {
 
 export type KnowledgeSearchParams = KnowledgeIdentity & {
   query: string;
-  k?: number;
+  k?: number | undefined;
   /**
    * Narrows every retrieval channel to documents whose `kind` is one of
    * these — see `hybridSearch` in services/search.ts. Applied before fusion,
    * so a fused hit is always guaranteed to match. Unset or an empty array
    * both mean "no filter" (equivalent, not "match nothing").
    */
-  kinds?: string[];
+  kinds?: string[] | undefined;
   /**
    * Same scoping as `kinds`, restricted to documents linked to one of these
    * entity ids. Unset or an empty array both mean "no filter".
    */
-  entityIds?: string[];
+  entityIds?: string[] | undefined;
 };
 
 export type KnowledgeAskParams = KnowledgeIdentity & {

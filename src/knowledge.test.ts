@@ -30,6 +30,7 @@ import {
 import type { KnowledgeConfig } from "./mount-config.ts";
 import * as realDb from "./db/client.ts";
 import * as realSearch from "./services/search.ts";
+import type { HybridSearchResult } from "./services/search.ts";
 
 const PRINCIPAL = "p1";
 const TENANT = "t1";
@@ -170,10 +171,10 @@ describe("createKnowledgePlane — construction validation", () => {
 });
 
 describe("createKnowledgePlane.search — ACL post-filter wiring", () => {
-  const hybridSearch = mock(() =>
+  const hybridSearch = mock((): Promise<HybridSearchResult> =>
     Promise.resolve({
       hits: [hit("d-blocked"), hit("d-open")],
-      evidence: "strong" as const,
+      evidence: "strong",
     }),
   );
 
