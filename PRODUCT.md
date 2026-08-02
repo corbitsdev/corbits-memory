@@ -82,6 +82,13 @@ GET  /api/knowledge/timeline
 Requests are authenticated upstream by Interchange (however the host chose);
 the SDK routes assume a resolved principal on the context.
 
+`kinds`/`entity_ids` narrow the lexical (keyword) leg of search only — the
+dense/semantic leg has no such predicate. A document can still appear in
+results without matching the requested kind/entity if it was surfaced purely
+by semantic similarity; treat these as a relevance hint, not an exact
+post-fusion filter. An empty array on either field is equivalent to omitting
+it (no filter), not "match nothing".
+
 ### Document ACL (who may surface on search/timeline) — set at capture
 
 Optional on capture; default is scope-wide (the company brain), or

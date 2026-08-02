@@ -59,9 +59,19 @@ export type KnowledgeIdentity = {
 export type KnowledgeSearchParams = KnowledgeIdentity & {
   query: string;
   k?: number;
-  /** Restrict to documents whose `kind` is one of these. Unset searches every kind. */
+  /**
+   * Narrows the LEXICAL retrieval leg to documents whose `kind` is one of
+   * these — see `hybridSearch` in services/search.ts. The dense/semantic
+   * channel has no kind predicate, so a hit that surfaces only through
+   * dense similarity can still appear in results with a different `kind`;
+   * this is a scoping hint, not a guarantee every hit matches. Unset or an
+   * empty array both mean "no filter" (equivalent, not "match nothing").
+   */
   kinds?: string[];
-  /** Restrict to documents linked to one of these entity ids. Unset applies no entity filter. */
+  /**
+   * Same lexical-only scoping as `kinds`, restricted to documents linked to
+   * one of these entity ids. Unset or an empty array both mean "no filter".
+   */
   entityIds?: string[];
 };
 

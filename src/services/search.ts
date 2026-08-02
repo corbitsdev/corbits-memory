@@ -361,7 +361,11 @@ interface LexicalCandidateParams {
   query: string;
   ftsLanguage: string;
   overfetchLimit: number;
+  // Applied ONLY to this (lexical) candidate query. An empty array is
+  // treated identically to `undefined` — no filter — never "match nothing".
   kinds?: string[] | undefined;
+  // Applied ONLY to this (lexical) candidate query. An empty array is
+  // treated identically to `undefined` — no filter — never "match nothing".
   entityIds?: string[] | undefined;
   // Defaults to 'live' — every version-scoped query filters by generation so
   // a replayed generation's chunks never leak into a live search and vice
@@ -750,7 +754,18 @@ export interface HybridSearchArgs {
   tenantId: string;
   principalId: string | null;
   k?: number | undefined;
+  // Constrains the LEXICAL channel only (see fetchLexicalCandidates) — the
+  // dense/semantic channel (fetchDenseCandidates) takes no kind/entity
+  // predicate and is unaffected. Fusion then merges both channels, so a hit
+  // that reached the result purely through the dense channel is NOT
+  // guaranteed to match `kinds`; this is a scoping hint on the lexical leg
+  // of retrieval, not an exact post-fusion filter over the final hit set.
+  // An empty array is treated identically to `undefined` (no filter) — it
+  // does NOT count as "provided" for the empty-query-requires-a-structured-
+  // filter check below.
   kinds?: string[] | undefined;
+  // Same lexical-channel-only scoping and empty-array-equals-absent
+  // semantics as `kinds`, above.
   entityIds?: string[] | undefined;
   // Defaults to 'live' — the normal capture/search behavior. A non-live
   // generation (a transform_run id, the replay pipeline) searches that replay's corpus
@@ -780,6 +795,14 @@ export interface HybridSearchResult {
  * budget for the document, so the request was skipped rather than sent
  * guaranteed to exceed the model's token limit (see `RerankQueryTooLongError`
  * in rerank-client.ts).
+ *
+ * `kinds`/`entityIds` narrow the LEXICAL channel's candidate query only
+ * (see `HybridSearchArgs`). The dense channel has no equivalent predicate,
+ * so a document that doesn't match the requested kind/entity can still
+ * appear in the fused result if the dense channel surfaced it on semantic
+ * similarity. Callers that need an exact post-fusion guarantee must filter
+ * `hits` themselves; this is a retrieval-time scoping hint, not a hard
+ * result-set constraint.
  */
 export async function hybridSearch(
   deps: HybridSearchDeps,

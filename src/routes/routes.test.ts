@@ -267,6 +267,16 @@ describe("knowledge HTTP routes", () => {
     expect(res.status).toBe(400);
   });
 
+  test("search passes an EMPTY kinds/entity_ids array through unchanged — the route does not collapse [] to absent; hybridSearch treats both the same way (see services/search.ts)", async () => {
+    const { app, searched } = buildApp([grant(PRINCIPAL, "search")]);
+    const res = await app.request(
+      "/api/knowledge/search",
+      jsonPost({ query: "hello", kinds: [], entity_ids: [] }),
+    );
+    expect(res.status).toBe(200);
+    expect(searched).toEqual([{ kinds: [], entityIds: [], k: undefined }]);
+  });
+
   test("timeline requires the search grant", async () => {
     const { app } = buildApp([grant(PRINCIPAL, "capture")]);
     const res = await app.request("/api/knowledge/timeline");
