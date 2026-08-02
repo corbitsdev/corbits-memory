@@ -354,19 +354,22 @@ export async function attachEntityIds(
   return map;
 }
 
-interface LexicalCandidateParams {
+// The kinds/entityIds shape shared by both channels' candidate-query params
+// and by HybridSearchArgs (which fans a single caller-supplied pair of these
+// out to both channels before fusion). An empty array is treated identically
+// to `undefined` — no filter — never "match nothing".
+interface ChannelFilterFields {
+  kinds?: string[] | undefined;
+  entityIds?: string[] | undefined;
+}
+
+interface LexicalCandidateParams extends ChannelFilterFields {
   db: Db;
   tenantId: string;
   principalId: string | null;
   query: string;
   ftsLanguage: string;
   overfetchLimit: number;
-  // Applied ONLY to this (lexical) candidate query. An empty array is
-  // treated identically to `undefined` — no filter — never "match nothing".
-  kinds?: string[] | undefined;
-  // Applied ONLY to this (lexical) candidate query. An empty array is
-  // treated identically to `undefined` — no filter — never "match nothing".
-  entityIds?: string[] | undefined;
   // Defaults to 'live' — every version-scoped query filters by generation so
   // a replayed generation's chunks never leak into a live search and vice
   // versa (the replay pipeline).
@@ -462,7 +465,7 @@ export async function fetchLexicalCandidates(
   return rows as CandidateRow[];
 }
 
-interface FetchDenseCandidatesArgs {
+interface FetchDenseCandidatesArgs extends ChannelFilterFields {
   sql: RawSql;
   embedClientConfig: EmbedClientConfig;
   fetchImpl: typeof fetch;
@@ -470,14 +473,6 @@ interface FetchDenseCandidatesArgs {
   principalId: string | null;
   query: string;
   overfetchLimit: number;
-  // Applied to this (dense) candidate query, same semantics as
-  // fetchLexicalCandidates: an empty array is treated identically to
-  // `undefined` — no filter — never "match nothing".
-  kinds?: string[] | undefined;
-  // Applied to this (dense) candidate query, same semantics as
-  // fetchLexicalCandidates: an empty array is treated identically to
-  // `undefined` — no filter — never "match nothing".
-  entityIds?: string[] | undefined;
   // Defaults to 'live' — see fetchLexicalCandidates' generation note. NOTE:
   // this filters the chunk/version join, not which per-model embedding
   // TABLE is queried — resolveActiveEmbedTable picks the tenant's single
@@ -781,21 +776,17 @@ export interface HybridSearchDeps {
   now?: Date | undefined;
 }
 
-export interface HybridSearchArgs {
+export interface HybridSearchArgs extends ChannelFilterFields {
   query: string;
   tenantId: string;
   principalId: string | null;
   k?: number | undefined;
-  // Applied to BOTH retrieval channels (fetchLexicalCandidates and
-  // fetchDenseCandidates) before fusion, so a document that doesn't match
-  // is never a candidate on either leg — no post-fusion gap. An empty array
-  // is treated identically to `undefined` (no filter) — it does NOT count
-  // as "provided" for the empty-query-requires-a-structured-filter check
-  // below.
-  kinds?: string[] | undefined;
-  // Same both-channel scoping and empty-array-equals-absent semantics as
-  // `kinds`, above.
-  entityIds?: string[] | undefined;
+  // `kinds`/`entityIds` (ChannelFilterFields) are applied to BOTH retrieval
+  // channels (fetchLexicalCandidates and fetchDenseCandidates) before
+  // fusion, so a document that doesn't match is never a candidate on either
+  // leg — no post-fusion gap. An empty array does NOT count as "provided"
+  // for the empty-query-requires-a-structured-filter check below.
+  //
   // Defaults to 'live' — the normal capture/search behavior. A non-live
   // generation (a transform_run id, the replay pipeline) searches that replay's corpus
   // instead, applying its transform_config's retrieval tuning when

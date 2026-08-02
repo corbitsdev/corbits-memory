@@ -267,7 +267,9 @@ describe("knowledge HTTP routes", () => {
     expect(res.status).toBe(400);
   });
 
-  test("search passes an EMPTY kinds/entity_ids array through unchanged — the route does not collapse [] to absent; hybridSearch treats both the same way (see services/search.ts)", async () => {
+  // The route does not collapse [] to absent — hybridSearch treats an empty
+  // array and an absent field the same way (see services/search.ts).
+  test("search passes an empty kinds/entity_ids array through unchanged", async () => {
     const { app, searched } = buildApp([grant(PRINCIPAL, "search")]);
     const res = await app.request(
       "/api/knowledge/search",
