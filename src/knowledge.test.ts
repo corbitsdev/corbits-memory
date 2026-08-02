@@ -255,6 +255,39 @@ describe("createKnowledgePlane.search — ACL post-filter wiring", () => {
     await plane.close();
   });
 
+  it("threads kinds and entityIds through to hybridSearch", async () => {
+    // Regression guard for CL-5021: the plane must pass kinds/entityIds
+    // straight through to the service that already supports them, not
+    // silently drop them.
+    hybridSearch.mockClear();
+    hybridSearch.mockImplementation(() =>
+      Promise.resolve({ hits: [], evidence: "none" as const }),
+    );
+    sql.mockClear();
+
+    const { createKnowledgePlane: makePlane } = await import(
+      `./knowledge.ts?wiring-kinds=${Date.now()}`
+    );
+    const plane = makePlane(wiringConfig);
+    await plane.search({
+      tenantId: TENANT,
+      principalId: PRINCIPAL,
+      query: "q",
+      kinds: ["artifact", "task"],
+      entityIds: ["e1"],
+    });
+
+    expect(hybridSearch).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        kinds: ["artifact", "task"],
+        entityIds: ["e1"],
+      }),
+    );
+
+    await plane.close();
+  });
+
   it("withholds a hit whose acl_block is unreadable (fail-closed wiring)", async () => {
     // Non-string/non-array acl_block is the case this PR closed: the post-filter
     // must remove the hit, not pass it through.

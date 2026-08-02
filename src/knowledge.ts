@@ -59,6 +59,10 @@ export type KnowledgeIdentity = {
 export type KnowledgeSearchParams = KnowledgeIdentity & {
   query: string;
   k?: number;
+  /** Restrict to documents whose `kind` is one of these. Unset searches every kind. */
+  kinds?: string[];
+  /** Restrict to documents linked to one of these entity ids. Unset applies no entity filter. */
+  entityIds?: string[];
 };
 
 export type KnowledgeAskParams = KnowledgeIdentity & {
@@ -279,6 +283,8 @@ export function createKnowledgePlane(
           principalId: params.principalId,
           query: params.query,
           k: params.k,
+          kinds: params.kinds,
+          entityIds: params.entityIds,
         });
 
         // Block-list post-filter: docs may store acl_block as a list of

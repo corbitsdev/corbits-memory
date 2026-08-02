@@ -75,7 +75,7 @@ for a user must check the capability themselves (see README).
 
 ```http
 POST /api/knowledge/capture     { "title", "text", "acl?" }
-POST /api/knowledge/search      { "query", "k?" }
+POST /api/knowledge/search      { "query", "k?", "kinds?", "entity_ids?" }
 GET  /api/knowledge/timeline
 ```
 

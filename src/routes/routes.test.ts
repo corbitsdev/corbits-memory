@@ -39,9 +39,15 @@ function stubPlane(opts?: {
 }) {
   const captured: { title: string; tenantId: string; principalId: string }[] =
     [];
+  const searched: Array<
+    Pick<Parameters<KnowledgePlane["search"]>[0], "kinds" | "entityIds" | "k">
+  > = [];
   const catalog = opts?.timelineCatalog ?? [];
   const plane: KnowledgePlane = {
-    search: async () => ({ hits: [], evidence: "none" }),
+    search: async (p) => {
+      searched.push({ kinds: p.kinds, entityIds: p.entityIds, k: p.k });
+      return { hits: [], evidence: "none" };
+    },
     ask: async () => ({ text: "", citations: [], evidence: "none" }),
     capture: async (p) => {
       captured.push({
@@ -61,7 +67,7 @@ function stubPlane(opts?: {
     },
     close: async () => {},
   };
-  return { plane, captured };
+  return { plane, captured, searched };
 }
 
 function buildApp(
@@ -73,7 +79,7 @@ function buildApp(
     principalId?: string;
   },
 ) {
-  const { plane, captured } = stubPlane(opts);
+  const { plane, captured, searched } = stubPlane(opts);
   const grantConfig = {
     grantStore: createInMemoryGrantStore(grants),
     conditionRegistry: {},
@@ -111,7 +117,7 @@ function buildApp(
     await next();
   });
   mountKnowledgeRoutes(app, deps);
-  return { app, captured };
+  return { app, captured, searched };
 }
 
 // Mirrors a host that mounts the knowledge routes outside the tenant prefix
@@ -220,6 +226,43 @@ describe("knowledge HTTP routes", () => {
     const res = await app.request(
       "/api/knowledge/search",
       jsonPost({ query: "hi", k: 999 }),
+    );
+    expect(res.status).toBe(400);
+  });
+
+  test("search threads kinds and entity_ids through to the plane", async () => {
+    const { app, searched } = buildApp([grant(PRINCIPAL, "search")]);
+    const res = await app.request(
+      "/api/knowledge/search",
+      jsonPost({
+        query: "hello",
+        kinds: ["artifact", "task"],
+        entity_ids: ["e1", "e2"],
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(searched).toEqual([
+      { kinds: ["artifact", "task"], entityIds: ["e1", "e2"], k: undefined },
+    ]);
+  });
+
+  test("search with no kinds/entity_ids leaves them unset on the plane call", async () => {
+    const { app, searched } = buildApp([grant(PRINCIPAL, "search")]);
+    const res = await app.request(
+      "/api/knowledge/search",
+      jsonPost({ query: "hello" }),
+    );
+    expect(res.status).toBe(200);
+    expect(searched).toEqual([
+      { kinds: undefined, entityIds: undefined, k: undefined },
+    ]);
+  });
+
+  test("search rejects a non-string-array kinds (400)", async () => {
+    const { app } = buildApp([grant(PRINCIPAL, "search")]);
+    const res = await app.request(
+      "/api/knowledge/search",
+      jsonPost({ query: "hi", kinds: [1, 2] }),
     );
     expect(res.status).toBe(400);
   });

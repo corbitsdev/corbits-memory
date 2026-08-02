@@ -12,6 +12,8 @@ import { caller, grantGuard, requirePrincipal } from "./deps.ts";
 const SearchRequest = type({
   query: "string >= 1",
   "k?": "1 <= number.integer <= 50",
+  "kinds?": "string[]",
+  "entity_ids?": "string[]",
 });
 
 export function mountSearchRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
@@ -36,7 +38,7 @@ export function mountSearchRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
     grantGuard(deps, "search"),
     validator("json", SearchRequest),
     async (c) => {
-      const { query, k } = c.req.valid("json");
+      const { query, k, kinds, entity_ids } = c.req.valid("json");
       const { scopeId, subjectId } = caller(c);
       try {
         const result = await deps.knowledge.search({
@@ -44,6 +46,8 @@ export function mountSearchRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
           tenantId: scopeId,
           principalId: subjectId,
           ...(k !== undefined ? { k } : {}),
+          ...(kinds !== undefined ? { kinds } : {}),
+          ...(entity_ids !== undefined ? { entityIds: entity_ids } : {}),
         });
         return c.json(result);
       } catch (err) {
