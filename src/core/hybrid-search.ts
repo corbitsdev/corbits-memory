@@ -50,6 +50,17 @@ export function toRankedCandidates(
 // `embeddings-rerank.md` §3's explicit rule). Returns candidates sorted
 // descending by fused score; ties are left in fusion-encounter order
 // (callers needing a further tiebreak, e.g. recency, apply it themselves).
+//
+// This is exactly why filtering each channel's candidates independently
+// BEFORE they reach this function (kinds/entityIds in services/search.ts)
+// never distorts relevance: a chunk's score here depends only on its OWN
+// rank within each channel's surviving list, never on how many candidates
+// survived or what fraction of the original pool they represent. Removing
+// non-matching candidates upstream renumbers ranks but preserves each
+// survivor's relative order, which is all RRF ever reads. A score-blending
+// fusion would NOT have this property — removing candidates would shift
+// score distributions (min/max, density) that a blend depends on — so this
+// safety does not generalize past rank-based fusion.
 export function fuseRrf(
   channels: readonly (readonly RankedCandidate[])[],
   rrfK: number = RRF_K_DEFAULT,

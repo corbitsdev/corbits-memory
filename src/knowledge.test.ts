@@ -30,6 +30,7 @@ import {
 import type { KnowledgeConfig } from "./mount-config.ts";
 import * as realDb from "./db/client.ts";
 import * as realSearch from "./services/search.ts";
+import type { HybridSearchResult } from "./services/search.ts";
 
 const PRINCIPAL = "p1";
 const TENANT = "t1";
@@ -170,10 +171,10 @@ describe("createKnowledgePlane — construction validation", () => {
 });
 
 describe("createKnowledgePlane.search — ACL post-filter wiring", () => {
-  const hybridSearch = mock(() =>
+  const hybridSearch = mock((): Promise<HybridSearchResult> =>
     Promise.resolve({
       hits: [hit("d-blocked"), hit("d-open")],
-      evidence: "strong" as const,
+      evidence: "strong",
     }),
   );
 
@@ -251,6 +252,39 @@ describe("createKnowledgePlane.search — ACL post-filter wiring", () => {
       "d-open",
     ]);
     expect(result.evidence).toBe("strong");
+
+    await plane.close();
+  });
+
+  it("threads kinds and entityIds through to hybridSearch", async () => {
+    // Regression guard for CL-5021: the plane must pass kinds/entityIds
+    // straight through to the service that already supports them, not
+    // silently drop them.
+    hybridSearch.mockClear();
+    hybridSearch.mockImplementation(() =>
+      Promise.resolve({ hits: [], evidence: "none" as const }),
+    );
+    sql.mockClear();
+
+    const { createKnowledgePlane: makePlane } = await import(
+      `./knowledge.ts?wiring-kinds=${Date.now()}`
+    );
+    const plane = makePlane(wiringConfig);
+    await plane.search({
+      tenantId: TENANT,
+      principalId: PRINCIPAL,
+      query: "q",
+      kinds: ["artifact", "task"],
+      entityIds: ["e1"],
+    });
+
+    expect(hybridSearch).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        kinds: ["artifact", "task"],
+        entityIds: ["e1"],
+      }),
+    );
 
     await plane.close();
   });

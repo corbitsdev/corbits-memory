@@ -354,15 +354,22 @@ export async function attachEntityIds(
   return map;
 }
 
-interface LexicalCandidateParams {
+// The kinds/entityIds shape shared by both channels' candidate-query params
+// and by HybridSearchArgs (which fans a single caller-supplied pair of these
+// out to both channels before fusion). An empty array is treated identically
+// to `undefined` — no filter — never "match nothing".
+interface ChannelFilterFields {
+  kinds?: string[] | undefined;
+  entityIds?: string[] | undefined;
+}
+
+interface LexicalCandidateParams extends ChannelFilterFields {
   db: Db;
   tenantId: string;
   principalId: string | null;
   query: string;
   ftsLanguage: string;
   overfetchLimit: number;
-  kinds?: string[] | undefined;
-  entityIds?: string[] | undefined;
   // Defaults to 'live' — every version-scoped query filters by generation so
   // a replayed generation's chunks never leak into a live search and vice
   // versa (the replay pipeline).
@@ -458,7 +465,7 @@ export async function fetchLexicalCandidates(
   return rows as CandidateRow[];
 }
 
-interface FetchDenseCandidatesArgs {
+interface FetchDenseCandidatesArgs extends ChannelFilterFields {
   sql: RawSql;
   embedClientConfig: EmbedClientConfig;
   fetchImpl: typeof fetch;
@@ -513,6 +520,8 @@ export async function fetchDenseCandidates(
     principalId,
     query,
     overfetchLimit,
+    kinds,
+    entityIds,
     generation = LIVE_GENERATION,
   } = args;
 
@@ -557,6 +566,26 @@ export async function fetchDenseCandidates(
   params.push(generation);
   const generationParam = `$${params.length}`;
 
+  // Mirrors fetchLexicalCandidates' kind/entity predicates so the dense
+  // channel never surfaces a document the caller asked to exclude — a fused
+  // hit must match the filter regardless of which channel found it (empty
+  // array === no filter, same as the lexical side).
+  let kindClause = "";
+  if (kinds && kinds.length > 0) {
+    params.push(kinds);
+    kindClause = `AND kd.kind = ANY($${params.length}::text[])`;
+  }
+
+  let entityClause = "";
+  if (entityIds && entityIds.length > 0) {
+    params.push(entityIds);
+    entityClause = `AND kd.id IN (
+      SELECT ke.from_ref FROM knowledge_edge ke
+      WHERE ke.tenant_id = $1 AND ke.from_type = 'document' AND ke.to_type = 'entity'
+        AND ke.to_ref = ANY($${params.length}::text[])
+    )`;
+  }
+
   const sqlText = `
     SELECT c.id AS chunk_id, c.document_id AS document_id, c.version_id AS version_id,
            kv.version AS version, kv.status AS status, kd.title AS title, kd.kind AS kind,
@@ -570,6 +599,8 @@ export async function fetchDenseCandidates(
     WHERE e.tenant_id = $1 AND c.tenant_id = $1 AND kv.status = 'active'
       AND kv.generation = ${generationParam}
       AND ${visibilitySql}
+      ${kindClause}
+      ${entityClause}
     ORDER BY ${cosineDistanceExpr("e.embedding", vectorParam, activeTable.dims)} ASC
     LIMIT ${limitParam}
   `;
@@ -745,13 +776,17 @@ export interface HybridSearchDeps {
   now?: Date | undefined;
 }
 
-export interface HybridSearchArgs {
+export interface HybridSearchArgs extends ChannelFilterFields {
   query: string;
   tenantId: string;
   principalId: string | null;
   k?: number | undefined;
-  kinds?: string[] | undefined;
-  entityIds?: string[] | undefined;
+  // `kinds`/`entityIds` (ChannelFilterFields) are applied to BOTH retrieval
+  // channels (fetchLexicalCandidates and fetchDenseCandidates) before
+  // fusion, so a document that doesn't match is never a candidate on either
+  // leg — no post-fusion gap. An empty array does NOT count as "provided"
+  // for the empty-query-requires-a-structured-filter check below.
+  //
   // Defaults to 'live' — the normal capture/search behavior. A non-live
   // generation (a transform_run id, the replay pipeline) searches that replay's corpus
   // instead, applying its transform_config's retrieval tuning when
@@ -780,6 +815,10 @@ export interface HybridSearchResult {
  * budget for the document, so the request was skipped rather than sent
  * guaranteed to exceed the model's token limit (see `RerankQueryTooLongError`
  * in rerank-client.ts).
+ *
+ * `kinds`/`entityIds` narrow BOTH channels' candidate queries (see
+ * `HybridSearchArgs`) before fusion runs, so every hit in the fused result
+ * matches the requested kind/entity — there is no dense-only escape hatch.
  */
 export async function hybridSearch(
   deps: HybridSearchDeps,
@@ -851,6 +890,8 @@ export async function hybridSearch(
       principalId,
       query,
       overfetchLimit,
+      kinds,
+      entityIds,
       generation,
     });
     if (dense === null) {

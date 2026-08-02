@@ -75,12 +75,17 @@ for a user must check the capability themselves (see README).
 
 ```http
 POST /api/knowledge/capture     { "title", "text", "acl?" }
-POST /api/knowledge/search      { "query", "k?" }
+POST /api/knowledge/search      { "query", "k?", "kinds?", "entity_ids?" }
 GET  /api/knowledge/timeline
 ```
 
 Requests are authenticated upstream by Interchange (however the host chose);
 the SDK routes assume a resolved principal on the context.
+
+`kinds`/`entity_ids` narrow both the lexical and dense/semantic legs of
+search before results are fused, so every hit matches the requested
+kind/entity. An empty array on either field is equivalent to omitting it (no
+filter), not "match nothing".
 
 ### Document ACL (who may surface on search/timeline) — set at capture
 

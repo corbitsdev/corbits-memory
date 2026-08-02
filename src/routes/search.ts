@@ -9,9 +9,18 @@ import { SearchResponseSchema } from "../core/schemas/search.ts";
 import type { RouteDeps } from "./deps.ts";
 import { caller, grantGuard, requirePrincipal } from "./deps.ts";
 
+// `kinds`/`entity_ids` scope every retrieval channel — see the
+// `kinds`/`entityIds` doc comments on KnowledgeSearchParams (knowledge.ts)
+// for the full explanation.
+//
+// An empty array on either field is equivalent to omitting it — "no filter"
+// — not "match nothing", and does not satisfy the requirement that an empty
+// `query` be paired with a non-empty structured filter.
 const SearchRequest = type({
   query: "string >= 1",
   "k?": "1 <= number.integer <= 50",
+  "kinds?": "string[]",
+  "entity_ids?": "string[]",
 });
 
 export function mountSearchRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
@@ -20,6 +29,10 @@ export function mountSearchRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
     describeRoute({
       tags: ["knowledge"],
       summary: "Hybrid semantic + keyword search",
+      description:
+        "`kinds`/`entity_ids` scope every retrieval channel (lexical and " +
+        "dense) before results are fused, so every hit matches the " +
+        "requested kind/entity.",
       responses: {
         200: {
           description: "Ranked hits with evidence",
@@ -36,7 +49,7 @@ export function mountSearchRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
     grantGuard(deps, "search"),
     validator("json", SearchRequest),
     async (c) => {
-      const { query, k } = c.req.valid("json");
+      const { query, k, kinds, entity_ids } = c.req.valid("json");
       const { scopeId, subjectId } = caller(c);
       try {
         const result = await deps.knowledge.search({
@@ -44,6 +57,8 @@ export function mountSearchRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
           tenantId: scopeId,
           principalId: subjectId,
           ...(k !== undefined ? { k } : {}),
+          ...(kinds !== undefined ? { kinds } : {}),
+          ...(entity_ids !== undefined ? { entityIds: entity_ids } : {}),
         });
         return c.json(result);
       } catch (err) {

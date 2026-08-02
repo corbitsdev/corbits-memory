@@ -61,6 +61,42 @@ describe("fuseRrf", () => {
   test("empty channels produce no candidates", () => {
     expect(fuseRrf([[], []])).toEqual([]);
   });
+
+  // This test protects the invariant documented on fuseRrf above: fusion
+  // reads a candidate's own rank within its channel and nothing else — not
+  // how many candidates that channel started with or how many survived. If
+  // fuseRrf is ever rewritten to blend on something pool-size- or
+  // fraction-aware (e.g. normalizing rank to a percentile of the channel),
+  // this test must fail, because that is precisely the property being
+  // protected.
+  test("fuses by raw rank only, never by the size of the pool a candidate survived from", () => {
+    // "Y" is the worst survivor of a channel heavily thinned by filtering
+    // (rank 2 of ~2 candidates). "X" is a solid-but-unremarkable finisher in
+    // a channel filtering barely touched (rank 10 of ~100 candidates). This
+    // is exactly the shape independent per-channel filtering produces.
+    //
+    // Hand-computed RRF (rrfK=60), which reads only the rank number:
+    //   score(Y) = 1/(60+2)  = 1/62 ≈ 0.0161290
+    //   score(X) = 1/(60+10) = 1/70 ≈ 0.0142857
+    // Y's raw rank (2) beats X's raw rank (10), so rank-based fusion ranks
+    // Y above X.
+    //
+    // A score-blending fusion that normalized each rank to a percentile
+    // within its own channel ((total - rank + 1) / total) would compute the
+    // OPPOSITE order:
+    //   percentile(Y) = (2 - 2 + 1) / 2     = 0.50 (bottom half of a tiny pool)
+    //   percentile(X) = (100 - 10 + 1) / 100 = 0.91 (top decile of a large pool)
+    // ranking X above Y. A change to that kind of blending flips this
+    // assertion and fails the test.
+    const heavilyFilteredChannel = [{ chunkId: "Y", rank: 2 }];
+    const mostlyIntactChannel = [{ chunkId: "X", rank: 10 }];
+
+    const fused = fuseRrf([heavilyFilteredChannel, mostlyIntactChannel]);
+
+    expect(fused.map((f) => f.chunkId)).toEqual(["Y", "X"]);
+    expect(fused[0]?.score).toBeCloseTo(1 / 62, 10);
+    expect(fused[1]?.score).toBeCloseTo(1 / 70, 10);
+  });
 });
 
 describe("isBatchQueriesWithinBound", () => {
