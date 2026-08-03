@@ -1,0 +1,23 @@
+{
+  "action": "create",
+  "type": "Issue",
+  "createdAt": "2026-03-01T15:00:00.000Z",
+  "data": {
+    "id": "issue-uuid-priv-solo",
+    "identifier": "CL-PRIV-2",
+    "title": "Solo private note",
+    "description": "Only the creator is a principal.",
+    "priority": 4,
+    "teamId": "team-private-hr",
+    "creatorId": "user-alice",
+    "assigneeId": "user-alice",
+    "subscriberIds": ["user-alice"],
+    "private": true,
+    "team": {
+      "id": "team-private-hr",
+      "private": true
+    },
+    "creator": { "id": "user-alice", "name": "Alice" },
+    "assignee": { "id": "user-alice", "name": "Alice" }
+  }
+}

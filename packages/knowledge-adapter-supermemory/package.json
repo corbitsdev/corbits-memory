@@ -1,0 +1,46 @@
+{
+  "name": "@corbits/knowledge-adapter-supermemory",
+  "version": "0.1.0",
+  "description": "Supermemory MemoryProvider adapter for Corbits Knowledge Engine (pure fetch, no vendor SDK)",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "license": "LGPL-2.1-only",
+  "type": "module",
+  "module": "src/index.ts",
+  "engines": {
+    "bun": ">=1.2.0"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test ./src"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.9.0"
+  },
+  "author": "Sawyer Cutler <sawyer@dirtroad.dev>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/corbitsdev/corbits-knowledge-engine.git",
+    "directory": "packages/knowledge-adapter-supermemory"
+  },
+  "homepage": "https://github.com/corbitsdev/corbits-knowledge-engine#readme",
+  "bugs": {
+    "url": "https://github.com/corbitsdev/corbits-knowledge-engine/issues"
+  },
+  "keywords": [
+    "knowledge",
+    "memory",
+    "supermemory",
+    "corbits"
+  ],
+  "files": [
+    "src",
+    "!src/**/*.test.ts",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}

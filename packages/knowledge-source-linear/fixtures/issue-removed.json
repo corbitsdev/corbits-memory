@@ -1,0 +1,31 @@
+{
+  "action": "remove",
+  "type": "Issue",
+  "createdAt": "2026-03-03T16:00:00.000Z",
+  "url": "https://linear.app/acme/issue/CL-100",
+  "data": {
+    "id": "issue-uuid-100",
+    "identifier": "CL-100",
+    "title": "Wire Linear SourceProvider (done)",
+    "description": "Thin mapper package; host owns OAuth and webhooks. Shipped.",
+    "url": "https://linear.app/acme/issue/CL-100",
+    "priority": 2,
+    "teamId": "team-uuid-1",
+    "creatorId": "user-alice",
+    "assigneeId": "user-bob",
+    "subscriberIds": ["user-alice", "user-bob"],
+    "stateId": "state-done",
+    "createdAt": "2026-03-01T12:00:00.000Z",
+    "updatedAt": "2026-03-03T16:00:00.000Z",
+    "private": false,
+    "team": {
+      "id": "team-uuid-1",
+      "key": "CL",
+      "name": "Corbits",
+      "private": false
+    },
+    "creator": { "id": "user-alice", "name": "Alice" },
+    "assignee": { "id": "user-bob", "name": "Bob" },
+    "state": { "id": "state-done", "name": "Done", "type": "completed" }
+  }
+}
