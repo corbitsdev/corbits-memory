@@ -40,7 +40,7 @@ export function mountTimelineRoute(app: Hono<TenantEnv>, deps: RouteDeps): void 
     async (c) => {
       const { scopeId, subjectId } = caller(c);
       try {
-        const events = await deps.knowledge.timeline({
+const events = await deps.knowledge.recent({
           tenantId: scopeId,
           principalId: subjectId,
         });
