@@ -28,6 +28,14 @@ import {
   type TimelineEvent,
   DEFAULT_TIMELINE_LIMIT,
 } from "./services/timeline.ts";
+import {
+  LIVE_TIMEOUT_MS,
+  mergeLocalLiveV1,
+  withTimeout,
+  type MergeChannelItem,
+  type MergeDegradeFlag,
+} from "./core/merge-local-live.ts";
+import type { DegradeFlag } from "./core/hybrid-search.ts";
 import type { KnowledgeConfig } from "./mount-config.ts";
 import type { GrantConfig } from "./routes/deps.ts";
 import type {
@@ -110,11 +118,23 @@ export type KnowledgeFindParams = KnowledgeIdentity & {
    * entity ids. Unset or an empty array both mean "no filter".
    */
   entityIds?: string[];
+  /**
+   * Restrict channels: `"local"` and/or SourceProvider ids.
+   * Omit to include all mounted sources plus local.
+   */
+  sources?: string[];
 };
 
 export type KnowledgeAskParams = KnowledgeIdentity & {
   query: string;
   limit?: number;
+  /** Same channel filter as find (passed through). */
+  sources?: string[];
+  /**
+   * When true and a MemoryProvider is mounted, recall personal memory into
+   * the ask context. Default false — memory is opt-in per call.
+   */
+  includeMemory?: boolean;
 };
 
 /** One source cited in an `ask()` answer, matched to its bracket in the text. */
@@ -130,6 +150,8 @@ export type AskResult = {
   text: string;
   citations: AskCitation[];
   evidence: HybridSearchResult["evidence"];
+  /** Present when memory/live stages degraded (ask still answered). */
+  degraded?: HybridSearchResult["degraded"];
 };
 
 /** Thrown when the asking principal lacks the knowledge:find capability. */
@@ -206,7 +228,32 @@ export type KnowledgePlane = {
   ask(params: KnowledgeAskParams): Promise<AskResult>;
   add(params: KnowledgeAddParams): Promise<KnowledgeAddResult>;
   recent(params: KnowledgeRecentParams): Promise<TimelineEvent[]>;
+  /**
+   * Write a memory fact for a principal. Requires a mounted MemoryProvider;
+   * throws 501 when memory is not configured. Never called implicitly by ask.
+   */
+  remember(params: KnowledgeRememberParams): Promise<void>;
+  /**
+   * Recall memory facts for a principal. Empty array when memory is not
+   * configured or nothing matches.
+   */
+  recall(params: KnowledgeRecallParams): Promise<KnowledgeRecallItem[]>;
   close(): Promise<void>;
+};
+
+export type KnowledgeRememberParams = KnowledgeIdentity & {
+  text: string;
+  metadata?: Record<string, string>;
+};
+
+export type KnowledgeRecallParams = KnowledgeIdentity & {
+  query: string;
+  limit?: number;
+};
+
+export type KnowledgeRecallItem = {
+  text: string;
+  score?: number;
 };
 
 export type { TimelineEvent };
@@ -267,13 +314,17 @@ function buildContext(hits: readonly SearchHit[]): {
  * configured generation endpoint, and return the citations actually used.
  * Factored out of `ask()` so it is unit-testable against a mocked generation
  * endpoint without a real search result / database.
+ *
+ * Optional `memoryTexts` are prepended as uncited personal context when the
+ * host opted into includeMemory. They never produce citations.
  */
 export async function synthesizeAnswer(
   query: string,
   result: Pick<HybridSearchResult, "hits" | "evidence">,
   generate: Generate,
+  memoryTexts: readonly string[] = [],
 ): Promise<AskResult> {
-  if (result.hits.length === 0) {
+  if (result.hits.length === 0 && memoryTexts.length === 0) {
     return {
       text: "I couldn't find anything you have access to that answers that.",
       citations: [],
@@ -282,7 +333,13 @@ export async function synthesizeAnswer(
   }
 
   const { block, citations } = buildContext(result.hits);
-  if (!block) {
+  const memoryBlock =
+    memoryTexts.length > 0
+      ? "Personal memory:\n" +
+        memoryTexts.map((t, i) => `- (m${i + 1}) ${t}`).join("\n")
+      : "";
+
+  if (!block && !memoryBlock) {
     return {
       text: "I found matching documents but couldn't read any text out of them.",
       citations: [],
@@ -290,12 +347,23 @@ export async function synthesizeAnswer(
     };
   }
 
+  const contextParts = [memoryBlock, block].filter(Boolean);
   const text = await generate([
     { role: "system", content: SYSTEM_PROMPT },
-    { role: "user", content: `Question: ${query}\n\nContext:\n${block}` },
+    {
+      role: "user",
+      content: `Question: ${query}\n\nContext:\n${contextParts.join("\n\n")}`,
+    },
   ]);
 
-  return { text, citations, evidence: result.evidence };
+  return {
+    text,
+    citations,
+    evidence:
+      result.hits.length === 0
+        ? "weak"
+        : result.evidence,
+  };
 }
 
 export type KnowledgePlaneOptions = {
@@ -437,6 +505,8 @@ function resolveShareAndVisibility(params: KnowledgeAddParams): {
  *   default Postgres-backed store.
  * - Pass `options.documentStore` to skip Postgres entirely (fakes / overrides).
  *   When a store is provided, `config` may be omitted.
+ * - Pass `options.sources` for live SourceProviders; find/ask merge via
+ *   MergeLocalLiveV1 (fail-soft, 800ms timeout, prefer-local dedupe).
  */
 export function createKnowledgePlane(
   config: KnowledgeConfig | undefined,
@@ -455,28 +525,258 @@ export function createKnowledgePlane(
   return createPlaneFromEngine(config, grants, options);
 }
 
+function wantsLocalChannel(sources: string[] | undefined): boolean {
+  return !sources || sources.length === 0 || sources.includes("local");
+}
+
+function findItemsToMergeChannel(
+  items: FindItem[],
+  channel: "local" | "live",
+): MergeChannelItem[] {
+  return items.map((item) => ({
+    channel,
+    adapter: item.citation.adapter,
+    externalRef: item.citation.external_ref,
+    documentId: item.documentId,
+    title: item.title,
+    snippet: item.snippet,
+    score: item.score,
+    kind: item.kind,
+    citation: item.citation,
+  }));
+}
+
+/**
+ * Fan-out to live sources with timeout + allSettled. Never throws for a
+ * single source failure — returns items + degrade flags.
+ */
+async function collectLiveItems(params: {
+  sources: SourceProvider[] | undefined;
+  query: string;
+  tenantId: string;
+  principalId: string;
+  limit: number;
+  filter: string[] | undefined;
+}): Promise<{ items: MergeChannelItem[]; degraded: DegradeFlag[] }> {
+  const degraded: DegradeFlag[] = [];
+  const providers = (params.sources ?? []).filter((s) => {
+    if (typeof s.searchLive !== "function") return false;
+    if (!params.filter || params.filter.length === 0) return true;
+    return params.filter.includes(s.id);
+  });
+  if (providers.length === 0) return { items: [], degraded };
+
+  const settled = await Promise.allSettled(
+    providers.map(async (provider) => {
+      const hits = await withTimeout(
+        provider.searchLive!({
+          query: params.query,
+          tenantId: params.tenantId,
+          principalId: params.principalId,
+          limit: params.limit,
+        }),
+        LIVE_TIMEOUT_MS,
+        provider.id,
+      );
+      return { provider, hits };
+    }),
+  );
+
+  const items: MergeChannelItem[] = [];
+  for (const result of settled) {
+    if (result.status === "fulfilled") {
+      const { provider, hits } = result.value;
+      for (const hit of hits) {
+        items.push({
+          channel: "live",
+          adapter: hit.adapter || provider.id,
+          externalRef: hit.externalRef,
+          documentId: hit.externalRef,
+          title: hit.title,
+          snippet: hit.snippet,
+          score: hit.score,
+          kind: hit.kind,
+          citation: hit.citation,
+          ...(hit.updatedAt !== undefined ? { updatedAt: hit.updatedAt } : {}),
+        });
+      }
+    } else {
+      const err = result.reason as { code?: string } | undefined;
+      const flag: MergeDegradeFlag =
+        err && err.code === "live_timeout" ? "live_timeout" : "live_error";
+      if (!degraded.includes(flag)) degraded.push(flag);
+    }
+  }
+  return { items, degraded };
+}
+
+function mergeToFindResult(params: {
+  localItems: FindItem[];
+  localDegraded?: DegradeFlag[];
+  liveItems: MergeChannelItem[];
+  liveDegraded: DegradeFlag[];
+  limit: number;
+  sources?: string[];
+  includeEvidence?: boolean;
+}): FindResult {
+  const merged = mergeLocalLiveV1({
+    local: findItemsToMergeChannel(params.localItems, "local"),
+    live: params.liveItems,
+    limit: params.limit,
+    ...(params.sources !== undefined ? { sources: params.sources } : {}),
+  });
+
+  const items: FindItem[] = merged.items.map((it) => ({
+    documentId: it.documentId,
+    title: it.title,
+    snippet: it.snippet,
+    score: it.score,
+    kind: it.kind,
+    citation: it.citation,
+  }));
+
+  const degraded: DegradeFlag[] = [
+    ...(params.localDegraded ?? []),
+    ...params.liveDegraded,
+  ];
+
+  if (params.includeEvidence) {
+    return {
+      items,
+      evidence: items.length === 0 ? "none" : "weak",
+      ...(degraded.length > 0 ? { degraded } : {}),
+    };
+  }
+  // Without includeEvidence, still surface live degrade so hosts can observe
+  // fail-soft live failures (local hybrid degrade stays evidence-gated).
+  const liveOnly = degraded.filter(
+    (d) => d === "live_timeout" || d === "live_error",
+  );
+  return {
+    items,
+    ...(liveOnly.length > 0 ? { degraded: liveOnly } : {}),
+  };
+}
+
+/**
+ * Optional memory recall for ask. Never throws — failures become
+ * memory_unavailable degrade. Does not call remember (host-owned writes only).
+ */
+async function recallForAsk(params: {
+  memory: MemoryProvider | undefined;
+  includeMemory: boolean | undefined;
+  tenantId: string;
+  principalId: string;
+  query: string;
+}): Promise<{ texts: string[]; degraded: DegradeFlag[] }> {
+  if (!params.includeMemory || !params.memory) {
+    return { texts: [], degraded: [] };
+  }
+  try {
+    const items = await params.memory.recall({
+      tenantId: params.tenantId,
+      principalId: params.principalId,
+      query: params.query,
+    });
+    return {
+      texts: items.map((i) => i.text).filter((t) => t.trim().length > 0),
+      degraded: [],
+    };
+  } catch (err) {
+    log.warn("ask: memory recall failed; continuing docs-only", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return { texts: [], degraded: ["memory_unavailable"] };
+  }
+}
+
+function makeRememberRecall(options: KnowledgePlaneOptions): {
+  remember: KnowledgePlane["remember"];
+  recall: KnowledgePlane["recall"];
+} {
+  return {
+    async remember(params) {
+      if (!options.memory) {
+        throw new KnowledgeError(
+          501,
+          "remember() requires a MemoryProvider. Pass memory to " +
+            "createKnowledgePlane/mountKnowledgeEngine.",
+        );
+      }
+      await options.memory.remember({
+        tenantId: params.tenantId,
+        principalId: params.principalId,
+        text: params.text,
+        ...(params.metadata !== undefined ? { metadata: params.metadata } : {}),
+      });
+    },
+    async recall(params) {
+      if (!options.memory) return [];
+      return options.memory.recall({
+        tenantId: params.tenantId,
+        principalId: params.principalId,
+        query: params.query,
+        ...(params.limit !== undefined ? { limit: params.limit } : {}),
+      });
+    },
+  };
+}
+
 /** Plane backed by an injected DocumentStore (fake or host override). */
 function createPlaneFromStore(
   store: DocumentStore,
   grants: GrantConfig | undefined,
   options: KnowledgePlaneOptions,
 ): KnowledgePlane {
-  // sources/memory held for mount completeness; merge/memory product later.
-  void options.sources;
-  void options.memory;
+  const memoryApi = makeRememberRecall(options);
 
-  const plane: KnowledgePlane = {
-    async find(params) {
-      const limit = resolveFindLimit(params.limit);
-      return store.find({
+  async function findMerged(
+    params: KnowledgeFindParams,
+  ): Promise<FindResult> {
+    const limit = resolveFindLimit(params.limit);
+    let localItems: FindItem[] = [];
+    if (wantsLocalChannel(params.sources)) {
+      const local = await store.find({
         tenantId: params.tenantId,
         principalId: params.principalId,
         query: params.query,
         limit,
-        ...(params.includeEvidence !== undefined
-          ? { includeEvidence: params.includeEvidence }
-          : {}),
+        includeEvidence: true,
       });
+      localItems = local.items.map((it) => ({
+        documentId: it.documentId,
+        title: it.title,
+        snippet: it.snippet,
+        score: it.score,
+        kind: it.kind,
+        citation: it.citation,
+      }));
+    }
+
+    const live = await collectLiveItems({
+      sources: options.sources,
+      query: params.query,
+      tenantId: params.tenantId,
+      principalId: params.principalId,
+      limit,
+      filter: params.sources,
+    });
+
+    return mergeToFindResult({
+      localItems,
+      liveItems: live.items,
+      liveDegraded: live.degraded,
+      limit,
+      ...(params.sources !== undefined ? { sources: params.sources } : {}),
+      ...(params.includeEvidence !== undefined
+        ? { includeEvidence: params.includeEvidence }
+        : {}),
+    });
+  }
+
+  const plane: KnowledgePlane = {
+    async find(params) {
+      return findMerged(params);
     },
 
     async ask(params) {
@@ -520,15 +820,32 @@ function createPlaneFromStore(
         query: params.query,
         includeEvidence: true,
         ...(params.limit !== undefined ? { limit: params.limit } : {}),
+        ...(params.sources !== undefined ? { sources: params.sources } : {}),
       });
-      return synthesizeAnswer(
+      const mem = await recallForAsk({
+        memory: options.memory,
+        includeMemory: params.includeMemory,
+        tenantId: params.tenantId,
+        principalId: params.principalId,
+        query: params.query,
+      });
+      const answer = await synthesizeAnswer(
         params.query,
         {
           hits: findItemsToHits(findResult.items),
           evidence: findResult.evidence ?? "none",
         },
         options.generate,
+        mem.texts,
       );
+      const degraded: DegradeFlag[] = [
+        ...(findResult.degraded ?? []),
+        ...mem.degraded,
+      ];
+      return {
+        ...answer,
+        ...(degraded.length > 0 ? { degraded } : {}),
+      };
     },
 
     async add(params) {
@@ -592,6 +909,9 @@ function createPlaneFromStore(
       });
     },
 
+    remember: memoryApi.remember,
+    recall: memoryApi.recall,
+
     async close() {
       await store.close();
     },
@@ -608,6 +928,8 @@ function createPlaneFromEngine(
   grants: GrantConfig | undefined,
   options: KnowledgePlaneOptions,
 ): KnowledgePlane {
+  const memoryApi = makeRememberRecall(options);
+
   // Catch a chunk-size / reranker-limit mismatch at construction time, rather
   // than silently on every find once the reranker starts rejecting batches.
   // Throws instead of warning: a mismatch means every rerank call for this
@@ -685,7 +1007,7 @@ function createPlaneFromEngine(
         { id: string; attributes: Record<string, unknown> | null }[]
       >`
           SELECT id, attributes
-          FROM knowledge_document
+          FROM "knowledge"."document"
           WHERE id = ANY(${docIds}::text[])
         `;
       const { blocked, unreadable } = blockedDocumentIds(
@@ -727,25 +1049,62 @@ function createPlaneFromEngine(
   const plane: KnowledgePlane = {
     async find(params) {
       const limit = resolveFindLimit(params.limit);
-      const result = await retrieve({
+      let localItems: FindItem[] = [];
+      let localDegraded: DegradeFlag[] | undefined;
+      let localEvidence: HybridSearchResult["evidence"] | undefined;
+
+      if (wantsLocalChannel(params.sources)) {
+        const result = await retrieve({
+          tenantId: params.tenantId,
+          principalId: params.principalId,
+          query: params.query,
+          ...(limit !== undefined ? { k: limit } : {}),
+          ...(params.kinds !== undefined ? { kinds: params.kinds } : {}),
+          ...(params.entityIds !== undefined
+            ? { entityIds: params.entityIds }
+            : {}),
+        });
+        localItems = hitsToFindItems(result.hits);
+        localDegraded = result.degraded;
+        localEvidence = result.evidence;
+      }
+
+      const live = await collectLiveItems({
+        sources: options.sources,
+        query: params.query,
         tenantId: params.tenantId,
         principalId: params.principalId,
-        query: params.query,
-        ...(limit !== undefined ? { k: limit } : {}),
-        ...(params.kinds !== undefined ? { kinds: params.kinds } : {}),
-        ...(params.entityIds !== undefined
-          ? { entityIds: params.entityIds }
+        limit,
+        filter: params.sources,
+      });
+
+      // No live channel activity → preserve hybrid evidence semantics.
+      if (
+        live.items.length === 0 &&
+        live.degraded.length === 0 &&
+        (options.sources ?? []).length === 0
+      ) {
+        if (params.includeEvidence) {
+          return {
+            items: localItems,
+            evidence: localEvidence ?? "none",
+            ...(localDegraded ? { degraded: localDegraded } : {}),
+          };
+        }
+        return { items: localItems };
+      }
+
+      return mergeToFindResult({
+        localItems,
+        ...(localDegraded !== undefined ? { localDegraded } : {}),
+        liveItems: live.items,
+        liveDegraded: live.degraded,
+        limit,
+        ...(params.sources !== undefined ? { sources: params.sources } : {}),
+        ...(params.includeEvidence !== undefined
+          ? { includeEvidence: params.includeEvidence }
           : {}),
       });
-      const items = hitsToFindItems(result.hits);
-      if (params.includeEvidence) {
-        return {
-          items,
-          evidence: result.evidence,
-          ...(result.degraded ? { degraded: result.degraded } : {}),
-        };
-      }
-      return { items };
     },
 
     async ask(params) {
@@ -808,16 +1167,34 @@ function createPlaneFromEngine(
         query: params.query,
         includeEvidence: true,
         ...(params.limit !== undefined ? { limit: params.limit } : {}),
+        ...(params.sources !== undefined ? { sources: params.sources } : {}),
       });
 
-      return synthesizeAnswer(
+      const mem = await recallForAsk({
+        memory: options.memory,
+        includeMemory: params.includeMemory,
+        tenantId: params.tenantId,
+        principalId: params.principalId,
+        query: params.query,
+      });
+
+      const answer = await synthesizeAnswer(
         params.query,
         {
           hits: findItemsToHits(findResult.items),
           evidence: findResult.evidence ?? "none",
         },
         options.generate,
+        mem.texts,
       );
+      const degraded: DegradeFlag[] = [
+        ...(findResult.degraded ?? []),
+        ...mem.degraded,
+      ];
+      return {
+        ...answer,
+        ...(degraded.length > 0 ? { degraded } : {}),
+      };
     },
 
     async add(params) {
@@ -901,6 +1278,9 @@ function createPlaneFromEngine(
         ...(limit !== undefined ? { limit } : {}),
       });
     },
+
+    remember: memoryApi.remember,
+    recall: memoryApi.recall,
 
     async close() {
       await sql.end({ timeout: 5 });

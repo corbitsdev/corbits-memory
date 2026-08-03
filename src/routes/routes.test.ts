@@ -71,6 +71,8 @@ function stubPlane(opts?: {
         )
         .map(({ visibleTo: _v, ...event }) => event);
     },
+    remember: async () => {},
+    recall: async () => [],
     close: async () => {},
   };
   return { plane, added, searched };
