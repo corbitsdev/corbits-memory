@@ -729,7 +729,7 @@ describe("ask() — grant check", () => {
   });
 
   it("denies when the only matching grant is an explicit deny", async () => {
-    const denyGrant: GrantRule = { ...grant("search"), effect: "deny" };
+const denyGrant: GrantRule = { ...grant("find"), effect: "deny" };
     const grants = {
       grantStore: createInMemoryGrantStore([denyGrant]),
       conditionRegistry: {},
@@ -746,7 +746,7 @@ describe("ask() — missing generate", () => {
     // Pointed at a nonexistent DB: if find ran first this would surface a
     // connection/driver error instead of the promised 501.
     const grants = {
-      grantStore: createInMemoryGrantStore([grant("search")]),
+grantStore: createInMemoryGrantStore([grant("find")]),
       conditionRegistry: {},
     };
     const plane = createKnowledgePlane(askConfig, grants);
@@ -764,7 +764,7 @@ describe("ask() — missing generate", () => {
 describe("ask() — allow path", () => {
   it("finds as the principal and synthesizes when grant allows and generate is wired", async () => {
     const grants = {
-      grantStore: createInMemoryGrantStore([grant("search")]),
+      grantStore: createInMemoryGrantStore([grant("find")]),
       conditionRegistry: {},
     };
     const generate = mock((messages: readonly ChatMessage[]) => {

@@ -59,10 +59,10 @@ mountKnowledgeEngine(app, {
 });
 ```
 
-That mounts `POST /api/knowledge/capture`, `POST /api/knowledge/search`, and
-`GET /api/knowledge/timeline`, each guarded with
-`requireGrant("knowledge", <action>)`. Clients never send tenant or principal —
-identity is the context principal.
+That mounts `POST /api/knowledge/add`, `POST /api/knowledge/find`,
+`POST /api/knowledge/ask`, and `GET /api/knowledge/recent`, each guarded with
+`requireGrant("knowledge", <action>)` (`add` or `find`). Clients never send
+tenant or principal — identity is the context principal.
 
 ### The host must resolve tenant + principal for `/api/knowledge/*`
 

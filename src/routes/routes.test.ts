@@ -36,9 +36,9 @@ function stubPlane(opts?: {
   timelineCatalog?: Array<
     TimelineEvent & { visibleTo: readonly string[] | "tenant" }
   >;
+  askImpl?: KnowledgePlane["ask"];
 }) {
-  const captured: { title: string; tenantId: string; principalId: string }[] =
-    [];
+  const added: { title: string; tenantId: string; principalId: string }[] = [];
   const searched: Array<
     Pick<
       Parameters<KnowledgePlane["find"]>[0],
@@ -51,9 +51,11 @@ function stubPlane(opts?: {
       searched.push({ kinds: p.kinds, entityIds: p.entityIds, limit: p.limit });
       return { items: [], evidence: "none" };
     },
-    ask: async () => ({ text: "", citations: [], evidence: "none" }),
+    ask:
+      opts?.askImpl ??
+      (async () => ({ text: "stub answer", citations: [], evidence: "none" })),
     add: async (p) => {
-      captured.push({
+      added.push({
         title: p.content?.title ?? "",
         tenantId: p.tenantId,
         principalId: p.principalId,
@@ -71,7 +73,7 @@ function stubPlane(opts?: {
     },
     close: async () => {},
   };
-  return { plane, captured, searched };
+  return { plane, added, searched };
 }
 
 function buildApp(
@@ -81,9 +83,10 @@ function buildApp(
       TimelineEvent & { visibleTo: readonly string[] | "tenant" }
     >;
     principalId?: string;
+    askImpl?: KnowledgePlane["ask"];
   },
 ) {
-  const { plane, captured, searched } = stubPlane(opts);
+  const { plane, added, searched } = stubPlane(opts);
   const grantConfig = {
     grantStore: createInMemoryGrantStore(grants),
     conditionRegistry: {},
@@ -121,7 +124,7 @@ function buildApp(
     await next();
   });
   mountKnowledgeRoutes(app, deps);
-  return { app, captured, searched };
+  return { app, added, searched };
 }
 
 // Mirrors a host that mounts the knowledge routes outside the tenant prefix
@@ -148,7 +151,7 @@ const jsonPost = (body: unknown) => ({
   body: JSON.stringify(body),
 });
 
-const TIMELINE_CATALOG: Array<
+const RECENT_CATALOG: Array<
   TimelineEvent & { visibleTo: readonly string[] | "tenant" }
 > = [
   {
@@ -171,50 +174,56 @@ const TIMELINE_CATALOG: Array<
 ];
 
 describe("knowledge HTTP routes", () => {
-  test("capture with the capture grant writes under the caller's scope", async () => {
-    const { app, captured } = buildApp([
-      grant(PRINCIPAL, "capture"),
-      grant(PRINCIPAL, "search"),
+  test("add with the add grant writes under the caller's scope", async () => {
+    const { app, added } = buildApp([
+      grant(PRINCIPAL, "add"),
+      grant(PRINCIPAL, "find"),
     ]);
     const res = await app.request(
-      "/api/knowledge/capture",
+      "/api/knowledge/add",
       jsonPost({ title: "t", text: "body" }),
     );
     expect(res.status).toBe(200);
-    const body = (await res.json()) as {
-      status: string;
-      documentId: string;
-    };
-    expect(body.status).toBe("captured");
+    const body = (await res.json()) as { documentId: string };
     expect(body.documentId).toBe("doc-stub");
-    expect(captured).toEqual([
+    expect(added).toEqual([
       { title: "t", tenantId: TENANT, principalId: PRINCIPAL },
     ]);
   });
 
-  test("capture without the capture grant is 403", async () => {
-    const { app, captured } = buildApp([grant(PRINCIPAL, "search")]);
+  test("add without the add grant is 403", async () => {
+    const { app, added } = buildApp([grant(PRINCIPAL, "find")]);
     const res = await app.request(
-      "/api/knowledge/capture",
+      "/api/knowledge/add",
       jsonPost({ title: "t", text: "body" }),
     );
     expect(res.status).toBe(403);
-    expect(captured).toHaveLength(0);
+    expect(added).toHaveLength(0);
   });
 
-  test("capture validates the body (400 on missing text)", async () => {
-    const { app } = buildApp([grant(PRINCIPAL, "capture")]);
+  test("legacy capture grant does not authorize add", async () => {
+    const { app, added } = buildApp([grant(PRINCIPAL, "capture")]);
     const res = await app.request(
-      "/api/knowledge/capture",
+      "/api/knowledge/add",
+      jsonPost({ title: "t", text: "body" }),
+    );
+    expect(res.status).toBe(403);
+    expect(added).toHaveLength(0);
+  });
+
+  test("add validates the body (400 on missing text)", async () => {
+    const { app } = buildApp([grant(PRINCIPAL, "add")]);
+    const res = await app.request(
+      "/api/knowledge/add",
       jsonPost({ title: "t" }),
     );
     expect(res.status).toBe(400);
   });
 
-  test("search with the search grant returns a result", async () => {
-    const { app } = buildApp([grant(PRINCIPAL, "search")]);
+  test("find with the find grant returns a result", async () => {
+    const { app } = buildApp([grant(PRINCIPAL, "find")]);
     const res = await app.request(
-      "/api/knowledge/search",
+      "/api/knowledge/find",
       jsonPost({ query: "hello" }),
     );
     expect(res.status).toBe(200);
@@ -226,28 +235,37 @@ describe("knowledge HTTP routes", () => {
     expect(body.evidence).toBe("none");
   });
 
-  test("search requires the search grant", async () => {
-    const { app } = buildApp([grant(PRINCIPAL, "capture")]);
+  test("find requires the find grant", async () => {
+    const { app } = buildApp([grant(PRINCIPAL, "add")]);
     const res = await app.request(
-      "/api/knowledge/search",
+      "/api/knowledge/find",
       jsonPost({ query: "hi" }),
     );
     expect(res.status).toBe(403);
   });
 
-  test("search rejects out-of-range k (400)", async () => {
+  test("legacy search grant does not authorize find", async () => {
     const { app } = buildApp([grant(PRINCIPAL, "search")]);
     const res = await app.request(
-      "/api/knowledge/search",
-      jsonPost({ query: "hi", k: 999 }),
+      "/api/knowledge/find",
+      jsonPost({ query: "hi" }),
+    );
+    expect(res.status).toBe(403);
+  });
+
+  test("find rejects out-of-range limit (400)", async () => {
+    const { app } = buildApp([grant(PRINCIPAL, "find")]);
+    const res = await app.request(
+      "/api/knowledge/find",
+      jsonPost({ query: "hi", limit: 999 }),
     );
     expect(res.status).toBe(400);
   });
 
-  test("search threads kinds and entity_ids through to the plane", async () => {
-    const { app, searched } = buildApp([grant(PRINCIPAL, "search")]);
+  test("find threads kinds and entity_ids through to the plane", async () => {
+    const { app, searched } = buildApp([grant(PRINCIPAL, "find")]);
     const res = await app.request(
-      "/api/knowledge/search",
+      "/api/knowledge/find",
       jsonPost({
         query: "hello",
         kinds: ["artifact", "task"],
@@ -264,10 +282,10 @@ describe("knowledge HTTP routes", () => {
     ]);
   });
 
-  test("search with no kinds/entity_ids leaves them unset on the plane call", async () => {
-    const { app, searched } = buildApp([grant(PRINCIPAL, "search")]);
+  test("find with no kinds/entity_ids leaves them unset on the plane call", async () => {
+    const { app, searched } = buildApp([grant(PRINCIPAL, "find")]);
     const res = await app.request(
-      "/api/knowledge/search",
+      "/api/knowledge/find",
       jsonPost({ query: "hello" }),
     );
     expect(res.status).toBe(200);
@@ -276,10 +294,10 @@ describe("knowledge HTTP routes", () => {
     ]);
   });
 
-  test("search rejects a non-string-array kinds (400)", async () => {
-    const { app } = buildApp([grant(PRINCIPAL, "search")]);
+  test("find rejects a non-string-array kinds (400)", async () => {
+    const { app } = buildApp([grant(PRINCIPAL, "find")]);
     const res = await app.request(
-      "/api/knowledge/search",
+      "/api/knowledge/find",
       jsonPost({ query: "hi", kinds: [1, 2] }),
     );
     expect(res.status).toBe(400);
@@ -287,10 +305,10 @@ describe("knowledge HTTP routes", () => {
 
   // The route does not collapse [] to absent — hybridSearch treats an empty
   // array and an absent field the same way (see services/search.ts).
-  test("search passes an empty kinds/entity_ids array through unchanged", async () => {
-    const { app, searched } = buildApp([grant(PRINCIPAL, "search")]);
+  test("find passes an empty kinds/entity_ids array through unchanged", async () => {
+    const { app, searched } = buildApp([grant(PRINCIPAL, "find")]);
     const res = await app.request(
-      "/api/knowledge/search",
+      "/api/knowledge/find",
       jsonPost({ query: "hello", kinds: [], entity_ids: [] }),
     );
     expect(res.status).toBe(200);
@@ -299,32 +317,56 @@ describe("knowledge HTTP routes", () => {
     ]);
   });
 
-  test("timeline requires the search grant", async () => {
-    const { app } = buildApp([grant(PRINCIPAL, "capture")]);
-    const res = await app.request("/api/knowledge/timeline");
+  test("ask requires the find grant (same as find)", async () => {
+    const { app } = buildApp([grant(PRINCIPAL, "add")]);
+    const res = await app.request(
+      "/api/knowledge/ask",
+      jsonPost({ query: "what?" }),
+    );
     expect(res.status).toBe(403);
   });
 
-  test("timeline never returns a title private to another principal", async () => {
-    // Catalog contains a private secret title. Caller PRINCIPAL is not on
-    // its visibleTo list — the plane filters by principalId the route passes.
-    const { app } = buildApp([grant(PRINCIPAL, "search")], {
-      timelineCatalog: TIMELINE_CATALOG,
+  test("ask with the find grant returns a grounded answer", async () => {
+    const { app } = buildApp([grant(PRINCIPAL, "find")]);
+    const res = await app.request(
+      "/api/knowledge/ask",
+      jsonPost({ query: "what?" }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      text: string;
+      citations: unknown[];
+      evidence: string;
+    };
+    expect(body.text).toBe("stub answer");
+    expect(body.citations).toEqual([]);
+    expect(body.evidence).toBe("none");
+  });
+
+  test("recent requires the find grant", async () => {
+    const { app } = buildApp([grant(PRINCIPAL, "add")]);
+    const res = await app.request("/api/knowledge/recent");
+    expect(res.status).toBe(403);
+  });
+
+  test("recent never returns a title private to another principal", async () => {
+    const { app } = buildApp([grant(PRINCIPAL, "find")], {
+      timelineCatalog: RECENT_CATALOG,
       principalId: PRINCIPAL,
     });
-    const res = await app.request("/api/knowledge/timeline");
+    const res = await app.request("/api/knowledge/recent");
     expect(res.status).toBe(200);
     const body = (await res.json()) as { events: TimelineEvent[] };
     expect(body.events.map((e) => e.title)).toEqual([PUBLIC_TITLE]);
     expect(body.events.map((e) => e.title)).not.toContain(SECRET_TITLE);
   });
 
-  test("timeline returns a private title only to the allowed principal", async () => {
-    const { app } = buildApp([grant("alice", "search")], {
-      timelineCatalog: TIMELINE_CATALOG,
+  test("recent returns a private title only to the allowed principal", async () => {
+    const { app } = buildApp([grant("alice", "find")], {
+      timelineCatalog: RECENT_CATALOG,
       principalId: "alice",
     });
-    const res = await app.request("/api/knowledge/timeline");
+    const res = await app.request("/api/knowledge/recent");
     expect(res.status).toBe(200);
     const body = (await res.json()) as { events: TimelineEvent[] };
     expect(body.events.map((e) => e.title).sort()).toEqual(
@@ -332,17 +374,17 @@ describe("knowledge HTTP routes", () => {
     );
   });
 
-  test("timeline scopes by the caller's principal (different principal → different events)", async () => {
-    const { app: appP1 } = buildApp([grant(PRINCIPAL, "search")], {
-      timelineCatalog: TIMELINE_CATALOG,
+  test("recent scopes by the caller's principal (different principal → different events)", async () => {
+    const { app: appP1 } = buildApp([grant(PRINCIPAL, "find")], {
+      timelineCatalog: RECENT_CATALOG,
       principalId: PRINCIPAL,
     });
-    const { app: appOther } = buildApp([grant(OTHER, "search")], {
-      timelineCatalog: TIMELINE_CATALOG,
+    const { app: appOther } = buildApp([grant(OTHER, "find")], {
+      timelineCatalog: RECENT_CATALOG,
       principalId: OTHER,
     });
     const titles = async (app: Hono<TenantEnv>) => {
-      const res = await app.request("/api/knowledge/timeline");
+      const res = await app.request("/api/knowledge/recent");
       expect(res.status).toBe(200);
       const body = (await res.json()) as { events: TimelineEvent[] };
       return body.events.map((e) => e.title);
@@ -353,27 +395,63 @@ describe("knowledge HTTP routes", () => {
     expect(await titles(appOther)).not.toContain(SECRET_TITLE);
   });
 
-  test("capture is rejected (401) when no principal is on the context", async () => {
+  test("old paths are not mounted (hard cutover, no fallback)", async () => {
+    const { app } = buildApp([
+      grant(PRINCIPAL, "add"),
+      grant(PRINCIPAL, "find"),
+      grant(PRINCIPAL, "capture"),
+      grant(PRINCIPAL, "search"),
+    ]);
+    for (const path of [
+      "/api/knowledge/capture",
+      "/api/knowledge/search",
+      "/api/knowledge/timeline",
+    ]) {
+      const method = path.endsWith("timeline") ? "GET" : "POST";
+      const res = await app.request(
+        path,
+        method === "GET"
+          ? undefined
+          : jsonPost(
+              path.includes("capture")
+                ? { title: "t", text: "body" }
+                : { query: "hi" },
+            ),
+      );
+      expect(res.status).toBe(404);
+    }
+  });
+
+  test("add is rejected (401) when no principal is on the context", async () => {
     const app = buildAppWithoutPrincipal();
     const res = await app.request(
-      "/api/knowledge/capture",
+      "/api/knowledge/add",
       jsonPost({ title: "t", text: "body" }),
     );
     expect(res.status).toBe(401);
   });
 
-  test("search is rejected (401) when no principal is on the context", async () => {
+  test("find is rejected (401) when no principal is on the context", async () => {
     const app = buildAppWithoutPrincipal();
     const res = await app.request(
-      "/api/knowledge/search",
+      "/api/knowledge/find",
       jsonPost({ query: "hello" }),
     );
     expect(res.status).toBe(401);
   });
 
-  test("timeline is rejected (401) when no principal is on the context", async () => {
+  test("ask is rejected (401) when no principal is on the context", async () => {
     const app = buildAppWithoutPrincipal();
-    const res = await app.request("/api/knowledge/timeline");
+    const res = await app.request(
+      "/api/knowledge/ask",
+      jsonPost({ query: "hello" }),
+    );
+    expect(res.status).toBe(401);
+  });
+
+  test("recent is rejected (401) when no principal is on the context", async () => {
+    const app = buildAppWithoutPrincipal();
+    const res = await app.request("/api/knowledge/recent");
     expect(res.status).toBe(401);
   });
 });
