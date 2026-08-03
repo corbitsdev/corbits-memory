@@ -3,13 +3,18 @@ import {
   customType,
   integer,
   jsonb,
-  pgTable,
+  pgSchema,
   real,
   text,
   timestamp,
   uniqueIndex,
   index,
 } from "drizzle-orm/pg-core";
+
+/** Postgres schema owned by this package — never public. */
+export const KNOWLEDGE_SCHEMA = "knowledge";
+
+export const knowledgeSchema = pgSchema(KNOWLEDGE_SCHEMA);
 
 // No built-in `bytea` helper in drizzle-orm/pg-core; raw_capture.raw_bytes
 // holds non-textual raw payloads (binary source formats) as a Buffer.
@@ -19,8 +24,8 @@ const bytea = customType<{ data: Buffer }>({
   },
 });
 
-export const knowledgeDocument = pgTable(
-  "knowledge_document",
+export const knowledgeDocument = knowledgeSchema.table(
+  "document",
   {
     id: text("id").primaryKey(),
     tenantId: text("tenant_id").notNull(),
@@ -36,7 +41,7 @@ export const knowledgeDocument = pgTable(
     lastSeenAt: timestamp("last_seen_at").notNull().defaultNow(),
   },
   (t) => [
-    uniqueIndex("knowledge_document_tenant_adapter_external_ref_uniq").on(
+    uniqueIndex("document_tenant_adapter_external_ref_uniq").on(
       t.tenantId,
       t.adapter,
       t.externalRef,
@@ -44,8 +49,8 @@ export const knowledgeDocument = pgTable(
   ],
 );
 
-export const knowledgeVersion = pgTable(
-  "knowledge_version",
+export const knowledgeVersion = knowledgeSchema.table(
+  "version",
   {
     id: text("id").primaryKey(),
     tenantId: text("tenant_id").notNull(),
@@ -74,17 +79,17 @@ export const knowledgeVersion = pgTable(
     generation: text("generation").notNull().default("live"),
   },
   (t) => [
-    uniqueIndex("knowledge_version_document_generation_version_uniq").on(
+    uniqueIndex("version_document_generation_version_uniq").on(
       t.documentId,
       t.generation,
       t.version,
     ),
-    index("knowledge_version_document_status_idx").on(t.documentId, t.status),
+    index("version_document_status_idx").on(t.documentId, t.status),
   ],
 );
 
-export const knowledgeChunk = pgTable(
-  "knowledge_chunk",
+export const knowledgeChunk = knowledgeSchema.table(
+  "chunk",
   {
     id: text("id").primaryKey(),
     tenantId: text("tenant_id").notNull(),
@@ -100,15 +105,12 @@ export const knowledgeChunk = pgTable(
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (t) => [
-    uniqueIndex("knowledge_chunk_version_ordinal_uniq").on(
-      t.versionId,
-      t.ordinal,
-    ),
+    uniqueIndex("chunk_version_ordinal_uniq").on(t.versionId, t.ordinal),
   ],
 );
 
-export const knowledgeEntity = pgTable(
-  "knowledge_entity",
+export const knowledgeEntity = knowledgeSchema.table(
+  "entity",
   {
     id: text("id").primaryKey(),
     tenantId: text("tenant_id").notNull(),
@@ -117,11 +119,11 @@ export const knowledgeEntity = pgTable(
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
-  (t) => [index("knowledge_entity_tenant_kind_idx").on(t.tenantId, t.kind)],
+  (t) => [index("entity_tenant_kind_idx").on(t.tenantId, t.kind)],
 );
 
-export const knowledgeEdge = pgTable(
-  "knowledge_edge",
+export const knowledgeEdge = knowledgeSchema.table(
+  "edge",
   {
     id: text("id").primaryKey(),
     tenantId: text("tenant_id").notNull(),
@@ -133,8 +135,8 @@ export const knowledgeEdge = pgTable(
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (t) => [
-    index("knowledge_edge_from_idx").on(t.tenantId, t.fromType, t.fromRef),
-    index("knowledge_edge_to_idx").on(t.tenantId, t.toType, t.toRef),
+    index("edge_from_idx").on(t.tenantId, t.fromType, t.fromRef),
+    index("edge_to_idx").on(t.tenantId, t.toType, t.toRef),
   ],
 );
 
@@ -143,7 +145,7 @@ export const knowledgeEdge = pgTable(
 // different config without re-fetching source. Append-only; dedupe on
 // (tenantId, sourceHash) reuses the existing row instead of inserting a
 // duplicate.
-export const rawCapture = pgTable(
+export const rawCapture = knowledgeSchema.table(
   "raw_capture",
   {
     id: text("id").primaryKey(),
@@ -170,7 +172,7 @@ export const rawCapture = pgTable(
   ],
 );
 
-export const knowledgeEmbedModel = pgTable("knowledge_embed_model", {
+export const knowledgeEmbedModel = knowledgeSchema.table("embed_model", {
   id: text("id").primaryKey(),
   tenantId: text("tenant_id").notNull(),
   modelKey: text("model_key").notNull(),
@@ -186,7 +188,7 @@ export const knowledgeEmbedModel = pgTable("knowledge_embed_model", {
 // + retrieval-boost config (see src/core/schemas/transform.ts); unique on
 // (tenant_id, name, version) so re-creating the same name mints a new
 // version rather than colliding.
-export const transformConfig = pgTable(
+export const transformConfig = knowledgeSchema.table(
   "transform_config",
   {
     id: text("id").primaryKey(),
@@ -209,7 +211,7 @@ export const transformConfig = pgTable(
 // slice of raw_capture. `generation` is this run's id, written onto every
 // knowledge_version row it derives; unique so a generation always resolves
 // back to exactly one run (and therefore one config) at search time.
-export const transformRun = pgTable(
+export const transformRun = knowledgeSchema.table(
   "transform_run",
   {
     id: text("id").primaryKey(),

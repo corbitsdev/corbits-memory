@@ -1,7 +1,8 @@
 /**
  * Knowledge-plane (pgvector) schema migrations, callable by host apps.
  * Applies every migrations/*.sql in filename order, each in its own
- * transaction, tracked in a `_migrations` ledger so re-runs are idempotent.
+ * transaction, tracked in knowledge._migrations so re-runs are idempotent
+ * and the ledger never collides with a host's public migration bookkeeping.
  */
 import postgres from "postgres";
 import { readdir, readFile } from "node:fs/promises";
@@ -12,6 +13,7 @@ import {
   verifyFtsLanguage,
 } from "./core/fts-language.ts";
 import { createRawSqlClient } from "./core/embed-sql.ts";
+import { KNOWLEDGE_SCHEMA } from "./db/schema.ts";
 
 const MIGRATIONS_DIR = join(import.meta.dir, "..", "migrations");
 
@@ -28,13 +30,20 @@ export async function runKnowledgeMigrations(
   );
   const sql = postgres(databaseUrl, { max: 1 });
   try {
-    await sql`CREATE TABLE IF NOT EXISTS "_migrations" (
+    // Schema first so the ledger and every later migration can land inside it
+    // even when 0001 has not been applied yet (fresh DB) or was skipped.
+    await sql.unsafe(
+      `CREATE SCHEMA IF NOT EXISTS "${KNOWLEDGE_SCHEMA}"`,
+    );
+    await sql.unsafe(
+      `CREATE TABLE IF NOT EXISTS "${KNOWLEDGE_SCHEMA}"."_migrations" (
       "name" text PRIMARY KEY,
       "applied_at" timestamp NOT NULL DEFAULT now()
-    )`;
-    const appliedRows = await sql<
-      { name: string }[]
-    >`SELECT name FROM "_migrations"`;
+    )`,
+    );
+    const appliedRows = (await sql.unsafe(
+      `SELECT name FROM "${KNOWLEDGE_SCHEMA}"."_migrations"`,
+    )) as unknown as { name: string }[];
     const applied = new Set(appliedRows.map((row) => row.name));
 
     const files = (await readdir(MIGRATIONS_DIR))
@@ -50,7 +59,10 @@ export async function runKnowledgeMigrations(
       const ddl = raw.replaceAll(FTS_LANGUAGE_TOKEN, ftsLanguage);
       await sql.begin(async (tx) => {
         await tx.unsafe(ddl);
-        await tx`INSERT INTO "_migrations" (name) VALUES (${file})`;
+        await tx.unsafe(
+          `INSERT INTO "${KNOWLEDGE_SCHEMA}"."_migrations" (name) VALUES ($1)`,
+          [file],
+        );
       });
       log(`applied ${file}`);
     }

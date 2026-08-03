@@ -1,6 +1,6 @@
 -- A real-world thing (person, org, deal, ...) a document or chunk mentions.
 -- Identity keys only (email, domain, ...) — not another copy of chunk text.
-CREATE TABLE IF NOT EXISTS "knowledge_entity" (
+CREATE TABLE IF NOT EXISTS "knowledge"."entity" (
   "id" text PRIMARY KEY,
   "tenant_id" text NOT NULL,
   "kind" text NOT NULL,
@@ -9,8 +9,8 @@ CREATE TABLE IF NOT EXISTS "knowledge_entity" (
   "updated_at" timestamp NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS "knowledge_entity_tenant_kind_idx"
-  ON "knowledge_entity" (
+CREATE INDEX IF NOT EXISTS "entity_tenant_kind_idx"
+  ON "knowledge"."entity" (
     "tenant_id",
     "kind"
   );

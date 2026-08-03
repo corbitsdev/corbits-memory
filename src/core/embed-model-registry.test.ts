@@ -64,7 +64,7 @@ describe("computeModelKey / embeddingTableName", () => {
     expect(key).toMatch(/^[a-f0-9]{16}$/);
     const tableName = embeddingTableName(key);
     expect(tableName).toMatch(EMBED_TABLE_NAME_PATTERN);
-    expect(tableName).toBe(`knowledge_embedding_${key}`);
+    expect(tableName).toBe(`"knowledge"."embedding_${key}"`);
   });
 
   it("rejects a key that would produce an invalid identifier", () => {
@@ -133,7 +133,9 @@ describe("activateEmbedModel", () => {
     expect(result.dims).toBe(768);
     expect(result.tableName).toMatch(EMBED_TABLE_NAME_PATTERN);
 
-    const insertQuery = queries.find((q) => q.sql.includes("INSERT INTO knowledge_embed_model"));
+    const insertQuery = queries.find((q) =>
+      q.sql.includes('INSERT INTO "knowledge"."embed_model"'),
+    );
     expect(insertQuery).toBeDefined();
     expect(insertQuery?.params).toContain("tenant-1");
     expect(insertQuery?.params).toContain(768);
@@ -141,16 +143,15 @@ describe("activateEmbedModel", () => {
     const createTableQuery = queries.find((q) => q.sql.includes("CREATE TABLE IF NOT EXISTS"));
     expect(createTableQuery?.sql).toContain(result.tableName);
     expect(createTableQuery?.sql).toContain("vector(768)");
+    const bare = result.tableName.replace(/^"knowledge"\."|"$/g, "");
+    expect(createTableQuery?.sql).toContain(`CONSTRAINT ${bare}_chunk_fk`);
     expect(createTableQuery?.sql).toContain(
-      `CONSTRAINT ${result.tableName}_chunk_fk`,
-    );
-    expect(createTableQuery?.sql).toContain(
-      "FOREIGN KEY (chunk_id) REFERENCES knowledge_chunk (id) ON DELETE CASCADE",
+      'FOREIGN KEY (chunk_id) REFERENCES "knowledge"."chunk" (id) ON DELETE CASCADE',
     );
 
     const tenantIndexQuery = queries.find((q) => q.sql.includes("_tenant_chunk_idx"));
     expect(tenantIndexQuery?.sql).toBe(
-      `CREATE INDEX IF NOT EXISTS ${result.tableName}_tenant_chunk_idx ON ${result.tableName} (tenant_id, chunk_id)`,
+      `CREATE INDEX IF NOT EXISTS ${bare}_tenant_chunk_idx ON ${result.tableName} (tenant_id, chunk_id)`,
     );
 
     const indexQuery = queries.find((q) => q.sql.includes("USING hnsw"));
@@ -268,7 +269,7 @@ describe("resolveActiveEmbedTable", () => {
     };
     const result = await resolveActiveEmbedTable(client, "tenant-1");
     expect(result).toEqual({
-      tableName: `knowledge_embedding_${modelKey}`,
+      tableName: `"knowledge"."embedding_${modelKey}"`,
       dims: 768,
       modelId: baseConfig.modelId,
     });

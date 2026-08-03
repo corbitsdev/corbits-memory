@@ -410,9 +410,9 @@ export async function fetchLexicalCandidates(
     // Bound as a parameter and cast to regconfig — never spliced — and
     // required to match the language the generated column was built with
     // (verified against the catalog by runKnowledgeMigrations).
-    rankExpr = sql<number>`ts_rank("knowledge_chunk"."text_fts", plainto_tsquery(${ftsLanguage}::regconfig, ${query}))`;
+    rankExpr = sql<number>`ts_rank("knowledge"."chunk"."text_fts", plainto_tsquery(${ftsLanguage}::regconfig, ${query}))`;
     conditions.push(
-      sql`"knowledge_chunk"."text_fts" @@ plainto_tsquery(${ftsLanguage}::regconfig, ${query})`,
+      sql`"knowledge"."chunk"."text_fts" @@ plainto_tsquery(${ftsLanguage}::regconfig, ${query})`,
     );
   }
 
@@ -593,9 +593,9 @@ export async function fetchDenseCandidates(
            kv.created_by_kind AS created_by_kind, kv.generator_agent_id AS generator_agent_id,
            c.text AS snippet_text, kv.occurred_at AS occurred_at, kv.authority AS authority
     FROM ${activeTable.tableName} e
-    JOIN knowledge_chunk c ON c.id = e.chunk_id
-    JOIN knowledge_version kv ON kv.id = c.version_id
-    JOIN knowledge_document kd ON kd.id = c.document_id
+    JOIN "knowledge"."chunk" c ON c.id = e.chunk_id
+    JOIN "knowledge"."version" kv ON kv.id = c.version_id
+    JOIN "knowledge"."document" kd ON kd.id = c.document_id
     WHERE e.tenant_id = $1 AND c.tenant_id = $1 AND kv.status = 'active'
       AND kv.generation = ${generationParam}
       AND ${visibilitySql}
