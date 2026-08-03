@@ -1,0 +1,132 @@
+import { describe, expect, it } from "bun:test";
+
+import {
+  createFakeDocumentStore,
+  createFakeSourceProvider,
+} from "./fakes.ts";
+
+const TENANT = "t1";
+const PRINCIPAL = "p1";
+const OTHER = "p2";
+
+describe("createFakeDocumentStore", () => {
+  it("round-trips add → find → recent", async () => {
+    const store = createFakeDocumentStore();
+    const { documentId } = await store.add({
+      tenantId: TENANT,
+      principalId: PRINCIPAL,
+      title: "standup notes",
+      text: "shipped the ports foundation",
+      visibility: { mode: "tenant" },
+    });
+    expect(documentId).toMatch(/^fake_doc_/);
+
+    const found = await store.find({
+      tenantId: TENANT,
+      principalId: PRINCIPAL,
+      query: "ports foundation",
+      includeEvidence: true,
+    });
+    expect(found.items).toHaveLength(1);
+    expect(found.items[0]?.documentId).toBe(documentId);
+    expect(found.evidence).toBe("weak");
+
+    const events = await store.recent({
+      tenantId: TENANT,
+      principalId: PRINCIPAL,
+    });
+    expect(events.map((e) => e.title)).toEqual(["standup notes"]);
+    await store.close();
+  });
+
+  it("respects private visibility", async () => {
+    const store = createFakeDocumentStore();
+    await store.add({
+      tenantId: TENANT,
+      principalId: PRINCIPAL,
+      title: "secret",
+      text: "classified payload",
+      visibility: { mode: "private", principalIds: [PRINCIPAL] },
+    });
+    const asOwner = await store.find({
+      tenantId: TENANT,
+      principalId: PRINCIPAL,
+      query: "classified",
+    });
+    const asOther = await store.find({
+      tenantId: TENANT,
+      principalId: OTHER,
+      query: "classified",
+    });
+    expect(asOwner.items).toHaveLength(1);
+    expect(asOther.items).toHaveLength(0);
+    await store.close();
+  });
+
+  it("honours block list", async () => {
+    const store = createFakeDocumentStore();
+    await store.add({
+      tenantId: TENANT,
+      principalId: PRINCIPAL,
+      title: "blocked from other",
+      text: "visible body",
+      visibility: { mode: "tenant" },
+      blockPrincipalIds: [OTHER],
+    });
+    const asOther = await store.find({
+      tenantId: TENANT,
+      principalId: OTHER,
+      query: "visible",
+    });
+    expect(asOther.items).toHaveLength(0);
+    await store.close();
+  });
+});
+
+describe("createFakeSourceProvider", () => {
+  it("searchLive filters catalog by query", async () => {
+    const source = createFakeSourceProvider("linear", [
+      {
+        adapter: "linear",
+        externalRef: "CL-1",
+        title: "ports foundation",
+        snippet: "DocumentStore + SourceProvider",
+        score: 0.9,
+        kind: "issue",
+        citation: {
+          adapter: "linear",
+          external_ref: "CL-1",
+          open: {
+            type: "issue",
+            id: "CL-1",
+            url: "https://linear.app/x/issue/CL-1",
+          },
+        },
+      },
+      {
+        adapter: "linear",
+        externalRef: "CL-2",
+        title: "unrelated",
+        snippet: "something else",
+        score: 0.1,
+        kind: "issue",
+        citation: {
+          adapter: "linear",
+          external_ref: "CL-2",
+          open: {
+            type: "issue",
+            id: "CL-2",
+            url: "https://linear.app/x/issue/CL-2",
+          },
+        },
+      },
+    ]);
+    const hits = await source.searchLive!({
+      query: "ports",
+      tenantId: TENANT,
+      principalId: PRINCIPAL,
+    });
+    expect(hits).toHaveLength(1);
+    expect(hits[0]?.externalRef).toBe("CL-1");
+  });
+});

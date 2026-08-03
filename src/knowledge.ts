@@ -30,11 +30,23 @@ import {
 } from "./services/timeline.ts";
 import type { KnowledgeConfig } from "./mount-config.ts";
 import type { GrantConfig } from "./routes/deps.ts";
+import type {
+  DocumentStore,
+  MemoryProvider,
+  SourceProvider,
+} from "./ports/types.ts";
 
 // Re-export so hosts typing plane results don't reach into services/.
 export type { HybridSearchResult } from "./services/search.ts";
 export type { SearchHit } from "./core/schemas/search.ts";
 export type { VisibilitySpec } from "./core/schemas/document.ts";
+export type {
+  DocumentStore,
+  DocumentStoreAddParams,
+  LiveSearchItem,
+  MemoryProvider,
+  SourceProvider,
+} from "./ports/types.ts";
 
 export type ChatMessage = {
   role: "system" | "user" | "assistant";
@@ -291,6 +303,20 @@ export type KnowledgePlaneOptions = {
   generate?: Generate;
   /** Required for `add({ file })`; omit if the host only adds text content. */
   textExtractor?: TextExtractor;
+  /**
+   * Override durable storage. When set, the plane does not open Postgres or
+   * call embed/rerank endpoints — useful for fakes and alternate backends.
+   */
+  documentStore?: DocumentStore;
+  /**
+   * Live source connectors. Wired into find/ask merge in CL-5227; accepted
+   * here so mounts can declare them early.
+   */
+  sources?: SourceProvider[];
+  /**
+   * Memory port type accepted for mount wiring; remember/recall product is M3.
+   */
+  memory?: MemoryProvider;
 };
 
 function resolveFindLimit(limit: number | undefined): number {
@@ -407,12 +433,180 @@ function resolveShareAndVisibility(params: KnowledgeAddParams): {
  *
  * - `grants` is required for `ask()` (in-process capability check). Standalone
  *   add/find callers may omit it — same as #8's out-of-band plane.
- * - Rerank config is validated at construction (same as mount).
+ * - Rerank config is validated at construction (same as mount) when using the
+ *   default Postgres-backed store.
+ * - Pass `options.documentStore` to skip Postgres entirely (fakes / overrides).
+ *   When a store is provided, `config` may be omitted.
  */
 export function createKnowledgePlane(
-  config: KnowledgeConfig,
+  config: KnowledgeConfig | undefined,
   grants?: GrantConfig,
   options: KnowledgePlaneOptions = {},
+): KnowledgePlane {
+  if (options.documentStore) {
+    return createPlaneFromStore(options.documentStore, grants, options);
+  }
+  if (!config) {
+    throw new KnowledgeError(
+      500,
+      "KnowledgeConfig is required when documentStore is not provided",
+    );
+  }
+  return createPlaneFromEngine(config, grants, options);
+}
+
+/** Plane backed by an injected DocumentStore (fake or host override). */
+function createPlaneFromStore(
+  store: DocumentStore,
+  grants: GrantConfig | undefined,
+  options: KnowledgePlaneOptions,
+): KnowledgePlane {
+  // sources/memory held for mount completeness; merge/memory product later.
+  void options.sources;
+  void options.memory;
+
+  const plane: KnowledgePlane = {
+    async find(params) {
+      const limit = resolveFindLimit(params.limit);
+      return store.find({
+        tenantId: params.tenantId,
+        principalId: params.principalId,
+        query: params.query,
+        limit,
+        ...(params.includeEvidence !== undefined
+          ? { includeEvidence: params.includeEvidence }
+          : {}),
+      });
+    },
+
+    async ask(params) {
+      if (!grants) {
+        throw new KnowledgeError(
+          501,
+          "ask() requires a GrantConfig. Pass grants to " +
+            "createKnowledgePlane/mountKnowledgeEngine.",
+        );
+      }
+      const decision = await authorize(
+        grants.grantStore,
+        params.principalId,
+        params.tenantId,
+        "knowledge",
+        "find",
+        grants.conditionRegistry,
+      );
+      if (decision.effect !== "allow") {
+        const effect = decision.effect ?? "no-matching-grant";
+        log.info(
+          `ask: denied knowledge:find for ${params.principalId} (effect=${effect})`,
+          {
+            principalId: params.principalId,
+            effect,
+          },
+        );
+        throw new KnowledgeNotPermittedError();
+      }
+      if (!options.generate) {
+        throw new KnowledgeError(
+          501,
+          "ask() requires a `generate` function. Pass one to " +
+            "createKnowledgePlane/mountKnowledgeEngine, wired to your " +
+            "inference layer.",
+        );
+      }
+      const findResult = await plane.find({
+        tenantId: params.tenantId,
+        principalId: params.principalId,
+        query: params.query,
+        includeEvidence: true,
+        ...(params.limit !== undefined ? { limit: params.limit } : {}),
+      });
+      return synthesizeAnswer(
+        params.query,
+        {
+          hits: findItemsToHits(findResult.items),
+          evidence: findResult.evidence ?? "none",
+        },
+        options.generate,
+      );
+    },
+
+    async add(params) {
+      const hasContent = params.content !== undefined;
+      const hasFile = params.file !== undefined;
+      if (hasContent === hasFile) {
+        throw new KnowledgeError(
+          400,
+          "provide exactly one of content or file",
+        );
+      }
+
+      let title: string;
+      let text: string;
+      if (params.content) {
+        title = params.content.title;
+        text = params.content.text;
+      } else {
+        const file = params.file!;
+        if (!options.textExtractor) {
+          throw new KnowledgeError(
+            400,
+            "file requires a textExtractor on the knowledge plane",
+          );
+        }
+        const extracted = await options.textExtractor.extract({
+          bytes: file.bytes,
+          ...(file.mimeType !== undefined ? { mimeType: file.mimeType } : {}),
+          ...(file.filename !== undefined ? { filename: file.filename } : {}),
+        });
+        text = extracted.text;
+        title =
+          file.title ?? extracted.title ?? file.filename ?? "untitled";
+      }
+
+      const { visibility, blockPrincipalIds } =
+        resolveShareAndVisibility(params);
+
+      return store.add({
+        tenantId: params.tenantId,
+        principalId: params.principalId,
+        title,
+        text,
+        visibility,
+        ...(blockPrincipalIds !== undefined ? { blockPrincipalIds } : {}),
+        ...(params.attributes !== undefined
+          ? { attributes: params.attributes }
+          : {}),
+        ...(params.externalRef !== undefined
+          ? { externalRef: params.externalRef }
+          : {}),
+      });
+    },
+
+    async recent(params) {
+      const limit = resolveRecentLimit(params.limit);
+      return store.recent({
+        tenantId: params.tenantId,
+        principalId: params.principalId,
+        ...(limit !== undefined ? { limit } : {}),
+      });
+    },
+
+    async close() {
+      await store.close();
+    },
+  };
+
+  return plane;
+}
+
+/**
+ * Default plane: engine pgvector store + hybrid search.
+ */
+function createPlaneFromEngine(
+  config: KnowledgeConfig,
+  grants: GrantConfig | undefined,
+  options: KnowledgePlaneOptions,
 ): KnowledgePlane {
   // Catch a chunk-size / reranker-limit mismatch at construction time, rather
   // than silently on every find once the reranker starts rejecting batches.
@@ -561,7 +755,7 @@ export function createKnowledgePlane(
       // data layers are independent and BOTH must allow. Per-document
       // visibility (enforced inside `find`) is not a substitute for "may
       // this principal search at all".
-// Same action as HTTP find/ask/recent: knowledge:find.
+      // Same action as HTTP find/ask/recent: knowledge:find.
       if (!grants) {
         throw new KnowledgeError(
           501,
