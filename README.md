@@ -92,22 +92,20 @@ const answer = await knowledge.ask({
 failure → `memory_unavailable`, docs-only. `plane.remember` / `plane.recall` for
 host-owned writes (ask never auto-remembers).
 
-### Adapter packages
+### Optional DocumentStore adapters
+
+Optional adapter packages under `packages/` implement `DocumentStore` for hosts
+that want a non-pgvector backend. Core never imports vendor SDKs. See each
+package's README for mount examples and isolation limits.
 
 ```ts
-// packages/knowledge-adapter-mem0 — DocumentStore (not MemoryProvider)
-import { createMem0DocumentStore } from "@corbits/knowledge-adapter-mem0";
-
-// packages/knowledge-adapter-supermemory — DocumentStore
-import { createSupermemoryDocumentStore } from "@corbits/knowledge-adapter-supermemory";
-
 // Linear SourceProvider lives in sibling repo @corbits/linear
 // (https://github.com/corbitsdev/corbits-linear), not this monorepo.
 import {
   createLinearSourceProvider,
   mapLinearWebhook,
 } from "@corbits/linear";
-// host owns OAuth + webhook verify; private issues never map to tenant visibility
+// host owns OAuth + webhook verify; private issues never map into tenant docs
 ```
 
 ## Migrations
@@ -122,11 +120,13 @@ All tables live under Postgres schema **`knowledge`**
 (`knowledge.document`, `knowledge.version`, `knowledge.chunk`, …). Hard cutover
 pre-1.0: re-run migrations on a fresh knowledge DB.
 
-## ACL ladder (honest)
+## Document access (grant tags)
 
-1. Host grants (`knowledge:add` / `knowledge:find`)
-2. Per-document visibility (`private` | `principals` | `tenant` + optional blocks)
-3. Share sugars on `add` map onto (2) — no second ACL system
+1. Host capability grants (`knowledge:add` / `knowledge:find`)
+2. Per-document **access tags** + creator rule (Interchange `@intx/authz`)
+3. Share sugars on `add` only mint tags — no visibility modes or block lists
+
+Full design: `docs/AUTHZ-DOCUMENT-ACCESS.md`.
 
 ## Docs
 
@@ -141,9 +141,7 @@ pre-1.0: re-run migrations on a fresh knowledge DB.
 bun install
 bun run typecheck
 bun run test
-# adapter packages (DocumentStore backends):
-bun test packages/knowledge-adapter-mem0
-bun test packages/knowledge-adapter-supermemory
+# optional DocumentStore adapters under packages/ (each package has its own tests)
 # Linear tools: sibling repo @corbits/linear
 ```
 

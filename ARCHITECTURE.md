@@ -43,15 +43,15 @@ HTTP hop.
 
 1. **Who is calling** is the request principal, read off the Interchange
    context. Clients never send `tenant_id`/`principal_id` — the handlers read
-   only content fields (title/text/query/k/acl) and take identity from context.
+   only content fields (title/text/query/limit/access_tags/share) and take identity from context.
 2. **What is stored** is opaque data on every record: `tenant_id`,
    `principal_id`, `created_by_kind` (human/agent/system), `source_class`, and
-   relations (the edge graph). Every query is scoped by `tenant_id` first, then
-   the document ACL is matched against the caller's subject.
+   relations (the edge graph). Every query is scoped by `tenant_id` first; then
+   document access uses Interchange grant tags (`accessTags` + creator).
 
 Cross-tenant isolation is enforced at query time by `tenant_id`; document-level
-visibility (allow/block) is enforced on top. This is the trust
-model.
+access is grant tags via `@intx/authz` (creator always allowed). This is the
+trust model.
 
 ## Layers
 
@@ -74,7 +74,7 @@ model.
   the principal, grounds a prompt from hit snippets, calls host-injected
   `generate`. Optional memory recall when `includeMemory` is true.
 - `GET /api/knowledge/recent` — recent documents for the caller's scope,
-  filtered with the same document ACL as local find (visibility + block list).
+  filtered with the same grant-tag access as local find (`canAccessDocument`).
 
 It also returns an in-process `KnowledgePlane` (`add`, `find`, `ask`,
 `recent`, optional `remember` / `recall`). `ask()` is grant-checked in-process

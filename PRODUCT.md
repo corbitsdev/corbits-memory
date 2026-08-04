@@ -38,14 +38,15 @@ Identity on the plane is always **`principalId` + `tenantId`** (never
 
 | Port | Purpose |
 | --- | --- |
-| `DocumentStore` | **The** durable backend for add/find/recent (default: engine pgvector, wrapped as a DocumentStore). Replace with Mem0, Supermemory, or fakes — no Postgres required when overridden. The plane is always store-backed; there is no second engine-only path. |
+| `DocumentStore` | **The** durable backend for add/find/recent (default: engine pgvector, wrapped as a DocumentStore). Replace with any host `DocumentStore` or in-package fakes — no Postgres required when overridden. The plane is always store-backed; there is no second engine-only path. |
 | `SourceProvider` | Optional **tools-shaped** live search (`searchLive`); merge is fail-soft. Not a store replacement. |
 | `MemoryProvider` | Optional ask side-channel only (`includeMemory`); **not** how you swap backends. |
 
 Mount options accept `documentStore`, `sources[]`, `memory`, plus in-package
 **fakes** so a host can mount with fakes only and exercise add/find/ask/recent
-without Postgres. Hosts that want Mem0 or Supermemory as the sole durable store
-pass that adapter as `documentStore` and omit `KnowledgeConfig`.
+without Postgres. Hosts that want a third-party durable backend implement
+`DocumentStore` (or use an optional adapter package) and pass it as
+`documentStore`, omitting `KnowledgeConfig` when Postgres is not needed.
 
 **MergeLocalLiveV1** merges local DocumentStore + live SourceProviders: fail-soft
 per provider (timeout/error → degrade flags, never fail the request), dedupe by
@@ -54,27 +55,22 @@ per provider (timeout/error → degrade flags, never fail the request), dedupe b
 **Memory side-channel:** `includeMemory` on `ask` defaults **false**. When true
 and a `MemoryProvider` is mounted, recall injects uncited personal context;
 failures degrade with `memory_unavailable` (docs-only). This is unrelated to
-using Mem0/Supermemory as the DocumentStore. Writes via `plane.remember` are
-host-owned — ask never auto-writes.
+replacing the DocumentStore. Writes via `plane.remember` are host-owned — ask
+never auto-writes.
 
-### Adapter packages (same monorepo tree)
+### Optional adapter packages
 
-| Package | Role |
-| --- | --- |
-| `@corbits/knowledge-adapter-mem0` | **DocumentStore** via Mem0 Platform HTTP; tenant key `mapUser` length-prefixed |
-| `@corbits/knowledge-adapter-supermemory` | **DocumentStore** via Supermemory HTTP; tenant key `containerTag` length-prefixed |
+Optional `DocumentStore` implementations live under `packages/` in this tree
+(or as separate packages). Core never imports vendor SDKs. Hosts that need a
+store beyond default pgvector mount their own `documentStore`.
 
-Linear tools live in a **sibling repo** ([`@corbits/linear`](https://github.com/corbitsdev/corbits-linear)) — same tools shape as Granola, not a DocumentStore.
-
-Core never imports vendor SDKs. Adapters are pure-fetch; tenant-safe keys only.
-`MemoryProvider` factories in the mem0/supermemory packages are back-compat only.
-
-**Vendor store honesty:** Mem0/Supermemory adapters isolate by **principal
-bucket** (one Mem0 `user_id` / Supermemory `containerTag` per tenant+principal).
-They do **not** implement the multi-principal / tenant visibility ladder or
-block lists — those need the default pgvector store (or a store that enforces
-them). `recent` is empty on both adapters. Never mount them as
-`options.memory`.
+**Third-party store honesty:** not every `DocumentStore` evaluates host grant
+tags. Some isolate by **principal bucket** only (one private namespace per
+tenant+principal) and do **not** multi-share via `accessTags` + host
+`GrantStore`. For full grant-tag ACL, use the default pgvector store (or a store
+that implements the contract in `docs/AUTHZ-DOCUMENT-ACCESS.md`). Adapter
+packages must document their isolation model in their own README. Never mount a
+durable store as `options.memory`.
 
 ### What is not in scope
 
@@ -97,8 +93,8 @@ Claude Code / Codex / Workbench (clients)
 │  Host Interchange createApp                  │
 │  + mountKnowledgeEngine(app, opts)           │
 │       grants: knowledge:add | knowledge:find │
-│       documentStore: pgvector | Mem0 | SM |  │
-│                      fake                    │
+│       documentStore: pgvector | host store │
+│                      | fake                │
 │       optional: sources, memory,             │
 │                 textExtractor                │
 │         │  in-process                        │
@@ -108,16 +104,26 @@ Claude Code / Codex / Workbench (clients)
 └──────────────────────────────────────────────┘
 ```
 
-## Identity and ACL ladder (honest)
+## Identity and access (Interchange authz — one system)
 
-1. **Capability** — host grant store: may this principal `knowledge:add` or
-   `knowledge:find` at all?
-2. **Document visibility** — modes `private` | `principals` | `tenant`
-   (optional block list). Self-contained on the document row.
-3. **Share sugars on add** — map to existing visibility; no new ACL system.
+Knowledge does **not** ship a second ACL. Document access uses the host’s
+`@intx/authz` grant store — the same grants/roles as the rest of Interchange.
 
-There is **no** dual grant path and **no** second secret ACL. If a connector
-cannot prove a principal set, it must not write `tenant` visibility.
+1. **Capability** — may this principal use knowledge at all?
+   `authorize(…, resource: "knowledge", action: "add" | "find")`.
+2. **Document access** — each document carries **`accessTags`** (resource strings
+   in grant-pattern space). A principal sees a document if they are the creator
+   **or** `authorize(…, resource: <tag>, action: "find")` allows for any tag on
+   the document. Patterns (`knowledge.space:*`) work via `@intx/authz`.
+3. **Share sugars on add** — only mint tags (owner / tenant / peer owner tags /
+   explicit tags). They do **not** invent visibility modes or block lists.
+
+Default add is **owner-only** (`knowledge.owner:<principalId>` + creator rule).
+Deny is absence of allow (or a more specific host deny grant) — not a document
+block list. Full design: `docs/AUTHZ-DOCUMENT-ACCESS.md`.
+
+Third-party DocumentStores may be **principal-bucket** only and not evaluate
+host grants; that limit belongs in the adapter's own docs, not hidden here.
 
 ### On the wire
 
@@ -125,7 +131,7 @@ HTTP bodies are a thin subset of the in-process plane (identity always comes
 from the host principal context, never the body):
 
 ```http
-POST /api/knowledge/add      { "title", "text", "acl"? }
+POST /api/knowledge/add      { "title", "text", "access_tags"?, "share"? }
 POST /api/knowledge/find     { "query", "limit?", "kinds?", "entity_ids?", "sources?", "includeEvidence?" }
 POST /api/knowledge/ask      { "query", "limit?", "sources?", "includeMemory?" }
 GET  /api/knowledge/recent   ?limit=
@@ -134,22 +140,17 @@ GET  /api/knowledge/recent   ?limit=
 `kinds` / `entity_ids` on find narrow both lexical and dense channels before
 fusion (unset or `[]` = no filter).
 
-Plane-only shapes (`content`/`file` XOR, `share` sugars, full `visibility`)
-are available via `createKnowledgePlane` / `plane.add`. HTTP `acl` maps to the
-document visibility ladder; `share` is plane sugar only.
-
 ### Live sources and memory (trust)
 
-- **Local documents** are the durable ACL plane (visibility + block). Engine
-  path enforces this; a host-supplied `DocumentStore` **owns** ACL for that
-  mount — the engine does not re-filter store results.
-- **Live `SourceProvider` hits** merge into find/ask without document-row ACL.
-  Auth is the host token / connector scope, not Interchange principal
-  visibility. Treat live as enrichment; fail-soft on timeout/error.
+- **Local documents** are grant-tagged; default engine evaluates tags via the
+  host `GrantStore`. An injected `DocumentStore` owns enforcement for that mount.
+- **Live `SourceProvider` hits** merge into find/ask without grant tags. Auth is
+  the host token / connector scope. Treat live as enrichment; fail-soft.
 - **Memory** is opt-in recall (`includeMemory`, default false). Adapters must
   key by injective tenant+principal encodings; ask never auto-writes memory.
 
 ## Out of scope forever here
 
-Auth, OAuth for Linear, Mem0/Supermemory account management, embedding models
+Auth, OAuth for Linear, third-party memory/account management, embedding models
 in-process, and any standalone process entrypoint.
+

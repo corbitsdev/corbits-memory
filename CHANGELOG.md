@@ -19,11 +19,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ask` and `recent` use the `find` grant.
 - **Breaking:** `add` returns `{ documentId }`; find body uses `limit` (not `k`);
   find wire uses `items` (not `hits`).
+- **Breaking:** document access is Interchange **grant tags** (`accessTags` +
+  creator-always + host `GrantStore`), not the visibility-mode / block-list
+  mini-ACL. Share sugar only mints tags. See `docs/AUTHZ-DOCUMENT-ACCESS.md`.
+- **Breaking:** Postgres baseline is two files (`0001_extensions` +
+  `0002_knowledge_baseline`) with `access_tags` and no `visibility_*` columns.
+  Fresh installs only — drop/recreate the knowledge schema on existing DBs.
 
 ### Added
 
 - Optional `TextExtractor` + `file` XOR `content` on `add`
-- `share` sugar on `add` (maps to existing visibility / block ACL)
+- `share` sugar on `add` (maps to access tags only: owner, tenant, peers)
+- `access_tags` on `knowledge.document` (baseline schema)
 - `POST /api/knowledge/ask` HTTP route
 - `MIGRATION.md` hard-cutover notes for in-repo consumers
 

@@ -24,7 +24,8 @@ Identity fields on every call:
 - Returns `{ documentId }` only (no `status` / `versionId` / `chunks` on the public result).
 - Exactly one of `content: { title, text }` or `file: { bytes, mimeType?, filename? }`.
 - File ingest requires a host-supplied `textExtractor` on the plane options.
-- Optional `share` sugar (`private` / `tenant` / `principals`) maps onto the existing ACL path. Do not pass `share` and `visibility` together.
+- Optional `share` sugar (`private` / `tenant` / `principals`) maps to **access tags**
+  only (see `docs/AUTHZ-DOCUMENT-ACCESS.md`). There is no separate `visibility` field.
 
 ### `find`
 
@@ -50,7 +51,7 @@ Old paths return **404**. No redirect, no dual mount.
 
 ### Wire body / response deltas
 
-- **add** request: still `{ title, text, acl? }`. Response: `{ documentId }` (dropped `status: "captured"`).
+- **add** request: `{ title, text, access_tags?, share? }`. Response: `{ documentId }` (dropped `status: "captured"`).
 - **find** request: `{ query, limit? }` (`k` is no longer accepted). Response: `{ items, evidence?, degraded? }` (was `{ hits, evidence, degraded? }`).
 - **recent** response: unchanged `{ events: [...] }`.
 - **ask** request: `{ query, limit? }`. Response: `{ text, citations, evidence }`.
@@ -74,3 +75,8 @@ In-process `ask()` also checks `knowledge` / `find` (was `search`).
 3. Rewrite grant rules: `capture`→`add`, `search`→`find`.
 4. Drop any reliance on `status: "captured"` or `hits` / `k` on the wire.
 5. If you use file capture, pass `textExtractor` into `createKnowledgePlane` / mount options.
+6. Document access is grant tags (`accessTags` + creator + host `GrantStore`), not
+   visibility modes or block lists. Update any host code that wrote `visibility`.
+7. Fresh Postgres: baseline migrations are `0001_extensions.sql` +
+   `0002_knowledge_baseline.sql` (schema `knowledge`, `access_tags` on document).
+   Existing DBs: drop/recreate the knowledge schema (no in-place dual-write migration).
