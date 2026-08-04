@@ -3,7 +3,7 @@
  *
  * Spec: docs/AUTHZ-DOCUMENT-ACCESS.md
  *
- * - Capability checks (add/find on `knowledge`) live on the HTTP mount.
+ * - Capability checks (add/find on `memory`) live on the HTTP mount.
  * - Document access: creator always sees own docs; otherwise any `accessTag`
  *   that `authorize(…, tag, "find")` allows.
  * - Share sugars only mint tags — they never write grants.
@@ -12,18 +12,18 @@ import { authorize } from "@intx/authz";
 import type { ConditionRegistry, GrantStore } from "@intx/authz";
 
 export function ownerTag(principalId: string): string {
-  return `knowledge.owner:${principalId}`;
+  return `memory.owner:${principalId}`;
 }
 
 export function tenantTag(tenantId: string): string {
-  return `knowledge.tenant:${tenantId}`;
+  return `memory.tenant:${tenantId}`;
 }
 
 /** Share sugar — maps only to tags (no visibility modes / block lists). */
 export type ShareSugar = {
-  /** Include knowledge.tenant:<tenantId> */
+  /** Include memory.tenant:<tenantId> */
   tenant?: boolean;
-  /** Include knowledge.owner:<id> for each peer */
+  /** Include memory.owner:<id> for each peer */
   principals?: string[];
   /** Explicit resource tags (host grant space) */
   tags?: string[];
@@ -39,7 +39,7 @@ export type ResolveAccessTagsParams = {
 
 /**
  * Resolve the tag set written on add.
- * Always includes knowledge.owner:<caller>. Never invents visibility modes.
+ * Always includes memory.owner:<caller>. Never invents visibility modes.
  */
 export function resolveAccessTags(params: ResolveAccessTagsParams): string[] {
   const tags = new Set<string>();

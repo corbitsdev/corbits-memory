@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to `@corbits/knowledge-engine` are documented in this file.
+All notable changes to `@corbits/memory` are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
@@ -9,14 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Breaking:** knowledge plane surface is `add` / `find` / `ask` / `recent` with
+- **Breaking:** package and public surface renamed from `@corbits/knowledge-engine`
+  to `@corbits/memory`. Public APIs: `mountMemory`, `mountMemoryRoutes`,
+  `createMemory`, `loadMemoryConfig`, `runMemoryMigrations`, `Memory`,
+  `MemoryConfig`, `MemoryError`. HTTP paths are under `/api/memory/`; grants are
+  `memory:add` / `memory:find`; access tags use `memory.owner:` / `memory.tenant:`
+  / `memory.space:`. Postgres schema name remains `knowledge`. See `MIGRATION.md`.
+- **Breaking:** memory plane surface is `add` / `find` / `ask` / `recent` with
   `principalId` + `tenantId` only (`capture` / `search` / `timeline` and
   `subjectId` / `scopeId` removed). See `MIGRATION.md`.
-- **Breaking:** HTTP routes are `POST /api/knowledge/add`,
-  `POST /api/knowledge/find`, `POST /api/knowledge/ask`,
-  `GET /api/knowledge/recent`. Old paths are not mounted.
+- **Breaking:** HTTP routes are `POST /api/memory/add`,
+  `POST /api/memory/find`, `POST /api/memory/ask`,
+  `GET /api/memory/recent`. Old paths are not mounted.
 - **Breaking:** grant actions are `add` and `find` (was `capture` / `search`).
-  `ask` and `recent` use the `find` grant.
+  `ask` and `recent` use the `find` grant. Capability resource is `memory`.
 - **Breaking:** `add` returns `{ documentId }`; find body uses `limit` (not `k`);
   find wire uses `items` (not `hits`).
 - **Breaking:** document access is Interchange **grant tags** (`accessTags` +
@@ -25,19 +31,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Breaking:** Postgres baseline is two files (`0001_extensions` +
   `0002_knowledge_baseline`) with `access_tags` and no `visibility_*` columns.
   Fresh installs only — drop/recreate the knowledge schema on existing DBs.
+- **Breaking:** MemoryProvider side-channel option is `options.memoryProvider`
+  (was `options.memory`).
 
 ### Added
 
 - Optional `TextExtractor` + `file` XOR `content` on `add`
 - `share` sugar on `add` (maps to access tags only: owner, tenant, peers)
-- `access_tags` on `knowledge.document` (baseline schema)
-- `POST /api/knowledge/ask` HTTP route
+- `access_tags` on `knowledge.document` (baseline schema; Postgres schema name unchanged)
+- `POST /api/memory/ask` HTTP route
 - `MIGRATION.md` hard-cutover notes for in-repo consumers
 
 ## [0.1.2] — 2026-07-31
 
 ### Added
-- Public `createKnowledgePlane` export for out-of-band capture and search (CLI seeders, batch ingesters, tests) without mounting HTTP routes (`#8`)
+- Public `createMemory` export for out-of-band capture and search (CLI seeders, batch ingesters, tests) without mounting HTTP routes (`#8`)
 
 ### Fixed
 
@@ -57,7 +65,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Dense search scales `hnsw.ef_search` to the overfetch limit (floor 40) and probes `hnsw.iterative_scan = relaxed_order` once per process when available (`#2`)
-- Package install docs point at `@corbits/knowledge-engine` (`#6`)
+- Package install docs point at `@corbits/memory` (`#6`)
 
 ### Fixed
 
@@ -68,8 +76,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Initial cut: mountable knowledge capture + search SDK for Interchange hubs
+- Initial cut: mountable memory capture + search SDK for Interchange hubs
 
-[0.1.2]: https://github.com/corbitsdev/corbits-knowledge-engine/compare/v0.1.1...v0.1.2
-[0.1.1]: https://github.com/corbitsdev/corbits-knowledge-engine/compare/v0.1.0...v0.1.1
-[0.1.0]: https://github.com/corbitsdev/corbits-knowledge-engine/releases/tag/v0.1.0
+[0.1.2]: https://github.com/corbitsdev/corbits-memory/compare/v0.1.1...v0.1.2
+[0.1.1]: https://github.com/corbitsdev/corbits-memory/compare/v0.1.0...v0.1.1
+[0.1.0]: https://github.com/corbitsdev/corbits-memory/releases/tag/v0.1.0

@@ -1,7 +1,7 @@
 {
-  "name": "@corbits/knowledge-engine",
+  "name": "@corbits/memory",
   "version": "0.1.2",
-  "description": "Mountable knowledge add/find/ask/recent SDK for Interchange hubs",
+  "description": "Mountable memory add/find/ask/recent SDK for Interchange hubs",
   "exports": {
     ".": "./src/index.ts",
     "./migrations": "./src/migrations.ts",
@@ -36,11 +36,11 @@
   "author": "Sawyer Cutler <sawyer@dirtroad.dev>",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/corbitsdev/corbits-knowledge-engine.git"
+    "url": "git+https://github.com/corbitsdev/corbits-memory.git"
   },
-  "homepage": "https://github.com/corbitsdev/corbits-knowledge-engine#readme",
+  "homepage": "https://github.com/corbitsdev/corbits-memory#readme",
   "bugs": {
-    "url": "https://github.com/corbitsdev/corbits-knowledge-engine/issues"
+    "url": "https://github.com/corbitsdev/corbits-memory/issues"
   },
   "keywords": [
     "knowledge",

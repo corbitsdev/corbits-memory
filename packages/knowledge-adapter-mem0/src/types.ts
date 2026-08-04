@@ -1,10 +1,10 @@
 /**
  * Port shapes — defined locally so this adapter never imports runtime from
- * @corbits/knowledge-engine. DocumentStore is the product plug (replaceable
+ * @corbits/memory. DocumentStore is the product plug (replaceable
  * durable backend). MemoryProvider is a thin legacy shape kept for back-compat.
  */
 
-/** Minimal citation open shape (matches knowledge-engine SearchHitCitation). */
+/** Minimal citation open shape (matches @corbits/memory SearchHitCitation). */
 export type DocumentStoreCitation = {
   adapter: string;
   external_ref: string;

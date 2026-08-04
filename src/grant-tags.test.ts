@@ -42,13 +42,13 @@ describe("resolveAccessTags", () => {
     const tags = resolveAccessTags({
       principalId: "u1",
       tenantId: "t1",
-      accessTags: ["knowledge.space:eng"],
+      accessTags: ["memory.space:eng"],
       share: { tags: ["knowledge.project:ke"] },
     });
     expect(tags).toEqual(
       expect.arrayContaining([
         ownerTag("u1"),
-        "knowledge.space:eng",
+        "memory.space:eng",
         "knowledge.project:ke",
       ]),
     );
@@ -108,7 +108,7 @@ describe("filterAccessibleDocuments", () => {
       {
         id: "g1",
         principalId: "viewer",
-        resource: "knowledge.space:eng",
+        resource: "memory.space:eng",
         action: "find",
         effect: "allow",
         origin: "role",
@@ -126,7 +126,7 @@ describe("filterAccessibleDocuments", () => {
       {
         id: "b",
         createdByPrincipalId: "other",
-        accessTags: ["knowledge.space:eng"],
+        accessTags: ["memory.space:eng"],
       },
       {
         id: "c",

@@ -1,4 +1,4 @@
-# @corbits/knowledge-engine
+# @corbits/memory
 
 Mountable knowledge plane for [Interchange](https://github.com/corbitsdev) hubs:
 **add** documents, **find** with hybrid search, **ask** grounded answers, **recent**
@@ -6,7 +6,7 @@ timeline — with optional live sources and personal memory.
 
 **Authenticates nothing.** Identity is `c.get("principal")` on HTTP; in-process
 callers pass `principalId` + `tenantId`. Authorization is the host grant store
-(`knowledge:add` / `knowledge:find`). Never embeds in-process — embedding and
+(`memory:add` / `memory:find`). Never embeds in-process — embedding and
 rerank are outbound HTTP to configured endpoints.
 
 Requires Bun 1.2+.
@@ -14,20 +14,20 @@ Requires Bun 1.2+.
 ## Install
 
 ```bash
-bun add @corbits/knowledge-engine
+bun add @corbits/memory
 ```
 
 ## Mount (green path)
 
 ```ts
-import { mountKnowledgeEngine } from "@corbits/knowledge-engine";
-import { loadKnowledgeConfig } from "@corbits/knowledge-engine/config";
+import { mountMemory } from "@corbits/memory";
+import { loadMemoryConfig } from "@corbits/memory/config";
 
-mountKnowledgeEngine(app, {
-  config: loadKnowledgeConfig(),
+mountMemory(app, {
+  config: loadMemoryConfig(),
   grants: { grantStore, conditionRegistry },
   // optional ports:
-  // documentStore, sources, memory, textExtractor, generate
+  // documentStore, sources, memoryProvider, textExtractor, generate
 });
 ```
 
@@ -35,41 +35,41 @@ Routes (each grant-checked):
 
 | Method | Path | Grant |
 | --- | --- | --- |
-| POST | `/api/knowledge/add` | `knowledge:add` |
-| POST | `/api/knowledge/find` | `knowledge:find` |
-| POST | `/api/knowledge/ask` | `knowledge:find` |
-| GET | `/api/knowledge/recent` | `knowledge:find` |
+| POST | `/api/memory/add` | `memory:add` |
+| POST | `/api/memory/find` | `memory:find` |
+| POST | `/api/memory/ask` | `memory:find` |
+| GET | `/api/memory/recent` | `memory:find` |
 
 Clients never send tenant/principal in the body.
 
-### Host must set principal on `/api/knowledge/*`
+### Host must set principal on `/api/memory/*`
 
 These routes sit outside `/api/tenants/:tenantId/*`. Mount middleware **before**
-`mountKnowledgeEngine` that sets `c.set("principal", …)` and `c.set("tenant", …)`.
+`mountMemory` that sets `c.set("principal", …)` and `c.set("tenant", …)`.
 Without it: **401 `principal_required`**.
 
 ### Plane without HTTP
 
 ```ts
 import {
-  createKnowledgePlane,
+  createMemory,
   createFakeDocumentStore,
   createFakeMemoryProvider,
-} from "@corbits/knowledge-engine";
+} from "@corbits/memory";
 
-const knowledge = createKnowledgePlane(undefined, grants, {
+const memory = createMemory(undefined, grants, {
   documentStore: createFakeDocumentStore(),
-  memory: createFakeMemoryProvider(),
+  memoryProvider: createFakeMemoryProvider(),
   generate: async (messages) => "…", // wire your inference layer
 });
 
-await knowledge.add({
+await memory.add({
   tenantId,
   principalId,
   content: { title: "Note", text: "…" },
 });
-const hits = await knowledge.find({ tenantId, principalId, query: "…" });
-const answer = await knowledge.ask({
+const hits = await memory.find({ tenantId, principalId, query: "…" });
+const answer = await memory.ask({
   tenantId,
   principalId,
   query: "…",
@@ -83,7 +83,7 @@ const answer = await knowledge.ask({
 | --- | --- | --- |
 | `DocumentStore` | Engine pgvector | `options.documentStore` / `createFakeDocumentStore()` |
 | `SourceProvider[]` | none | `options.sources` — live merge is fail-soft |
-| `MemoryProvider` | none | `options.memory` / `createFakeMemoryProvider()` |
+| `MemoryProvider` | none | `options.memoryProvider` / `createFakeMemoryProvider()` |
 
 **Live merge (MergeLocalLiveV1):** per-provider timeout/error → `live_timeout` /
 `live_error` degrade; dedupe `adapter:externalRef`; optional `sources` filter.
@@ -113,7 +113,7 @@ import {
 ```bash
 # KNOWLEDGE_DATABASE_URL required — no DATABASE_URL fallback
 bun run db:setup
-# or: runKnowledgeMigrations(process.env.KNOWLEDGE_DATABASE_URL)
+# or: runMemoryMigrations(process.env.KNOWLEDGE_DATABASE_URL)
 ```
 
 All tables live under Postgres schema **`knowledge`**
@@ -122,7 +122,7 @@ pre-1.0: re-run migrations on a fresh knowledge DB.
 
 ## Document access (grant tags)
 
-1. Host capability grants (`knowledge:add` / `knowledge:find`)
+1. Host capability grants (`memory:add` / `memory:find`)
 2. Per-document **access tags** + creator rule (Interchange `@intx/authz`)
 3. Share sugars on `add` only mint tags — no visibility modes or block lists
 

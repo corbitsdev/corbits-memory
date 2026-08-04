@@ -13,7 +13,7 @@ import {
 import {
   createFakeDocumentStore,
   createFakeSourceProvider,
-  mountKnowledgeEngine,
+  mountMemory,
 } from "../index.ts";
 
 const TENANT = "tenant_fake";
@@ -22,7 +22,7 @@ const PRINCIPAL = "principal_fake";
 function grant(action: string): GrantRule {
   return {
     id: `g-${action}`,
-    resource: "knowledge",
+    resource: "memory",
     action,
     effect: "allow",
     origin: "role",
@@ -87,7 +87,7 @@ describe("mount with fakes only", () => {
       ]),
     ];
     const app = appWithPrincipal();
-    const { knowledge } = mountKnowledgeEngine(app, {
+    const { memory } = mountMemory(app, {
       grants: {
         grantStore: createInMemoryGrantStore([grant("add"), grant("find")]),
         conditionRegistry: {},
@@ -97,7 +97,7 @@ describe("mount with fakes only", () => {
       generate: async () => "Answer from local store [1].",
     });
 
-    const { documentId } = await knowledge.add({
+    const { documentId } = await memory.add({
       tenantId: TENANT,
       principalId: PRINCIPAL,
       content: {
@@ -107,7 +107,7 @@ describe("mount with fakes only", () => {
     });
     expect(documentId).toMatch(/^fake_doc_/);
 
-    const found = await knowledge.find({
+    const found = await memory.find({
       tenantId: TENANT,
       principalId: PRINCIPAL,
       query: "DocumentStore override",
@@ -116,13 +116,13 @@ describe("mount with fakes only", () => {
     expect(found.items).toHaveLength(1);
     expect(found.items[0]?.documentId).toBe(documentId);
 
-    const recent = await knowledge.recent({
+    const recent = await memory.recent({
       tenantId: TENANT,
       principalId: PRINCIPAL,
     });
     expect(recent.some((e) => e.title === "ports note")).toBe(true);
 
-    const asked = await knowledge.ask({
+    const asked = await memory.ask({
       tenantId: TENANT,
       principalId: PRINCIPAL,
       query: "DocumentStore override",
@@ -131,7 +131,7 @@ describe("mount with fakes only", () => {
     expect(asked.citations.length).toBeGreaterThan(0);
 
     // HTTP surface also works without engine config
-    const addRes = await app.request("/api/knowledge/add", {
+    const addRes = await app.request("/api/memory/add", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -143,7 +143,7 @@ describe("mount with fakes only", () => {
     const addBody = (await addRes.json()) as { documentId: string };
     expect(addBody.documentId).toMatch(/^fake_doc_/);
 
-    const findRes = await app.request("/api/knowledge/find", {
+    const findRes = await app.request("/api/memory/find", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ query: "http path" }),
@@ -156,6 +156,6 @@ describe("mount with fakes only", () => {
       findBody.items.some((i) => i.documentId === addBody.documentId),
     ).toBe(true);
 
-    await knowledge.close();
+    await memory.close();
   });
 });

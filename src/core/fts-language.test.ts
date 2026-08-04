@@ -42,14 +42,14 @@ describe("the baseline migration language token", () => {
   });
 });
 
-describe("runKnowledgeMigrations language boundary", () => {
+describe("runMemoryMigrations language boundary", () => {
   it("falls back to the FTS_LANGUAGE env var when no option is passed", async () => {
     // Pin the boundary contract without a live database: the runner must
     // resolve exactly like the config loader, from the same env var.
-    const { runKnowledgeMigrations } = await import("../migrations.ts");
+    const { runMemoryMigrations } = await import("../migrations.ts");
     process.env["FTS_LANGUAGE"] = "not a valid name";
     try {
-      await expect(runKnowledgeMigrations("postgres://unused")).rejects.toThrow(
+      await expect(runMemoryMigrations("postgres://unused")).rejects.toThrow(
         "not a valid text search config name",
       );
     } finally {

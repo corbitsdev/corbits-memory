@@ -14,7 +14,7 @@ import {
 function grant(principalId: string, action: string): GrantRule {
   return {
     id: `g-${action}`,
-    resource: "knowledge",
+    resource: "memory",
     action,
     effect: "allow",
     origin: "role",
@@ -30,7 +30,7 @@ const noopRequireGrant: RequireGrant = () => (async () => {}) as never;
 // Minimal RouteDeps for unit tests — routes here only touch grants/requireGrant.
 function deps(grants: RouteDeps["grants"], requireGrant = noopRequireGrant): RouteDeps {
   return {
-    knowledge: {} as RouteDeps["knowledge"],
+    memory: {} as RouteDeps["memory"],
     grants,
     requireGrant,
   };
@@ -105,13 +105,13 @@ describe("requirePrincipal", () => {
 });
 
 describe("grantGuard", () => {
-  test("delegates to the host requireGrant('knowledge', action)", () => {
+  test("delegates to the host requireGrant('memory', action)", () => {
     let called: { resource: string; action: string } | undefined;
     const requireGrant: RequireGrant = (resource, action) => {
       called = { resource: String(resource), action };
       return (async () => {}) as never;
     };
 grantGuard(deps(grantsWith(), requireGrant), "add");
-    expect(called).toEqual({ resource: "knowledge", action: "add" });
+    expect(called).toEqual({ resource: "memory", action: "add" });
   });
 });

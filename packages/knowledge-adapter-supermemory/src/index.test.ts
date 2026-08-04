@@ -57,7 +57,7 @@ describe("createSupermemoryDocumentStore", () => {
         principalId: "alice",
         title: "t",
         text: "hello",
-        accessTags: ["knowledge.owner:alice"],
+        accessTags: ["memory.owner:alice"],
       }),
     ).rejects.toThrow(/non-empty/);
 
@@ -92,7 +92,7 @@ describe("createSupermemoryDocumentStore", () => {
       principalId: "alice",
       title: "Prefs",
       text: "prefers dark mode",
-      accessTags: ["knowledge.owner:alice"],
+      accessTags: ["memory.owner:alice"],
     });
 
     expect(documentId).toMatch(
@@ -167,14 +167,14 @@ describe("createSupermemoryDocumentStore", () => {
       principalId: "user-1",
       title: "a",
       text: "fact a",
-      accessTags: ["knowledge.owner:user-1"],
+      accessTags: ["memory.owner:user-1"],
     });
     await store.add({
       tenantId: "tenant-b",
       principalId: "user-1",
       title: "b",
       text: "fact b",
-      accessTags: ["knowledge.owner:user-1"],
+      accessTags: ["memory.owner:user-1"],
     });
 
     expect(tags).toEqual(["t8_tenant-a_u6_user-1", "t8_tenant-b_u6_user-1"]);

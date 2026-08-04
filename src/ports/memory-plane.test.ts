@@ -11,8 +11,8 @@ import {
 import {
   createFakeDocumentStore,
   createFakeMemoryProvider,
-  createKnowledgePlane,
-  KnowledgeError,
+  createMemory,
+  MemoryError,
 } from "../index.ts";
 import type { MemoryProvider } from "./types.ts";
 
@@ -22,7 +22,7 @@ const PRINCIPAL = "p_mem";
 function grant(action: string): GrantRule {
   return {
     id: `g-${action}`,
-    resource: "knowledge",
+    resource: "memory",
     action,
     effect: "allow",
     origin: "role",
@@ -44,7 +44,7 @@ describe("MemoryProvider product wire (CL-5228)", () => {
       },
     };
     const store = createFakeDocumentStore();
-    const plane = createKnowledgePlane(
+    const plane = createMemory(
       undefined,
       {
         grantStore: createInMemoryGrantStore([grant("find")]),
@@ -52,7 +52,7 @@ describe("MemoryProvider product wire (CL-5228)", () => {
       },
       {
         documentStore: store,
-        memory,
+        memoryProvider: memory,
         generate: async (msgs) => {
           const last = msgs[msgs.length - 1]?.content ?? "";
           return last.includes("Personal memory") ? "HAS_MEM" : "NO_MEM";
@@ -82,7 +82,7 @@ describe("MemoryProvider product wire (CL-5228)", () => {
       text: "user prefers dark mode",
     });
     const store = createFakeDocumentStore();
-    const plane = createKnowledgePlane(
+    const plane = createMemory(
       undefined,
       {
         grantStore: createInMemoryGrantStore([grant("find")]),
@@ -90,7 +90,7 @@ describe("MemoryProvider product wire (CL-5228)", () => {
       },
       {
         documentStore: store,
-        memory,
+        memoryProvider: memory,
         generate: async (msgs) => {
           const last = msgs[msgs.length - 1]?.content ?? "";
           return last.includes("user prefers dark mode")
@@ -122,7 +122,7 @@ describe("MemoryProvider product wire (CL-5228)", () => {
       },
     };
     const store = createFakeDocumentStore();
-    const plane = createKnowledgePlane(
+    const plane = createMemory(
       undefined,
       {
         grantStore: createInMemoryGrantStore([grant("find")]),
@@ -130,7 +130,7 @@ describe("MemoryProvider product wire (CL-5228)", () => {
       },
       {
         documentStore: store,
-        memory,
+        memoryProvider: memory,
         generate: async () => "docs-only [1]",
       },
     );
@@ -152,9 +152,9 @@ describe("MemoryProvider product wire (CL-5228)", () => {
 
   it("plane.remember writes; plane.recall reads", async () => {
     const memory = createFakeMemoryProvider();
-    const plane = createKnowledgePlane(undefined, undefined, {
+    const plane = createMemory(undefined, undefined, {
       documentStore: createFakeDocumentStore(),
-      memory,
+      memoryProvider: memory,
     });
     await plane.remember({
       tenantId: TENANT,
@@ -171,7 +171,7 @@ describe("MemoryProvider product wire (CL-5228)", () => {
   });
 
   it("plane.remember without memory throws 501", async () => {
-    const plane = createKnowledgePlane(undefined, undefined, {
+    const plane = createMemory(undefined, undefined, {
       documentStore: createFakeDocumentStore(),
     });
     try {
@@ -182,14 +182,14 @@ describe("MemoryProvider product wire (CL-5228)", () => {
       });
       expect.unreachable("should throw");
     } catch (err) {
-      expect(err).toBeInstanceOf(KnowledgeError);
-      expect((err as KnowledgeError).status).toBe(501);
+      expect(err).toBeInstanceOf(MemoryError);
+      expect((err as MemoryError).status).toBe(501);
     }
     await plane.close();
   });
 
   it("plane.recall without memory returns empty", async () => {
-    const plane = createKnowledgePlane(undefined, undefined, {
+    const plane = createMemory(undefined, undefined, {
       documentStore: createFakeDocumentStore(),
     });
     const items = await plane.recall({

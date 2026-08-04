@@ -1,12 +1,12 @@
 # Contributing
 
-Thanks for considering a contribution to Knowledge Engine.
+Thanks for considering a contribution to Corbits Memory.
 
 ## Running it locally
 
 ```bash
-git clone https://github.com/corbitsdev/corbits-knowledge-engine.git
-cd corbits-knowledge-engine
+git clone https://github.com/corbitsdev/corbits-memory.git
+cd corbits-memory
 docker compose up -d   # pgvector Postgres on localhost:5434
 cp .env.example .env    # edit as needed — see README.md's quickstart
 bun install

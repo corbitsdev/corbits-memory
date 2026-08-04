@@ -1,20 +1,20 @@
-# Corbits Knowledge Engine — Product shape
+# Corbits Memory — Product shape
 
-A **mountable knowledge plane** for Interchange hubs: durable documents, hybrid
-search, grounded ask, and optional live sources / personal memory. Workbench and
-coding agents are clients — not owners of ingestion or auth.
+A **mountable memory plane** for Interchange hubs: durable documents, hybrid
+search, grounded ask, and optional live sources / personal memory side-channel.
+Workbench and coding agents are clients — not owners of ingestion or auth.
 
 ## Shape (locked)
 
-**`src/` is the `@corbits/knowledge-engine` SDK.** Interchange is the hub — the
+**`src/` is the `@corbits/memory` SDK.** Interchange is the hub — the
 SDK never creates one; it mounts onto yours.
 
 | Surface | Role |
 | --- | --- |
-| `mountKnowledgeEngine(app, opts)` | Plane + HTTP on an Interchange `createApp` |
-| `createKnowledgePlane(config, grants?, options?)` | Same plane without HTTP |
-| `runKnowledgeMigrations(url)` | Apply pgvector schema under Postgres `knowledge` |
-| `loadKnowledgeConfig()` | Mount config from env |
+| `mountMemory(app, opts)` | Plane + HTTP on an Interchange `createApp` |
+| `createMemory(config, grants?, options?)` | Same plane without HTTP |
+| `runMemoryMigrations(url)` | Apply pgvector schema under Postgres `knowledge` |
+| `loadMemoryConfig()` | Mount config from env |
 
 ### Green public plane (only these verbs)
 
@@ -26,8 +26,8 @@ SDK never creates one; it mounts onto yours.
 | `recent` | Recent documents for the principal |
 
 Hard cutover: there is no `capture` / `search` / `timeline` export. HTTP paths
-and grants match the verbs: `POST /api/knowledge/add|find|ask`,
-`GET /api/knowledge/recent`; grants `knowledge:add` and `knowledge:find`
+and grants match the verbs: `POST /api/memory/add|find|ask`,
+`GET /api/memory/recent`; grants `memory:add` and `memory:find`
 (ask/recent share `find`).
 
 Identity on the plane is always **`principalId` + `tenantId`** (never
@@ -42,11 +42,11 @@ Identity on the plane is always **`principalId` + `tenantId`** (never
 | `SourceProvider` | Optional **tools-shaped** live search (`searchLive`); merge is fail-soft. Not a store replacement. |
 | `MemoryProvider` | Optional ask side-channel only (`includeMemory`); **not** how you swap backends. |
 
-Mount options accept `documentStore`, `sources[]`, `memory`, plus in-package
+Mount options accept `documentStore`, `sources[]`, `memoryProvider`, plus in-package
 **fakes** so a host can mount with fakes only and exercise add/find/ask/recent
 without Postgres. Hosts that want a third-party durable backend implement
 `DocumentStore` (or use an optional adapter package) and pass it as
-`documentStore`, omitting `KnowledgeConfig` when Postgres is not needed.
+`documentStore`, omitting `MemoryConfig` when Postgres is not needed.
 
 **MergeLocalLiveV1** merges local DocumentStore + live SourceProviders: fail-soft
 per provider (timeout/error → degrade flags, never fail the request), dedupe by
@@ -70,7 +70,7 @@ tenant+principal) and do **not** multi-share via `accessTags` + host
 `GrantStore`. For full grant-tag ACL, use the default pgvector store (or a store
 that implements the contract in `docs/AUTHZ-DOCUMENT-ACCESS.md`). Adapter
 packages must document their isolation model in their own README. Never mount a
-durable store as `options.memory`.
+durable store as `options.memoryProvider`.
 
 ### What is not in scope
 
@@ -91,38 +91,38 @@ Claude Code / Codex / Workbench (clients)
         ▼
 ┌──────────────────────────────────────────────┐
 │  Host Interchange createApp                  │
-│  + mountKnowledgeEngine(app, opts)           │
-│       grants: knowledge:add | knowledge:find │
+│  + mountMemory(app, opts)           │
+│       grants: memory:add | memory:find │
 │       documentStore: pgvector | host store │
 │                      | fake                │
-│       optional: sources, memory,             │
+│       optional: sources, memoryProvider,     │
 │                 textExtractor                │
 │         │  in-process                        │
 │         ▼                                    │
-│  Knowledge plane: add / find / ask / recent  │
+│  Memory plane: add / find / ask / recent     │
 │  → DocumentStore (sole durable backend)      │
 └──────────────────────────────────────────────┘
 ```
 
 ## Identity and access (Interchange authz — one system)
 
-Knowledge does **not** ship a second ACL. Document access uses the host’s
+Memory does **not** ship a second ACL. Document access uses the host’s
 `@intx/authz` grant store — the same grants/roles as the rest of Interchange.
 
-1. **Capability** — may this principal use knowledge at all?
-   `authorize(…, resource: "knowledge", action: "add" | "find")`.
+1. **Capability** — may this principal use memory at all?
+   `authorize(…, resource: "memory", action: "add" | "find")`.
 2. **Document access** — each document carries **`accessTags`** (resource strings
    in grant-pattern space). A principal sees a document if they are the creator
    **or** `authorize(…, resource: <tag>, action: "find")` allows for any tag on
-   the document. Patterns (`knowledge.space:*`) work via `@intx/authz`.
+   the document. Patterns (`memory.space:*`) work via `@intx/authz`.
 3. **Share sugars on add** — only mint tags (owner / tenant / peer owner tags /
    explicit tags). They do **not** invent visibility modes or block lists.
    **Host contract:** peers named in `share.principals` only see the doc if the
    host has granted them `find` on their owner tag (or matching pattern) —
-   typically bootstrap every principal with `find` on `knowledge.owner:<self>`.
+   typically bootstrap every principal with `find` on `memory.owner:<self>`.
    Tag minting is not grant minting. See `docs/AUTHZ-DOCUMENT-ACCESS.md`.
 
-Default add is **owner-only** (`knowledge.owner:<principalId>` + creator rule).
+Default add is **owner-only** (`memory.owner:<principalId>` + creator rule).
 Deny is absence of allow (or a more specific host deny grant) — not a document
 block list. Full design: `docs/AUTHZ-DOCUMENT-ACCESS.md`.
 
@@ -135,10 +135,10 @@ HTTP bodies are a thin subset of the in-process plane (identity always comes
 from the host principal context, never the body):
 
 ```http
-POST /api/knowledge/add      { "title", "text", "access_tags"?, "share"? }
-POST /api/knowledge/find     { "query", "limit?", "kinds?", "entity_ids?", "sources?", "includeEvidence?" }
-POST /api/knowledge/ask      { "query", "limit?", "sources?", "includeMemory?" }
-GET  /api/knowledge/recent   ?limit=
+POST /api/memory/add      { "title", "text", "access_tags"?, "share"? }
+POST /api/memory/find     { "query", "limit?", "kinds?", "entity_ids?", "sources?", "includeEvidence?" }
+POST /api/memory/ask      { "query", "limit?", "sources?", "includeMemory?" }
+GET  /api/memory/recent   ?limit=
 ```
 
 `kinds` / `entity_ids` on find narrow both lexical and dense channels before

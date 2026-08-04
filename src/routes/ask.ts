@@ -5,9 +5,9 @@ import { type } from "arktype";
 
 import { formatCaughtError, log } from "../log.ts";
 import {
-  KnowledgeError,
-  KnowledgeNotPermittedError,
-} from "../knowledge.ts";
+  MemoryError,
+  MemoryNotPermittedError,
+} from "../memory.ts";
 import type { RouteDeps } from "./deps.ts";
 import { caller, grantGuard, requirePrincipal } from "./deps.ts";
 
@@ -32,10 +32,10 @@ const AskResponse = type({
 
 export function mountAskRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
   app.post(
-    "/api/knowledge/ask",
+    "/api/memory/ask",
     describeRoute({
-      tags: ["knowledge"],
-      summary: "Answer a question from retrieved knowledge",
+      tags: ["memory"],
+      summary: "Answer a question from retrieved memory",
       responses: {
         200: {
           description: "Grounded answer with citations",
@@ -45,7 +45,7 @@ export function mountAskRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
         },
         400: { description: "Invalid query" },
         401: { description: "No principal on the request context" },
-        403: { description: "Missing the knowledge:find grant" },
+        403: { description: "Missing the memory:find grant" },
         501: { description: "ask is not configured (no generate)" },
         502: { description: "ask failed" },
       },
@@ -58,7 +58,7 @@ export function mountAskRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
       const { query, limit, sources, includeMemory } = c.req.valid("json");
       const { scopeId, subjectId } = caller(c);
       try {
-        const result = await deps.knowledge.ask({
+        const result = await deps.memory.ask({
           query,
           tenantId: scopeId,
           principalId: subjectId,
@@ -68,17 +68,17 @@ export function mountAskRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
         });
         return c.json(result);
       } catch (err) {
-        if (err instanceof KnowledgeNotPermittedError) {
+        if (err instanceof MemoryNotPermittedError) {
           return c.json({ error: err.message }, 403);
         }
-        if (err instanceof KnowledgeError) {
+        if (err instanceof MemoryError) {
           return c.json(
             { error: err.message },
             err.status as 400 | 501,
           );
         }
         const errMessage = formatCaughtError(err);
-        log.error(`knowledge ask failed: ${errMessage}`, { err });
+        log.error(`memory ask failed: ${errMessage}`, { err });
         return c.json({ error: "ask failed" }, 502);
       }
     },

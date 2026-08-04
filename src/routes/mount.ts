@@ -1,5 +1,5 @@
 /**
- * Mount the knowledge engine HTTP routes onto a host Interchange app.
+ * Mount the memory engine HTTP routes onto a host Interchange app.
  * (MCP moved out to the standalone @corbitsdev/hono-openapi-mcp bridge.)
  */
 import type { Hono } from "hono";
@@ -14,7 +14,7 @@ import { mountRecentRoute } from "./recent.ts";
 export type { GrantConfig, RouteDeps } from "./deps.ts";
 
 /** HTTP JSON routes: add, find, ask, recent. */
-export function mountKnowledgeRoutes(
+export function mountMemoryRoutes(
   app: Hono<TenantEnv>,
   deps: RouteDeps,
 ): void {

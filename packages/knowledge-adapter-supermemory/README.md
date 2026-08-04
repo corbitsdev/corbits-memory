@@ -1,6 +1,6 @@
 # @corbits/knowledge-adapter-supermemory
 
-**Replaceable DocumentStore** for [@corbits/knowledge-engine](https://github.com/corbitsdev/corbits-knowledge-engine)
+**Replaceable DocumentStore** for [@corbits/memory](https://github.com/corbitsdev/corbits-memory)
 backed by the [Supermemory](https://supermemory.ai/) HTTP API.
 
 Pure `fetch` — **no** vendor SDK. Tenancy is enforced with a length-prefixed
@@ -14,10 +14,10 @@ endpoints required. This is the product integration path (not
 `MemoryProvider` / `includeMemory`).
 
 ```ts
-import { createKnowledgePlane } from "@corbits/knowledge-engine";
+import { createMemory } from "@corbits/memory";
 import { createSupermemoryDocumentStore } from "@corbits/knowledge-adapter-supermemory";
 
-const knowledge = createKnowledgePlane(undefined, grants, {
+const memory = createMemory(undefined, grants, {
   documentStore: createSupermemoryDocumentStore({
     apiKey: process.env.SUPERMEMORY_API_KEY!,
   }),
@@ -28,7 +28,7 @@ const knowledge = createKnowledgePlane(undefined, grants, {
 Or via mount:
 
 ```ts
-mountKnowledgeEngine(app, {
+mountMemory(app, {
   documentStore: createSupermemoryDocumentStore({ apiKey }),
   grants,
   generate,
@@ -45,7 +45,7 @@ plane (add/find/ask), not memories-only personal facts.
 | Isolation | **Principal-bucket only** via `containerTag(tenantId, principalId)`. Each principal has a private container; docs are not shared across principals. |
 | Document access | This adapter is **principal-bucket only**. Host grant tags (`accessTags`) are stored as metadata at best and are **not** evaluated. For multi-principal grant-tag ACL, use the default pgvector store. |
 | `recent` | Always `[]` — no recent-feed API in this adapter. |
-| `options.memory` | **Never** mount this package as `options.memory`. Product backend is `documentStore` only. |
+| `options.memoryProvider` | **Never** mount this package as `options.memoryProvider`. Product backend is `documentStore` only. |
 
 ## What is out of scope
 
@@ -76,4 +76,4 @@ Auth: `Authorization: Bearer <apiKey>`.
 
 ## License
 
-LGPL-2.1-only (same as the knowledge engine).
+LGPL-2.1-only (same as Corbits Memory).

@@ -5,10 +5,10 @@ import { type } from "arktype";
 
 import { formatCaughtError, log } from "../log.ts";
 import {
-  KnowledgeError,
+  MemoryError,
   RECENT_LIMIT_MAX,
   RECENT_LIMIT_MIN,
-} from "../knowledge.ts";
+} from "../memory.ts";
 import type { RouteDeps } from "./deps.ts";
 import { caller, grantGuard, requirePrincipal } from "./deps.ts";
 
@@ -41,9 +41,9 @@ function parseLimit(raw: string | undefined): number | undefined {
 
 export function mountRecentRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
   app.get(
-    "/api/knowledge/recent",
+    "/api/memory/recent",
     describeRoute({
-      tags: ["knowledge"],
+      tags: ["memory"],
       summary: "Recent documents for the caller's scope",
       responses: {
         200: {
@@ -54,7 +54,7 @@ export function mountRecentRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
         },
         400: { description: "Invalid limit query param" },
         401: { description: "No principal on the request context" },
-        403: { description: "Missing the knowledge:find grant" },
+        403: { description: "Missing the memory:find grant" },
         502: { description: "Recent query failed" },
       },
     }),
@@ -78,18 +78,18 @@ export function mountRecentRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
       }
       const limit = parseLimit(rawLimit);
       try {
-        const events = await deps.knowledge.recent({
+        const events = await deps.memory.recent({
           tenantId: scopeId,
           principalId: subjectId,
           ...(limit !== undefined ? { limit } : {}),
         });
         return c.json({ events });
       } catch (err) {
-        if (err instanceof KnowledgeError) {
+        if (err instanceof MemoryError) {
           return c.json({ error: err.message }, err.status as 400);
         }
         const errMessage = formatCaughtError(err);
-        log.error(`knowledge recent failed: ${errMessage}`, {
+        log.error(`memory recent failed: ${errMessage}`, {
           error: errMessage,
         });
         return c.json({ error: "recent failed" }, 502);

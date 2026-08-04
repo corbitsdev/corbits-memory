@@ -2,13 +2,13 @@
  * Supermemory DocumentStore adapter (replaceable durable backend).
  *
  * Pure fetch HTTP — no vendor SDK. Port shapes are defined locally so this
- * package never imports the knowledge-engine runtime.
+ * package never imports the @corbits/memory runtime.
  *
  * Product path: createSupermemoryDocumentStore → mount as options.documentStore.
  * MemoryProvider factory is back-compat only.
  */
 
-/** Minimal citation open shape (matches knowledge-engine SearchHitCitation). */
+/** Minimal citation open shape (matches @corbits/memory SearchHitCitation). */
 export type DocumentStoreCitation = {
   adapter: string;
   external_ref: string;
@@ -209,7 +209,7 @@ function parseTitleAndSnippet(text: string): { title: string; snippet: string } 
  * Pure fetch — no vendor SDK. Mount as the plane's durable backend:
  *
  * ```ts
- * createKnowledgePlane(undefined, grants, {
+ * createMemory(undefined, grants, {
  *   documentStore: createSupermemoryDocumentStore({ apiKey }),
  * })
  * ```

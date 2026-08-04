@@ -1,6 +1,6 @@
 # @corbits/knowledge-adapter-mem0
 
-**Replaceable DocumentStore** for [@corbits/knowledge-engine](https://github.com/corbitsdev/corbits-knowledge-engine)
+**Replaceable DocumentStore** for [@corbits/memory](https://github.com/corbitsdev/corbits-memory)
 backed by the [Mem0 Platform](https://docs.mem0.ai/) HTTP API.
 
 Pure `fetch` — **no** `mem0ai` / vendor SDK. Tenancy is enforced with a
@@ -14,10 +14,10 @@ required. This is the product integration path (not `MemoryProvider` /
 `includeMemory`).
 
 ```ts
-import { createKnowledgePlane } from "@corbits/knowledge-engine";
+import { createMemory } from "@corbits/memory";
 import { createMem0DocumentStore } from "@corbits/knowledge-adapter-mem0";
 
-const knowledge = createKnowledgePlane(undefined, grants, {
+const memory = createMemory(undefined, grants, {
   documentStore: createMem0DocumentStore({
     apiKey: process.env.MEM0_API_KEY!,
     // baseUrl: "https://api.mem0.ai", // optional
@@ -25,13 +25,13 @@ const knowledge = createKnowledgePlane(undefined, grants, {
   generate: myGenerate, // required only for ask()
 });
 
-await knowledge.add({
+await memory.add({
   tenantId,
   principalId,
   content: { title: "Prefs", text: "Prefers dark mode" },
 });
 
-const { items } = await knowledge.find({
+const { items } = await memory.find({
   tenantId,
   principalId,
   query: "preferences",
@@ -41,7 +41,7 @@ const { items } = await knowledge.find({
 Or via mount:
 
 ```ts
-mountKnowledgeEngine(app, {
+mountMemory(app, {
   documentStore: createMem0DocumentStore({ apiKey }),
   grants,
   generate,
@@ -55,7 +55,7 @@ mountKnowledgeEngine(app, {
 | Isolation | **Principal-bucket only** via `mapUser(tenantId, principalId)`. Each principal has a private Mem0 `user_id`; docs are not shared across principals. |
 | Document access | This adapter is **principal-bucket only**. Host grant tags (`accessTags`) are stored as metadata at best and are **not** evaluated. For multi-principal grant-tag ACL, use the default pgvector store. |
 | `recent` | Always `[]` — Mem0 has no recent-feed API here. |
-| `options.memory` | **Never** mount this package as `options.memory`. That port is an ask side-channel; Mem0 as product backend is `documentStore` only. |
+| `options.memoryProvider` | **Never** mount this package as `options.memoryProvider`. That port is an ask side-channel; Mem0 as product backend is `documentStore` only. |
 
 ## What is out of scope
 
@@ -86,4 +86,4 @@ Auth: `Authorization: Token <apiKey>`.
 
 ## License
 
-LGPL-2.1-only (same as the knowledge engine).
+LGPL-2.1-only (same as Corbits Memory).

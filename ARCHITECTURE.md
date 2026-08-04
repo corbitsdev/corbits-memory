@@ -1,24 +1,24 @@
-# Knowledge Engine — Architecture
+# Corbits Memory — Architecture
 
-A knowledge add / find / ask / recent SDK that mounts onto an Interchange hub. The
-host owns auth, tenancy, and the process; this library owns the knowledge /
+A memory add / find / ask / recent SDK that mounts onto an Interchange hub. The
+host owns auth, tenancy, and the process; this library owns the memory /
 vector plane and the routes that read and write it.
 
 ## Why an SDK, not a service
 
-The knowledge store was originally built inside a larger backend. It turned out
+The memory store was originally built inside a larger backend. It turned out
 to be cleanly detachable, and then cleanly *mountable*:
 
-- No knowledge table has a foreign key into any control-plane table — every
+- No memory table has a foreign key into any control-plane table — every
   cross-reference (`tenant_id`, `principal_id`, source refs) is plain `text`.
 - Embedding and reranking go out as plain HTTP to configured model endpoints,
   not through any agent runtime.
 - The ACL rule is a self-contained scope stored on the row, not a join against
   a grant engine.
 
-So the engine needs nothing but a pgvector Postgres and an embed/rerank
-endpoint. It ships as `mountKnowledgeEngine(app, opts)`: the host passes its
-Hono app and its grant store; the engine mounts its routes, reads identity from
+So the library needs nothing but a pgvector Postgres and an embed/rerank
+endpoint. It ships as `mountMemory(app, opts)`: the host passes its
+Hono app and its grant store; the library mounts its routes, reads identity from
 the request context, and talks to its own vector store. No second server, no
 HTTP hop.
 
@@ -64,21 +64,21 @@ trust model.
 
 ## Mounted surface
 
-`mountKnowledgeEngine` adds, under the host app:
+`mountMemory` adds, under the host app:
 
-- `POST /api/knowledge/add` — ingest a note (raw + derive).
-- `POST /api/knowledge/find` — hybrid retrieval: FTS + dense (pgvector) → RRF
+- `POST /api/memory/add` — ingest a note (raw + derive).
+- `POST /api/memory/find` — hybrid retrieval: FTS + dense (pgvector) → RRF
   fusion → cross-encoder rerank → bounded authority/recency boosts → MMR;
   optional live `SourceProvider` merge (fail-soft).
-- `POST /api/knowledge/ask` — grant-checked as `knowledge:find`; retrieves as
+- `POST /api/memory/ask` — grant-checked as `memory:find`; retrieves as
   the principal, grounds a prompt from hit snippets, calls host-injected
   `generate`. Optional memory recall when `includeMemory` is true.
-- `GET /api/knowledge/recent` — recent documents for the caller's scope,
+- `GET /api/memory/recent` — recent documents for the caller's scope,
   filtered with the same grant-tag access as local find (`canAccessDocument`).
 
-It also returns an in-process `KnowledgePlane` (`add`, `find`, `ask`,
+It also returns an in-process `Memory` (`add`, `find`, `ask`,
 `recent`, optional `remember` / `recall`). `ask()` is grant-checked in-process
-(callers bypass the HTTP `requireGrant` guard). The engine owns no generation
+(callers bypass the HTTP `requireGrant` guard). The library owns no generation
 client; hosts wire `generate` to their inference layer.
 
 MCP is not part of this package — mount `@corbitsdev/hono-openapi-mcp` to expose

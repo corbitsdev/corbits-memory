@@ -17,7 +17,7 @@ import { validateRerankConfig } from "./core/rerank-client.ts";
 import { captureDocument } from "./services/capture.ts";
 import {
   hybridSearch,
-  KnowledgeSearchInputError,
+  MemorySearchInputError,
   toRerankClientConfig,
   type HybridSearchResult,
   DEFAULT_HYBRID_TOP_K,
@@ -34,7 +34,7 @@ import {
   type MergeDegradeFlag,
 } from "./core/merge-local-live.ts";
 import type { DegradeFlag } from "./core/hybrid-search.ts";
-import type { KnowledgeConfig } from "./mount-config.ts";
+import type { MemoryConfig } from "./mount-config.ts";
 import type { GrantConfig } from "./routes/deps.ts";
 import type {
   DocumentStore,
@@ -95,7 +95,7 @@ export type TextExtractor = {
   }): Promise<{ text: string; title?: string }>;
 };
 
-export type KnowledgeIdentity = {
+export type MemoryIdentity = {
   principalId: string;
   tenantId: string;
 };
@@ -108,7 +108,7 @@ export const FIND_LIMIT_MAX = 50;
 export const RECENT_LIMIT_MIN = 1;
 export const RECENT_LIMIT_MAX = 100;
 
-export type KnowledgeFindParams = KnowledgeIdentity & {
+export type MemoryFindParams = MemoryIdentity & {
   query: string;
   /** Max items to return (1–50). Default 8. */
   limit?: number;
@@ -133,7 +133,7 @@ export type KnowledgeFindParams = KnowledgeIdentity & {
   sources?: string[];
 };
 
-export type KnowledgeAskParams = KnowledgeIdentity & {
+export type MemoryAskParams = MemoryIdentity & {
   query: string;
   limit?: number;
   /** Same channel filter as find (passed through). */
@@ -162,17 +162,17 @@ export type AskResult = {
   degraded?: HybridSearchResult["degraded"];
 };
 
-/** Thrown when the asking principal lacks the knowledge:find capability. */
-export class KnowledgeNotPermittedError extends Error {
+/** Thrown when the asking principal lacks the memory:find capability. */
+export class MemoryNotPermittedError extends Error {
   constructor() {
-    super("principal lacks the knowledge:find grant");
-    this.name = "KnowledgeNotPermittedError";
+    super("principal lacks the memory:find grant");
+    this.name = "MemoryNotPermittedError";
   }
 }
 
-export type KnowledgeShare = ShareSugar;
+export type MemoryShare = ShareSugar;
 
-export type KnowledgeAddParams = KnowledgeIdentity & {
+export type MemoryAddParams = MemoryIdentity & {
   /** Exactly one of `content` or `file` is required. */
   content?: { title: string; text: string };
   file?: {
@@ -196,7 +196,7 @@ export type KnowledgeAddParams = KnowledgeIdentity & {
   attributes?: Record<string, string | number | boolean | null>;
 };
 
-export type KnowledgeAddResult = { documentId: string };
+export type MemoryAddResult = { documentId: string };
 
 export type FindItem = {
   documentId: string;
@@ -216,49 +216,49 @@ export type FindResult = {
   degraded?: HybridSearchResult["degraded"];
 };
 
-export type KnowledgeRecentParams = KnowledgeIdentity & {
+export type MemoryRecentParams = MemoryIdentity & {
   limit?: number;
 };
 
-export class KnowledgeError extends Error {
+export class MemoryError extends Error {
   constructor(
     public readonly status: number,
     message: string,
   ) {
     super(message);
-    this.name = "KnowledgeError";
+    this.name = "MemoryError";
   }
 }
 
-export type KnowledgePlane = {
-  find(params: KnowledgeFindParams): Promise<FindResult>;
-  ask(params: KnowledgeAskParams): Promise<AskResult>;
-  add(params: KnowledgeAddParams): Promise<KnowledgeAddResult>;
-  recent(params: KnowledgeRecentParams): Promise<TimelineEvent[]>;
+export type Memory = {
+  find(params: MemoryFindParams): Promise<FindResult>;
+  ask(params: MemoryAskParams): Promise<AskResult>;
+  add(params: MemoryAddParams): Promise<MemoryAddResult>;
+  recent(params: MemoryRecentParams): Promise<TimelineEvent[]>;
   /**
    * Write a memory fact for a principal. Requires a mounted MemoryProvider;
    * throws 501 when memory is not configured. Never called implicitly by ask.
    */
-  remember(params: KnowledgeRememberParams): Promise<void>;
+  remember(params: MemoryRememberParams): Promise<void>;
   /**
    * Recall memory facts for a principal. Empty array when memory is not
    * configured or nothing matches.
    */
-  recall(params: KnowledgeRecallParams): Promise<KnowledgeRecallItem[]>;
+  recall(params: MemoryRecallParams): Promise<MemoryRecallItem[]>;
   close(): Promise<void>;
 };
 
-export type KnowledgeRememberParams = KnowledgeIdentity & {
+export type MemoryRememberParams = MemoryIdentity & {
   text: string;
   metadata?: Record<string, string>;
 };
 
-export type KnowledgeRecallParams = KnowledgeIdentity & {
+export type MemoryRecallParams = MemoryIdentity & {
   query: string;
   limit?: number;
 };
 
-export type KnowledgeRecallItem = {
+export type MemoryRecallItem = {
   text: string;
   score?: number;
 };
@@ -373,7 +373,7 @@ export async function synthesizeAnswer(
   };
 }
 
-export type KnowledgePlaneOptions = {
+export type MemoryOptions = {
   /** Required for `ask()`; omit if the host only adds and finds. */
   generate?: Generate;
   /** Required for `add({ file })`; omit if the host only adds text content. */
@@ -393,7 +393,7 @@ export type KnowledgePlaneOptions = {
    * Optional personal-memory side channel for ask(includeMemory).
    * Not how you swap durable backends — use documentStore for that.
    */
-  memory?: MemoryProvider;
+  memoryProvider?: MemoryProvider;
 };
 
 function resolveFindLimit(limit: number | undefined): number {
@@ -404,7 +404,7 @@ function resolveFindLimit(limit: number | undefined): number {
     limit < FIND_LIMIT_MIN ||
     limit > FIND_LIMIT_MAX
   ) {
-    throw new KnowledgeError(
+    throw new MemoryError(
       400,
       `limit must be an integer between ${FIND_LIMIT_MIN} and ${FIND_LIMIT_MAX}`,
     );
@@ -420,7 +420,7 @@ function resolveRecentLimit(limit: number | undefined): number | undefined {
     limit < RECENT_LIMIT_MIN ||
     limit > RECENT_LIMIT_MAX
   ) {
-    throw new KnowledgeError(
+    throw new MemoryError(
       400,
       `limit must be an integer between ${RECENT_LIMIT_MIN} and ${RECENT_LIMIT_MAX}`,
     );
@@ -461,7 +461,7 @@ function findItemsToHits(items: readonly FindItem[]): SearchHit[] {
 /**
  * Resolve access tags for add — share sugar + explicit tags only.
  */
-function resolveAddAccessTags(params: KnowledgeAddParams): string[] {
+function resolveAddAccessTags(params: MemoryAddParams): string[] {
   return resolveAccessTags({
     principalId: params.principalId,
     tenantId: params.tenantId,
@@ -484,18 +484,18 @@ function resolveAddAccessTags(params: KnowledgeAddParams): string[] {
  *   MergeLocalLiveV1 (fail-soft, 800ms timeout, prefer-local dedupe).
  * - Document access uses grant tags via the host GrantStore (not mini-ACL).
  */
-export function createKnowledgePlane(
-  config: KnowledgeConfig | undefined,
+export function createMemory(
+  config: MemoryConfig | undefined,
   grants?: GrantConfig,
-  options: KnowledgePlaneOptions = {},
-): KnowledgePlane {
+  options: MemoryOptions = {},
+): Memory {
   const store =
     options.documentStore ??
     (() => {
       if (!config) {
-        throw new KnowledgeError(
+        throw new MemoryError(
           500,
-          "KnowledgeConfig is required when documentStore is not provided",
+          "MemoryConfig is required when documentStore is not provided",
         );
       }
       return createEngineDocumentStore(config);
@@ -684,20 +684,20 @@ async function recallForAsk(params: {
   }
 }
 
-function makeRememberRecall(options: KnowledgePlaneOptions): {
-  remember: KnowledgePlane["remember"];
-  recall: KnowledgePlane["recall"];
+function makeRememberRecall(options: MemoryOptions): {
+  remember: Memory["remember"];
+  recall: Memory["recall"];
 } {
   return {
     async remember(params) {
-      if (!options.memory) {
-        throw new KnowledgeError(
+      if (!options.memoryProvider) {
+        throw new MemoryError(
           501,
-          "remember() requires a MemoryProvider. Pass memory to " +
-            "createKnowledgePlane/mountKnowledgeEngine.",
+          "remember() requires a MemoryProvider. Pass memoryProvider to " +
+            "createMemory/mountMemory.",
         );
       }
-      await options.memory.remember({
+      await options.memoryProvider.remember({
         tenantId: params.tenantId,
         principalId: params.principalId,
         text: params.text,
@@ -705,8 +705,8 @@ function makeRememberRecall(options: KnowledgePlaneOptions): {
       });
     },
     async recall(params) {
-      if (!options.memory) return [];
-      return options.memory.recall({
+      if (!options.memoryProvider) return [];
+      return options.memoryProvider.recall({
         tenantId: params.tenantId,
         principalId: params.principalId,
         query: params.query,
@@ -720,12 +720,12 @@ function makeRememberRecall(options: KnowledgePlaneOptions): {
 function createPlaneFromStore(
   store: DocumentStore,
   grants: GrantConfig | undefined,
-  options: KnowledgePlaneOptions,
-): KnowledgePlane {
+  options: MemoryOptions,
+): Memory {
   const memoryApi = makeRememberRecall(options);
 
   async function findMerged(
-    params: KnowledgeFindParams,
+    params: MemoryFindParams,
   ): Promise<FindResult> {
     const limit = resolveFindLimit(params.limit);
     let localItems: FindItem[] = [];
@@ -800,30 +800,30 @@ function createPlaneFromStore(
     });
   }
 
-  const plane: KnowledgePlane = {
+  const plane: Memory = {
     async find(params) {
       return findMerged(params);
     },
 
     async ask(params) {
       // Capability layer. Callers reaching the plane in-process bypass the
-      // HTTP surface's `requireGrant("knowledge", ...)` route guard, so the
+      // HTTP surface's `requireGrant("memory", ...)` route guard, so the
       // check has to live here — AUTH.md is explicit that the capability and
       // data layers are independent and BOTH must allow. Per-document
       // grant-tag access (enforced inside the store) is not a substitute for "may
       // this principal search at all".
       if (!grants) {
-        throw new KnowledgeError(
+        throw new MemoryError(
           501,
           "ask() requires a GrantConfig. Pass grants to " +
-            "createKnowledgePlane/mountKnowledgeEngine.",
+            "createMemory/mountMemory.",
         );
       }
       const decision = await authorize(
         grants.grantStore,
         params.principalId,
         params.tenantId,
-        "knowledge",
+        "memory",
         "find",
         grants.conditionRegistry,
       );
@@ -832,21 +832,21 @@ function createPlaneFromStore(
       if (decision.effect !== "allow") {
         const effect = decision.effect ?? "no-matching-grant";
         log.info(
-          `ask: denied knowledge:find for ${params.principalId} (effect=${effect})`,
+          `ask: denied memory:find for ${params.principalId} (effect=${effect})`,
           {
             principalId: params.principalId,
             effect,
           },
         );
-        throw new KnowledgeNotPermittedError();
+        throw new MemoryNotPermittedError();
       }
       // Fail closed on missing generate *before* retrieval so a misconfigured
       // host gets the promised 501 instead of paying for search.
       if (!options.generate) {
-        throw new KnowledgeError(
+        throw new MemoryError(
           501,
           "ask() requires a `generate` function. Pass one to " +
-            "createKnowledgePlane/mountKnowledgeEngine, wired to your " +
+            "createMemory/mountMemory, wired to your " +
             "inference layer.",
         );
       }
@@ -859,7 +859,7 @@ function createPlaneFromStore(
         ...(params.sources !== undefined ? { sources: params.sources } : {}),
       });
       const mem = await recallForAsk({
-        memory: options.memory,
+        memory: options.memoryProvider,
         includeMemory: params.includeMemory,
         tenantId: params.tenantId,
         principalId: params.principalId,
@@ -888,7 +888,7 @@ function createPlaneFromStore(
       const hasContent = params.content !== undefined;
       const hasFile = params.file !== undefined;
       if (hasContent === hasFile) {
-        throw new KnowledgeError(
+        throw new MemoryError(
           400,
           "provide exactly one of content or file",
         );
@@ -902,7 +902,7 @@ function createPlaneFromStore(
       } else {
         const file = params.file!;
         if (!options.textExtractor) {
-          throw new KnowledgeError(
+          throw new MemoryError(
             400,
             "file requires a textExtractor on the knowledge plane",
           );
@@ -921,7 +921,7 @@ function createPlaneFromStore(
 
       const externalRef =
         params.externalRef ??
-        `knowledge:${params.tenantId}:${crypto.randomUUID()}`;
+        `memory:${params.tenantId}:${crypto.randomUUID()}`;
 
       return store.add({
         tenantId: params.tenantId,
@@ -968,7 +968,7 @@ function createPlaneFromStore(
  * Owns construction-time rerank validation, FTS verification, and grant-tag
  * post-filter for document access. The plane never opens Postgres itself.
  */
-function createEngineDocumentStore(config: KnowledgeConfig): DocumentStore {
+function createEngineDocumentStore(config: MemoryConfig): DocumentStore {
   // Catch a chunk-size / reranker-limit mismatch at construction time, rather
   // than silently on every find once the reranker starts rejecting batches.
   // Throws instead of warning: a mismatch means every rerank call for this
@@ -978,18 +978,18 @@ function createEngineDocumentStore(config: KnowledgeConfig): DocumentStore {
   // (`defaultMaxDocCharsForModel`) is self-consistent by construction —
   // validation can only fire on an operator's own `maxDocChars` override,
   // never spuriously on an unmodified config.
-  // Lives here (not only in mountKnowledgeEngine) so standalone construction
+  // Lives here (not only in mountMemory) so standalone construction
   // cannot silently degrade on a bad override.
-  const rerankConfig = toRerankClientConfig(config.knowledge.rerank);
+  const rerankConfig = toRerankClientConfig(config.memory.rerank);
   if (rerankConfig) validateRerankConfig(rerankConfig);
 
   // Resolve once here so EngineConfig.ftsLanguage is concrete for every
-  // service — loadKnowledgeConfig already runs parseFtsLanguage, but a
+  // service — loadMemoryConfig already runs parseFtsLanguage, but a
   // hand-built EngineConfig may still carry an empty/absent value; this is
   // the single defaulting site services rely on.
   const engineConfig: EngineConfig = {
-    ...config.knowledge,
-    ftsLanguage: parseFtsLanguage(config.knowledge.ftsLanguage),
+    ...config.memory,
+    ftsLanguage: parseFtsLanguage(config.memory.ftsLanguage),
   };
   const { db, sql }: { db: Db; sql: RawSql } = createDb(engineConfig);
   const deps = { db, sql, config: engineConfig };
@@ -1000,7 +1000,7 @@ function createEngineDocumentStore(config: KnowledgeConfig): DocumentStore {
   // awaited by the first query. Read-only; migration stays a deploy step.
   // NOTE this is a lazy check, not a boot-time one: nothing forces it to run
   // until the first real find()/add() call, so a host that neither
-  // runs runKnowledgeMigrations itself nor wires a readiness probe will not
+  // runs runMemoryMigrations itself nor wires a readiness probe will not
   // learn about a language mismatch until that first call fails. A host
   // that wants a real boot-time guarantee MUST call the exported
   // verifyFtsLanguage from its own readiness probe — this memo then
@@ -1103,8 +1103,8 @@ function createEngineDocumentStore(config: KnowledgeConfig): DocumentStore {
         evidence: hits.length === 0 ? "none" : result.evidence,
       };
     } catch (err) {
-      if (err instanceof KnowledgeSearchInputError) {
-        throw new KnowledgeError(400, err.message);
+      if (err instanceof MemorySearchInputError) {
+        throw new MemoryError(400, err.message);
       }
       throw err;
     }
@@ -1117,7 +1117,7 @@ function createEngineDocumentStore(config: KnowledgeConfig): DocumentStore {
       const adapter = params.adapter ?? "http";
       const externalRef =
         params.externalRef ??
-        `knowledge:${params.tenantId}:${crypto.randomUUID()}`;
+        `memory:${params.tenantId}:${crypto.randomUUID()}`;
       const accessTags = params.accessTags ?? [ownerTag(params.principalId)];
 
       const captureResult = await captureDocument(deps, {

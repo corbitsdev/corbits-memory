@@ -148,7 +148,7 @@ export function parseFindResults(raw: unknown): DocumentStoreFindItem[] {
  * Pure fetch — no mem0 SDK. Mount as the plane's durable backend:
  *
  * ```ts
- * createKnowledgePlane(undefined, grants, {
+ * createMemory(undefined, grants, {
  *   documentStore: createMem0DocumentStore({ apiKey }),
  * })
  * ```

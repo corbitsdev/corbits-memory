@@ -1,7 +1,7 @@
 {
   "name": "@corbits/knowledge-adapter-mem0",
   "version": "0.1.0",
-  "description": "Mem0 DocumentStore adapter for @corbits/knowledge-engine (pure fetch, no SDK)",
+  "description": "Mem0 DocumentStore adapter for @corbits/memory (pure fetch, no SDK)",
 
   "type": "module",
   "module": "src/index.ts",
@@ -23,12 +23,12 @@
   "author": "Sawyer Cutler <sawyer@dirtroad.dev>",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/corbitsdev/corbits-knowledge-engine.git",
+    "url": "git+https://github.com/corbitsdev/corbits-memory.git",
     "directory": "packages/knowledge-adapter-mem0"
   },
-  "homepage": "https://github.com/corbitsdev/corbits-knowledge-engine#readme",
+  "homepage": "https://github.com/corbitsdev/corbits-memory#readme",
   "bugs": {
-    "url": "https://github.com/corbitsdev/corbits-knowledge-engine/issues"
+    "url": "https://github.com/corbitsdev/corbits-memory/issues"
   },
   "keywords": [
     "mem0",

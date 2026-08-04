@@ -10,7 +10,7 @@ import {
 import {
   createFakeDocumentStore,
   createFakeSourceProvider,
-  createKnowledgePlane,
+  createMemory,
 } from "../index.ts";
 import type { LiveSearchItem } from "./types.ts";
 
@@ -20,7 +20,7 @@ const PRINCIPAL = "p_merge";
 function grant(action: string): GrantRule {
   return {
     id: `g-${action}`,
-    resource: "knowledge",
+    resource: "memory",
     action,
     effect: "allow",
     origin: "role",
@@ -54,7 +54,7 @@ function liveHit(
 describe("plane merge (MergeLocalLiveV1)", () => {
   it("merges local store hits with live source hits", async () => {
     const store = createFakeDocumentStore();
-    const plane = createKnowledgePlane(undefined, undefined, {
+    const plane = createMemory(undefined, undefined, {
       documentStore: store,
       sources: [
         createFakeSourceProvider("linear", [
@@ -83,7 +83,7 @@ describe("plane merge (MergeLocalLiveV1)", () => {
 
   it("includes live-only hits when query matches catalog", async () => {
     const store = createFakeDocumentStore();
-    const plane = createKnowledgePlane(undefined, undefined, {
+    const plane = createMemory(undefined, undefined, {
       documentStore: store,
       sources: [
         createFakeSourceProvider("linear", [
@@ -105,7 +105,7 @@ describe("plane merge (MergeLocalLiveV1)", () => {
 
   it("source filter local-only excludes live hits", async () => {
     const store = createFakeDocumentStore();
-    const plane = createKnowledgePlane(undefined, undefined, {
+    const plane = createMemory(undefined, undefined, {
       documentStore: store,
       sources: [
         createFakeSourceProvider("linear", [
@@ -152,7 +152,7 @@ describe("plane merge (MergeLocalLiveV1)", () => {
       },
     };
 
-    const plane = createKnowledgePlane(undefined, undefined, {
+    const plane = createMemory(undefined, undefined, {
       documentStore: store,
       sources: [brokenSource, slowSource],
     });
@@ -181,13 +181,13 @@ describe("plane merge (MergeLocalLiveV1)", () => {
       principalId: PRINCIPAL,
       title: "local CL-7 body",
       text: "collision payload local",
-      accessTags: [`knowledge.owner:${PRINCIPAL}`],
+      accessTags: [`memory.owner:${PRINCIPAL}`],
       externalRef: "CL-7",
     });
     // Fake store citation uses adapter "fake" not linear — force collision by
     // using a custom store find isn't possible; instead use live adapter
     // "fake" so keys match fake store's citation adapter.
-    const plane = createKnowledgePlane(undefined, undefined, {
+    const plane = createMemory(undefined, undefined, {
       documentStore: store,
       sources: [
         {
@@ -231,7 +231,7 @@ describe("plane merge (MergeLocalLiveV1)", () => {
 
   it("ask still works when live source errors", async () => {
     const store = createFakeDocumentStore();
-    const plane = createKnowledgePlane(
+    const plane = createMemory(
       undefined,
       {
         grantStore: createInMemoryGrantStore([grant("find")]),

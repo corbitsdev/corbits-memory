@@ -18,7 +18,7 @@ function row(overrides: Partial<TimelineRow> = {}): TimelineRow {
     externalRef: "note:1",
     occurredAt: new Date("2026-01-01T00:00:00Z"),
     createdByPrincipalId: "owner",
-    accessTags: ["knowledge.owner:owner"],
+    accessTags: ["memory.owner:owner"],
     ...overrides,
   };
 }
@@ -36,7 +36,7 @@ describe("filterTimelineRows (grant-tag access)", () => {
 
   it("denies a peer without a matching grant", async () => {
     const { events, withheld } = await filterTimelineRows(
-      [row({ createdByPrincipalId: "owner", accessTags: ["knowledge.tenant:t1"] })],
+      [row({ createdByPrincipalId: "owner", accessTags: ["memory.tenant:t1"] })],
       {
         principalId: "peer",
         tenantId: "t1",
@@ -52,7 +52,7 @@ describe("filterTimelineRows (grant-tag access)", () => {
       {
         id: "g1",
         principalId: "peer",
-        resource: "knowledge.tenant:t1",
+        resource: "memory.tenant:t1",
         action: "find",
         effect: "allow",
         origin: "role",
@@ -65,7 +65,7 @@ describe("filterTimelineRows (grant-tag access)", () => {
       [
         row({
           createdByPrincipalId: "owner",
-          accessTags: ["knowledge.tenant:t1"],
+          accessTags: ["memory.tenant:t1"],
         }),
       ],
       { principalId: "peer", tenantId: "t1", grants },

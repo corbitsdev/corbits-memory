@@ -9,10 +9,10 @@
 | Layer | Owner | Mechanism |
 | --- | --- | --- |
 | Who is the caller? | Host (Interchange) | `principal` + `tenant` on context / plane args |
-| May they use knowledge at all? | Host grant store | `authorize(…, resource: "knowledge", action: "add" \| "find")` |
+| May they use memory at all? | Host grant store | `authorize(…, resource: "memory", action: "add" \| "find")` |
 | Which **documents** may they see? | Host grant store + tags on the document | `authorize(…, resource: <tag>, action: "find")` for any tag on the doc |
 
-There is **one** authorization system: `@intx/authz` + host `GrantStore`. The knowledge engine does not invent modes, allowlists, or block lists as a security boundary.
+There is **one** authorization system: `@intx/authz` + host `GrantStore`. Corbits Memory does not invent modes, allowlists, or block lists as a security boundary.
 
 ## Document model
 
@@ -27,7 +27,7 @@ createdByPrincipalId: string  // audit + default owner tag
 
 When the caller does not pass tags/share:
 
-1. Always tag: `knowledge.owner:<principalId>`
+1. Always tag: `memory.owner:<principalId>`
 2. No other tags → **owner-only by default**. The **creating** principal always
    sees their own docs (engine convenience). **Peers** need an explicit host
    grant of `find` on that owner resource (or a matching pattern) — the engine
@@ -39,7 +39,7 @@ When the caller does not pass tags/share:
 ```ts
 plane.add({
   tenantId, principalId, title, text,
-  accessTags: ["knowledge.space:eng", "knowledge.project:ke"],
+  accessTags: ["memory.space:eng", "memory.project:ke"],
 })
 ```
 
@@ -48,16 +48,16 @@ Host issues grants such as:
 ```ts
 {
   principalId: "alice",
-  resource: "knowledge.space:eng",
+  resource: "memory.space:eng",
   action: "find",
   effect: "allow",
   // …origin, etc.
 }
 ```
 
-Alice then sees any document tagged `knowledge.space:eng` (capability `knowledge`/`find` still required).
+Alice then sees any document tagged `memory.space:eng` (capability `memory`/`find` still required).
 
-Patterns work: a grant on `knowledge.space:*` matches `knowledge.space:eng` via `@intx/authz` `matchPattern`.
+Patterns work: a grant on `memory.space:*` matches `memory.space:eng` via `@intx/authz` `matchPattern`.
 
 ### Share sugars (map to tags only)
 
@@ -65,10 +65,10 @@ Share helpers **must not** reintroduce visibility modes. They only mint tags:
 
 | Sugar | Tags written |
 | --- | --- |
-| (omit `share` — owner-only default) | `knowledge.owner:<caller>` |
-| `share: { tenant: true }` | `knowledge.owner:<caller>`, `knowledge.tenant:<tenantId>` |
-| `share: { principals: ["p2","p3"] }` | `knowledge.owner:<caller>`, `knowledge.owner:p2`, `knowledge.owner:p3` |
-| `share: { tags: ["knowledge.space:eng"] }` | `knowledge.owner:<caller>`, plus those tags |
+| (omit `share` — owner-only default) | `memory.owner:<caller>` |
+| `share: { tenant: true }` | `memory.owner:<caller>`, `memory.tenant:<tenantId>` |
+| `share: { principals: ["p2","p3"] }` | `memory.owner:<caller>`, `memory.owner:p2`, `memory.owner:p3` |
+| `share: { tags: ["memory.space:eng"] }` | `memory.owner:<caller>`, plus those tags |
 
 There is **no** `share.private` key. Owner-only is the default when `share` is omitted.
 
@@ -77,14 +77,14 @@ There is **no** `share.private` key. Owner-only is the default when `share` is o
 Tag minting is **not** grant minting. For peer share to work in product:
 
 1. When Alice adds with `share: { principals: ["bob"] }`, the document is tagged
-   `knowledge.owner:alice` and `knowledge.owner:bob`.
-2. Bob sees it only if the host has granted Bob `find` on `knowledge.owner:bob`
+   `memory.owner:alice` and `memory.owner:bob`.
+2. Bob sees it only if the host has granted Bob `find` on `memory.owner:bob`
    (or a pattern that matches). **Recommended host bootstrap:** every principal
    receives `find` (and optionally `add` side-effects as you prefer) on
-   `knowledge.owner:<self>` at signup, or a single pattern grant such as
-   `knowledge.owner:*` only if that matches your tenancy model.
+   `memory.owner:<self>` at signup, or a single pattern grant such as
+   `memory.owner:*` only if that matches your tenancy model.
 3. Space/tenant tags work the same way: host must issue grants on
-   `knowledge.space:eng` / `knowledge.tenant:<id>` for non-creators to match.
+   `memory.space:eng` / `memory.tenant:<id>` for non-creators to match.
 
 Without (2), `share.principals` is a silent no-op for peers (fail-closed; looks
 like empty search). Document this in host mount guides — do not reintroduce a
@@ -99,7 +99,7 @@ Deny is expressed as **absence of allow** (or an explicit deny grant in the host
 ### Capability (unchanged)
 
 ```ts
-authorize(grantStore, principalId, tenantId, "knowledge", "find"|"add")
+authorize(grantStore, principalId, tenantId, "memory", "find"|"add")
 // effect must be "allow"
 ```
 
@@ -138,8 +138,8 @@ Unchanged intentional tradeoff: live `SourceProvider` hits are **enrichment unde
 {
   "title": "…",
   "text": "…",
-  "access_tags": ["knowledge.space:eng"],
-  "share": { "tenant": true, "principals": ["alice"], "tags": ["knowledge.space:eng"] }
+  "access_tags": ["memory.space:eng"],
+  "share": { "tenant": true, "principals": ["alice"], "tags": ["memory.space:eng"] }
 }
 ```
 
@@ -163,7 +163,7 @@ Fresh databases apply the baseline migrations (`0001_extensions.sql` +
 
 ## Non-goals
 
-- Group membership resolution inside the knowledge engine (host/roles issue grants).
+- Group membership resolution inside Corbits Memory (host/roles issue grants).
 - Per-chunk ACL.
 - Live channel grant tags (host policy).
 - Re-implementing roles inside this package.
@@ -173,7 +173,7 @@ Fresh databases apply the baseline migrations (`0001_extensions.sql` +
 1. No public plane/HTTP API accepts `visibility` mode or block list as security.
 2. Default add is owner-visible only (creator + owner tag).
 3. Principal B sees A’s doc only when host grant allows `find` on a tag present on the doc (or B is creator).
-4. Capability `knowledge`/`find` still required for find/ask/recent.
+4. Capability `memory`/`find` still required for find/ask/recent.
 5. PRODUCT.md / MIGRATION.md / README describe grant tags, not mini-ACL.
 6. Engine + fakes enforce the algorithm; vendor adapters document principal-bucket limit.
 7. `bun run typecheck && bun run test` green.

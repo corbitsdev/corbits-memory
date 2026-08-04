@@ -1,6 +1,6 @@
-# Agent guide — @corbits/knowledge-engine
+# Agent guide — @corbits/memory
 
-A library, not a service. `src/` is the whole product: a knowledge add / find /
+A library, not a service. `src/` is the whole product: a memory add / find /
 ask / recent SDK that **mounts onto a host Interchange app**. There is no server,
 port, or process entrypoint here, and there never should be.
 
@@ -18,7 +18,7 @@ CI runs `typecheck` + `test` — both must pass before any push.
 
 ## Layout
 
-- `src/index.ts` — public surface: `mountKnowledgeEngine`, `mountKnowledgeRoutes`, `createKnowledgePlane`
+- `src/index.ts` — public surface: `mountMemory`, `mountMemoryRoutes`, `createMemory`
 - `src/mount-config.ts` / `src/config.ts` — mount config + engine config
 - `src/routes/` — Hono routes (`add`, `find`, `ask`, `recent`)
 - `src/services/` — capture / search / transform internals (not public verbs)

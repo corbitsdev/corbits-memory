@@ -7,10 +7,10 @@ move to the new names in the same release.
 
 | Was | Now |
 | --- | --- |
-| `knowledge.capture(params)` | `knowledge.add(params)` |
-| `knowledge.search(params)` | `knowledge.find(params)` |
-| `knowledge.timeline(params)` | `knowledge.recent(params)` |
-| `knowledge.ask(params)` | unchanged verb; grant action changed (below) |
+| `knowledge.capture(params)` | `memory.add(params)` |
+| `knowledge.search(params)` | `memory.find(params)` |
+| `knowledge.timeline(params)` | `memory.recent(params)` |
+| `knowledge.ask(params)` | `memory.ask(params)`; grant action changed (below) |
 
 Identity fields on every call:
 
@@ -43,10 +43,10 @@ Identity fields on every call:
 
 | Was | Now |
 | --- | --- |
-| `POST /api/knowledge/capture` | `POST /api/knowledge/add` |
-| `POST /api/knowledge/search` | `POST /api/knowledge/find` |
-| `GET /api/knowledge/timeline` | `GET /api/knowledge/recent` |
-| — | `POST /api/knowledge/ask` (new) |
+| `POST /api/knowledge/capture` | `POST /api/memory/add` |
+| `POST /api/knowledge/search` | `POST /api/memory/find` |
+| `GET /api/knowledge/timeline` | `GET /api/memory/recent` |
+| — | `POST /api/memory/ask` (new) |
 
 Old paths return **404**. No redirect, no dual mount.
 
@@ -61,21 +61,38 @@ Old paths return **404**. No redirect, no dual mount.
 
 | Was | Now |
 | --- | --- |
-| `requireGrant("knowledge", "capture")` | `requireGrant("knowledge", "add")` |
-| `requireGrant("knowledge", "search")` | `requireGrant("knowledge", "find")` |
+| `requireGrant("knowledge", "capture")` | `requireGrant("memory", "add")` |
+| `requireGrant("knowledge", "search")` | `requireGrant("memory", "find")` |
 
-`find`, `ask`, and `recent` all require the **`find`** action. Old action names
-are not accepted — update grant rows in the host grant store before deploy.
+`find`, `ask`, and `recent` all require the **`find`** action on resource
+`memory`. Old resource/action names are not accepted — update grant rows in the
+host grant store before deploy.
 
-In-process `ask()` also checks `knowledge` / `find` (was `search`).
+In-process `ask()` also checks `memory` / `find` (was `knowledge` / `search`).
+
+## Package / public API rename (`@corbits/memory`)
+
+| Was | Now |
+| --- | --- |
+| `@corbits/knowledge-engine` | `@corbits/memory` |
+| `mountKnowledgeEngine` | `mountMemory` |
+| `mountKnowledgeRoutes` | `mountMemoryRoutes` |
+| `createKnowledgePlane` | `createMemory` |
+| `loadKnowledgeConfig` | `loadMemoryConfig` |
+| `runKnowledgeMigrations` | `runMemoryMigrations` |
+| `KnowledgePlane` / `KnowledgeConfig` / `KnowledgeError` | `Memory` / `MemoryConfig` / `MemoryError` |
+| `options.memory` (MemoryProvider side-channel) | `options.memoryProvider` |
+| Access tags `knowledge.owner:` / `knowledge.tenant:` / `knowledge.space:` | `memory.owner:` / `memory.tenant:` / `memory.space:` |
+
+Postgres schema name remains **`knowledge`** (tables such as `knowledge.document`).
 
 ## Host checklist (this package's consumers)
 
-1. Rename plane method calls and identity fields.
-2. Point HTTP clients at the new paths and bodies.
-3. Rewrite grant rules: `capture`→`add`, `search`→`find`.
+1. Rename plane method calls and identity fields; switch package import to `@corbits/memory`.
+2. Point HTTP clients at the new `/api/memory/*` paths and bodies.
+3. Rewrite grant rules: resource `knowledge`→`memory`, `capture`→`add`, `search`→`find`.
 4. Drop any reliance on `status: "captured"` or `hits` / `k` on the wire.
-5. If you use file capture, pass `textExtractor` into `createKnowledgePlane` / mount options.
+5. If you use file capture, pass `textExtractor` into `createMemory` / mount options.
 6. Document access is grant tags (`accessTags` + creator + host `GrantStore`), not
    visibility modes or block lists. Update any host code that wrote `visibility`.
 7. Fresh Postgres: baseline migrations are `0001_extensions.sql` +
