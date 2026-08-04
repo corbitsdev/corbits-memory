@@ -25,6 +25,10 @@ export type DocumentStoreAddParams = {
   blockPrincipalIds?: string[];
   attributes?: Record<string, string | number | boolean | null>;
   externalRef?: string;
+  /** Capture adapter id (default engine store uses `"http"`). */
+  adapter?: string;
+  /** Document kind (default engine store uses `"note"`). */
+  kind?: string;
 };
 
 export type DocumentStoreFindParams = {
@@ -33,6 +37,10 @@ export type DocumentStoreFindParams = {
   query: string;
   limit?: number;
   includeEvidence?: boolean;
+  /** Narrow local retrieval by document kind (unset/`[]` = no filter). */
+  kinds?: string[];
+  /** Narrow local retrieval by linked entity ids (unset/`[]` = no filter). */
+  entityIds?: string[];
 };
 
 export type DocumentStoreFindItem = {

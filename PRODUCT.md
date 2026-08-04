@@ -38,7 +38,7 @@ Identity on the plane is always **`principalId` + `tenantId`** (never
 
 | Port | Purpose |
 | --- | --- |
-| `DocumentStore` | **The** durable backend for add/find/recent (default: engine pgvector). Replace with Mem0, Supermemory, or fakes — no Postgres required when overridden. |
+| `DocumentStore` | **The** durable backend for add/find/recent (default: engine pgvector, wrapped as a DocumentStore). Replace with Mem0, Supermemory, or fakes — no Postgres required when overridden. The plane is always store-backed; there is no second engine-only path. |
 | `SourceProvider` | Optional **tools-shaped** live search (`searchLive`); merge is fail-soft. Not a store replacement. |
 | `MemoryProvider` | Optional ask side-channel only (`includeMemory`); **not** how you swap backends. |
 
