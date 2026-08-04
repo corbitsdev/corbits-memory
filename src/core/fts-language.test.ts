@@ -29,10 +29,10 @@ describe("parseFtsLanguage", () => {
   });
 });
 
-describe("the chunk migration language token", () => {
+describe("the baseline migration language token", () => {
   it("is present in the generated-column DDL, ready for substitution", async () => {
     const ddl = await readFile(
-      join(import.meta.dir, "..", "..", "migrations", "0004_knowledge_chunk.sql"),
+      join(import.meta.dir, "..", "..", "migrations", "0002_knowledge_baseline.sql"),
       "utf8",
     );
     expect(ddl).toContain(`to_tsvector('${FTS_LANGUAGE_TOKEN}', "text")`);

@@ -65,7 +65,6 @@ export type {
   SearchHit,
   TextExtractor,
   TimelineEvent,
-  VisibilitySpec,
 } from "./knowledge.ts";
 export { KnowledgeError, KnowledgeNotPermittedError } from "./knowledge.ts";
 // Ports — pluggable storage, live sources, and optional memory

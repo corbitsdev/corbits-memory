@@ -43,7 +43,7 @@ plane (add/find/ask), not memories-only personal facts.
 | Area | Behavior |
 | --- | --- |
 | Isolation | **Principal-bucket only** via `containerTag(tenantId, principalId)`. Each principal has a private container; docs are not shared across principals. |
-| Visibility ladder | `visibility` / `share` / `blockPrincipalIds` are **not** enforced by this adapter. For multi-principal or tenant-wide ACL, use the default pgvector store or a store that implements the ladder. |
+| Document access | This adapter is **principal-bucket only**. Host grant tags (`accessTags`) are stored as metadata at best and are **not** evaluated. For multi-principal grant-tag ACL, use the default pgvector store. |
 | `recent` | Always `[]` — no recent-feed API in this adapter. |
 | `options.memory` | **Never** mount this package as `options.memory`. Product backend is `documentStore` only. |
 

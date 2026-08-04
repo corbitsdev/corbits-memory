@@ -15,20 +15,17 @@ export type DocumentStoreCitation = {
   };
 };
 
-export type VisibilitySpec =
-  | { mode: "tenant" }
-  | { mode: "private"; principalIds: string[] }
-  | { mode: "principals"; principalIds: string[] };
-
 export type DocumentStoreAddParams = {
   tenantId: string;
   principalId: string;
   title: string;
   text: string;
-  visibility: VisibilitySpec;
-  blockPrincipalIds?: string[];
+  /** Grant-tag resource strings (ignored for enforcement; principal-bucket only). */
+  accessTags: string[];
   attributes?: Record<string, string | number | boolean | null>;
   externalRef?: string;
+  adapter?: string;
+  kind?: string;
 };
 
 export type DocumentStoreFindParams = {

@@ -10,7 +10,7 @@ describe("AdaptedDocumentSchema", () => {
       kind: "call_transcript",
       title: "Q3 renewal call",
       externalRef: "granola:note_123",
-      visibility: { mode: "tenant" },
+      accessTags: ["knowledge.tenant:t1"],
       attributes: { durationSec: 1800 },
       entityHints: [{ kind: "person", identifier: "jane@example.com" }],
       edges: [
@@ -34,7 +34,7 @@ describe("AdaptedDocumentSchema", () => {
       kind: "task",
       title: "Follow up with Acme",
       externalRef: "task:1",
-      visibility: { mode: "private" },
+      accessTags: ["knowledge.owner:u1"],
       entityHints: [],
       chunks: [{ ordinal: 0, text: "Follow up with Acme on pricing." }],
       contentHash: "sha256:def456",
@@ -47,7 +47,7 @@ describe("AdaptedDocumentSchema", () => {
       kind: "task",
       title: "Follow up with Acme",
       externalRef: "task:1",
-      visibility: { mode: "private" },
+      accessTags: ["knowledge.owner:u1"],
       entityHints: [],
       chunks: [{ ordinal: 0, text: "Follow up with Acme on pricing." }],
     });

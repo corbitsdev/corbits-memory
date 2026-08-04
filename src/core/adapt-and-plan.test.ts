@@ -9,7 +9,7 @@ function validAdaptedDocument(
     kind: "artifact",
     title: "Q3 renewal brief",
     externalRef: "artifact:art_1",
-    visibility: { mode: "principals", principalIds: ["principal_1"] },
+    accessTags: ["knowledge.owner:principal_1"],
     entityHints: [],
     chunks: [
       { ordinal: 0, text: "The account renews in Q3 with a 12% expansion." },

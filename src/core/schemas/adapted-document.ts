@@ -1,5 +1,5 @@
 import { type } from "arktype";
-import { CreatedByKindSchema, VisibilitySpecSchema } from "./document.ts";
+import { CreatedByKindSchema } from "./document.ts";
 import { KnowledgeEdgeHintSchema } from "./entity-edge.ts";
 import { AuthoritySourceClassSchema } from "../authority.ts";
 
@@ -45,11 +45,15 @@ export type RawPointer = typeof RawPointerSchema.infer;
 // What a source adapter produces. rawPointer is a pointer to the raw
 // payload's own table, never a re-store of the blob itself; contentHash is
 // the NOOP key.
+//
+// Document access is grant tags only (`accessTags`) — the security boundary
+// (docs/AUTHZ-DOCUMENT-ACCESS.md).
 export const AdaptedDocumentSchema = type({
   kind: `1 <= string <= ${MAX_KIND_CHARS}`,
   title: `1 <= string <= ${MAX_TITLE_CHARS}`,
   externalRef: "string",
-  visibility: VisibilitySpecSchema,
+  /** Grant-tag resource strings — the security boundary. */
+  accessTags: "string[]",
   "attributes?": "Record<string, string | number | boolean | null>",
   entityHints: EntityHintSchema.array(),
   "edges?": KnowledgeEdgeHintSchema.array(),

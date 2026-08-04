@@ -1,17 +1,5 @@
 import { type } from "arktype";
 
-export const VisibilityModeSchema = type(
-  "'tenant'|'principals'|'source_acl'|'private'",
-);
-export type VisibilityMode = typeof VisibilityModeSchema.infer;
-
-export const VisibilitySpecSchema = type({
-  mode: VisibilityModeSchema,
-  "principalIds?": "string[]",
-  "sourceAcl?": "string[]",
-});
-export type VisibilitySpec = typeof VisibilitySpecSchema.infer;
-
 export const KnowledgeVersionStatusSchema = type(
   "'active'|'superseded'|'deprecated'|'archived'|'tombstoned'",
 );
@@ -21,7 +9,7 @@ export const CreatedByKindSchema = type("'human'|'agent'|'system'|'adapter'");
 export type CreatedByKind = typeof CreatedByKindSchema.infer;
 
 // The stable logical row for a captured source, deduped on (tenant_id,
-// adapter, external_ref).
+// adapter, external_ref). Document access is grant tags only.
 export const KnowledgeDocumentSchema = type({
   id: "string",
   tenant_id: "string",
@@ -29,7 +17,7 @@ export const KnowledgeDocumentSchema = type({
   title: "string",
   adapter: "string",
   external_ref: "string",
-  visibility: VisibilitySpecSchema,
+  access_tags: "string[]",
   attributes: "Record<string, string | number | boolean | null>",
   created_at: "string",
   last_seen_at: "string",

@@ -1,15 +1,18 @@
 /**
- * Durable capture timeline: recent knowledge_document rows for a principal,
- * filtered with the same visibility SQL and acl_block post-filter as search.
+ * Timeline / recent — tenant-scoped document history.
+ *
+ * Document access is Interchange grant tags (same as find): creator always
+ * sees own docs; otherwise any accessTag that authorize(..., tag, "find")
+ * allows. No visibility SQL, no acl_block post-filter.
+ *
+ * See docs/AUTHZ-DOCUMENT-ACCESS.md.
  */
-import { and, desc, eq, type SQL } from "drizzle-orm";
-
-import { readBlockList } from "../acl.ts";
-import { LIVE_GENERATION } from "../core/generation.ts";
+import { and, desc, eq, sql } from "drizzle-orm";
+import type { ConditionRegistry, GrantStore } from "@intx/authz";
+import { canAccessDocument } from "../acl.ts";
 import type { Db } from "../db/client.ts";
 import { knowledgeDocument, knowledgeVersion } from "../db/schema.ts";
 import { log } from "../log.ts";
-import { visibilityPredicateSql } from "./search.ts";
 
 export type TimelineEvent = {
   at: string;
@@ -19,165 +22,137 @@ export type TimelineEvent = {
   principalId: string;
 };
 
-export type TimelineRow = {
-  id: string;
-  title: string;
-  tenantId: string;
-  adapter: string;
-  /** Activity time used for ordering and the wire `at` field (last_seen_at). */
-  lastSeenAt: Date;
-  attributes: unknown;
-  principalId: string | null;
-};
-
 export type ListTimelineParams = {
   db: Db;
   tenantId: string;
   principalId: string;
   limit?: number;
+  /** Host grant store — required for non-creator document access. */
+  grants?: GrantStore;
+  conditionRegistry?: ConditionRegistry;
 };
 
-export const DEFAULT_TIMELINE_LIMIT = 100;
+export type TimelineRow = {
+  documentId: string;
+  title: string;
+  adapter: string;
+  externalRef: string;
+  occurredAt: Date;
+  createdByPrincipalId: string | null;
+  accessTags: string[] | null;
+};
+
+/** Over-fetch factor before grant-tag filter (same idea as hybrid overfetch). */
+const TIMELINE_OVERFETCH = 4;
+const DEFAULT_LIMIT = 20;
+const MAX_LIMIT = 100;
 
 /**
- * Active live-generation version join. Exported so unit tests pin the join
- * predicates without a live Postgres.
+ * Tenant-only WHERE — document access is applied in application code.
  */
-export function timelineActiveVersionJoin(): SQL | undefined {
-  return and(
-    eq(knowledgeVersion.documentId, knowledgeDocument.id),
-    eq(knowledgeVersion.status, "active"),
-    eq(knowledgeVersion.generation, LIVE_GENERATION),
-  );
+export function timelineWhere(tenantId: string) {
+  return eq(knowledgeDocument.tenantId, tenantId);
 }
 
 /**
- * Tenant + visibility WHERE clause — same visibilityPredicateSql as search.
- * Exported so unit tests pin the SQL composition to listTimelineEvents.
+ * Filter raw timeline rows to those the principal may see under grant tags.
  */
-export function timelineWhere(
-  tenantId: string,
-  principalId: string,
-): SQL | undefined {
-  return and(
-    eq(knowledgeDocument.tenantId, tenantId),
-    visibilityPredicateSql(principalId),
-  );
-}
-
-/**
- * Whether a timeline row is withheld from `principalId` under the same
- * fail-closed `readBlockList` rules search uses via `blockedDocumentIds`.
- *
- * Returns why so callers can log unreadable ACLs without inventing a second
- * membership interpretation.
- */
-export function timelineRowBlock(
-  attributes: Record<string, unknown> | null,
-  principalId: string,
-): "allow" | "blocked" | "unreadable" {
-  const read = readBlockList(attributes?.["acl_block"]);
-  if (read.kind === "absent") return "allow";
-  if (read.kind === "unreadable") return "unreadable";
-  return read.principalIds.includes(principalId) ? "blocked" : "allow";
-}
-
-/**
- * Pure block post-filter used by listTimelineEvents. Exported for unit tests
- * so the leak guard does not need a live Postgres.
- *
- * Rows that fail closed (unreadable acl_block) are dropped; their ids are
- * returned in `unreadableIds` for capped audit logging (same posture as search).
- */
-export function filterTimelineRowsForPrincipal(
+export async function filterTimelineRows(
   rows: readonly TimelineRow[],
-  principalId: string,
-  limit: number,
-): { events: TimelineEvent[]; unreadableIds: string[] } {
+  params: {
+    principalId: string;
+    tenantId: string;
+    grants?: GrantStore;
+    conditionRegistry?: ConditionRegistry;
+  },
+): Promise<{ events: TimelineEvent[]; withheld: number }> {
   const events: TimelineEvent[] = [];
-  const unreadableIds: string[] = [];
+  let withheld = 0;
+
   for (const row of rows) {
-    if (events.length >= limit) break;
-    const attributes =
-      row.attributes && typeof row.attributes === "object"
-        ? (row.attributes as Record<string, unknown>)
-        : null;
-    // Same gate as search: readBlockList fail-closed membership.
-    const decision = timelineRowBlock(attributes, principalId);
-    if (decision === "unreadable") {
-      unreadableIds.push(row.id);
-      continue;
+    if (!params.grants) {
+      // Safe default: creator-only when no GrantStore is mounted.
+      if (row.createdByPrincipalId !== params.principalId) {
+        withheld += 1;
+        continue;
+      }
+    } else {
+      const ok = await canAccessDocument({
+        grants: params.grants,
+        tenantId: params.tenantId,
+        principalId: params.principalId,
+        createdByPrincipalId: row.createdByPrincipalId,
+        accessTags: row.accessTags ?? [],
+        ...(params.conditionRegistry !== undefined
+          ? { conditionRegistry: params.conditionRegistry }
+          : {}),
+      });
+      if (!ok) {
+        withheld += 1;
+        continue;
+      }
     }
-    if (decision === "blocked") continue;
+
     events.push({
-      at: row.lastSeenAt.toISOString(),
+      at: row.occurredAt.toISOString(),
       title: row.title,
-      source: row.adapter,
-      tenantId: row.tenantId,
-      principalId: row.principalId ?? "",
+      source: `${row.adapter}:${row.externalRef}`,
+      tenantId: params.tenantId,
+      principalId: params.principalId,
     });
   }
-  return { events, unreadableIds };
+
+  return { events, withheld };
 }
 
 /**
- * Recent captures visible to `principalId` under the same ACL rules as search.
- * Visibility is applied in SQL; acl_block is a post-filter via `readBlockList`
- * (the same helper search uses through `blockedDocumentIds`).
- *
- * One row per document (active live version), ordered by last_seen_at DESC.
- * Wire `source` is the document adapter (HTTP add defaults to "http").
- * Wire `principalId` is knowledge_version.created_by_principal_id.
+ * List recent document events for a tenant, filtered by grant-tag access.
  */
 export async function listTimelineEvents(
   params: ListTimelineParams,
 ): Promise<TimelineEvent[]> {
   const limit = Math.min(
-    Math.max(params.limit ?? DEFAULT_TIMELINE_LIMIT, 1),
-    DEFAULT_TIMELINE_LIMIT,
+    Math.max(params.limit ?? DEFAULT_LIMIT, 1),
+    MAX_LIMIT,
   );
-  // Overfetch so silent block drops still leave a full page when possible.
-  // Always scan at least DEFAULT_TIMELINE_LIMIT candidates so a small `limit`
-  // is not starved by a dense recent block list.
-  const overfetch = Math.min(
-    Math.max(limit * 3, DEFAULT_TIMELINE_LIMIT),
-    DEFAULT_TIMELINE_LIMIT * 3,
-  );
+  const fetchLimit = Math.min(limit * TIMELINE_OVERFETCH, MAX_LIMIT * TIMELINE_OVERFETCH);
 
   const rows = await params.db
     .select({
-      id: knowledgeDocument.id,
+      documentId: knowledgeDocument.id,
       title: knowledgeDocument.title,
-      tenantId: knowledgeDocument.tenantId,
       adapter: knowledgeDocument.adapter,
-      lastSeenAt: knowledgeDocument.lastSeenAt,
-      attributes: knowledgeDocument.attributes,
-      principalId: knowledgeVersion.createdByPrincipalId,
+      externalRef: knowledgeDocument.externalRef,
+      occurredAt: knowledgeVersion.occurredAt,
+      createdByPrincipalId: knowledgeVersion.createdByPrincipalId,
+      accessTags: knowledgeDocument.accessTags,
     })
     .from(knowledgeDocument)
-    .innerJoin(knowledgeVersion, timelineActiveVersionJoin())
-    .where(timelineWhere(params.tenantId, params.principalId))
-    .orderBy(desc(knowledgeDocument.lastSeenAt))
-    .limit(overfetch);
+    .innerJoin(
+      knowledgeVersion,
+      and(
+        eq(knowledgeVersion.documentId, knowledgeDocument.id),
+        eq(knowledgeVersion.status, "active"),
+      ),
+    )
+    .where(timelineWhere(params.tenantId))
+    .orderBy(desc(knowledgeVersion.occurredAt))
+    .limit(fetchLimit);
 
-  const { events, unreadableIds } = filterTimelineRowsForPrincipal(
-    rows,
-    params.principalId,
-    limit,
-  );
+  const { events, withheld } = await filterTimelineRows(rows, {
+    principalId: params.principalId,
+    tenantId: params.tenantId,
+    ...(params.grants !== undefined ? { grants: params.grants } : {}),
+    ...(params.conditionRegistry !== undefined
+      ? { conditionRegistry: params.conditionRegistry }
+      : {}),
+  });
 
-  if (unreadableIds.length > 0) {
-    const sampleLimit = 20;
-    const documentIds = unreadableIds.slice(0, sampleLimit);
-    const more =
-      unreadableIds.length > sampleLimit
-        ? ` (+${unreadableIds.length - sampleLimit} more)`
-        : "";
-    log.warn(
-      `timeline: ${unreadableIds.length} document(s) had an unreadable acl_block; withholding: ${documentIds.join(", ")}${more}`,
-      { count: unreadableIds.length, documentIds },
+  if (withheld > 0) {
+    log.info(
+      `timeline: withheld ${withheld} document(s) under grant-tag access for principal ${params.principalId}`,
     );
   }
 
-  return events;
+  return events.slice(0, limit);
 }

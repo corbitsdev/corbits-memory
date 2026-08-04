@@ -345,6 +345,7 @@ async function deriveVersionInTransaction(
 
   if (!existingDoc) {
     const documentId = newId("kdoc");
+    // accessTags is the security boundary for document access.
     await tx.insert(knowledgeDocument).values({
       id: documentId,
       tenantId: input.tenantId,
@@ -352,9 +353,7 @@ async function deriveVersionInTransaction(
       title: doc.title,
       adapter: input.adapter,
       externalRef: doc.externalRef,
-      visibilityMode: doc.visibility.mode,
-      visibilityPrincipalIds: doc.visibility.principalIds ?? null,
-      visibilitySourceAcl: doc.visibility.sourceAcl ?? null,
+      accessTags: doc.accessTags,
       attributes: doc.attributes ?? {},
       createdAt: now,
       lastSeenAt: now,
@@ -423,9 +422,7 @@ async function deriveVersionInTransaction(
     .update(knowledgeDocument)
     .set({
       title: doc.title,
-      visibilityMode: doc.visibility.mode,
-      visibilityPrincipalIds: doc.visibility.principalIds ?? null,
-      visibilitySourceAcl: doc.visibility.sourceAcl ?? null,
+      accessTags: doc.accessTags,
       attributes: doc.attributes ?? {},
       lastSeenAt: now,
     })

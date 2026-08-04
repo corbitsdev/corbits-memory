@@ -3,23 +3,8 @@ import { type } from "arktype";
 import {
   KnowledgeDocumentSchema,
   KnowledgeVersionSchema,
-  VisibilitySpecSchema,
 } from "./document.ts";
 import type { KnowledgeDocument, KnowledgeVersion } from "./document.ts";
-
-describe("VisibilitySpecSchema", () => {
-  it("parses a tenant-mode spec with no optional fields", () => {
-    const out = VisibilitySpecSchema({ mode: "tenant" });
-    expect(out instanceof type.errors ? out.summary : out).toEqual({
-      mode: "tenant",
-    });
-  });
-
-  it("rejects an unknown mode", () => {
-    const out = VisibilitySpecSchema({ mode: "public" });
-    expect(out instanceof type.errors).toBe(true);
-  });
-});
 
 describe("KnowledgeDocumentSchema", () => {
   it("round-trips a full fixture", () => {
@@ -30,7 +15,7 @@ describe("KnowledgeDocumentSchema", () => {
       title: "Q3 renewal call",
       adapter: "granola",
       external_ref: "granola:note_123",
-      visibility: { mode: "tenant" },
+      access_tags: ["knowledge.tenant:tenant_1"],
       attributes: { channel: "call", pinned: true, score: null },
       created_at: "2026-07-19T00:00:00.000Z",
       last_seen_at: "2026-07-19T00:00:00.000Z",
@@ -46,7 +31,7 @@ describe("KnowledgeDocumentSchema", () => {
       kind: "call_transcript",
       title: "Q3 renewal call",
       adapter: "granola",
-      visibility: { mode: "tenant" },
+      access_tags: ["knowledge.tenant:tenant_1"],
       attributes: {},
       created_at: "2026-07-19T00:00:00.000Z",
       last_seen_at: "2026-07-19T00:00:00.000Z",

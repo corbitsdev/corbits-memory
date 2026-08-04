@@ -1,5 +1,7 @@
 import { describe, expect, it } from "bun:test";
+import { createInMemoryGrantStore } from "@intx/authz";
 
+import { ownerTag, tenantTag } from "../acl.ts";
 import {
   createFakeDocumentStore,
   createFakeSourceProvider,
@@ -17,7 +19,7 @@ describe("createFakeDocumentStore", () => {
       principalId: PRINCIPAL,
       title: "standup notes",
       text: "shipped the ports foundation",
-      visibility: { mode: "tenant" },
+      accessTags: [ownerTag(PRINCIPAL), tenantTag(TENANT)],
     });
     expect(documentId).toMatch(/^fake_doc_/);
 
@@ -39,14 +41,14 @@ describe("createFakeDocumentStore", () => {
     await store.close();
   });
 
-  it("respects private visibility", async () => {
+  it("creator-only without grants; other principal cannot see", async () => {
     const store = createFakeDocumentStore();
     await store.add({
       tenantId: TENANT,
       principalId: PRINCIPAL,
       title: "secret",
       text: "classified payload",
-      visibility: { mode: "private", principalIds: [PRINCIPAL] },
+      accessTags: [ownerTag(PRINCIPAL)],
     });
     const asOwner = await store.find({
       tenantId: TENANT,
@@ -63,22 +65,35 @@ describe("createFakeDocumentStore", () => {
     await store.close();
   });
 
-  it("honours block list", async () => {
+  it("peer with grant on owner tag can see", async () => {
     const store = createFakeDocumentStore();
     await store.add({
       tenantId: TENANT,
       principalId: PRINCIPAL,
-      title: "blocked from other",
+      title: "shared note",
       text: "visible body",
-      visibility: { mode: "tenant" },
-      blockPrincipalIds: [OTHER],
+      accessTags: [ownerTag(PRINCIPAL), ownerTag(OTHER)],
     });
+    const grants = createInMemoryGrantStore([
+      {
+        id: "g1",
+        principalId: OTHER,
+        resource: ownerTag(OTHER),
+        action: "find",
+        effect: "allow",
+        origin: "role",
+        conditions: null,
+        expiresAt: null,
+        roleId: null,
+      },
+    ]);
     const asOther = await store.find({
       tenantId: TENANT,
       principalId: OTHER,
       query: "visible",
+      grants,
     });
-    expect(asOther.items).toHaveLength(0);
+    expect(asOther.items).toHaveLength(1);
     await store.close();
   });
 });
