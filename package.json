@@ -1,7 +1,7 @@
 {
   "name": "@corbits/knowledge-engine",
   "version": "0.1.2",
-  "description": "Mountable knowledge capture + search SDK for Interchange hubs",
+  "description": "Mountable knowledge add/find/ask/recent SDK for Interchange hubs",
   "exports": {
     ".": "./src/index.ts",
     "./migrations": "./src/migrations.ts",

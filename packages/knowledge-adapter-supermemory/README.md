@@ -8,10 +8,10 @@ Pure `fetch` — **no** vendor SDK. Tenancy is enforced with a length-prefixed
 
 ## Product path: DocumentStore
 
-Supermemory is a **full backend replacement** for local pgvector — not a
-side-channel memory bolt-on. Mount it as `documentStore`; the plane routes
-`add` / `find` / `recent` (and `ask` via find) through the store. No Postgres /
-embed endpoints required.
+Mount Supermemory as `documentStore` so the plane routes `add` / `find` /
+`recent` (and `ask` via find) through this store — no Postgres / embed
+endpoints required. This is the product integration path (not
+`MemoryProvider` / `includeMemory`).
 
 ```ts
 import { createKnowledgePlane } from "@corbits/knowledge-engine";
@@ -37,6 +37,15 @@ mountKnowledgeEngine(app, {
 
 Find uses `searchMode: "hybrid"` so document retrieval works for the green
 plane (add/find/ask), not memories-only personal facts.
+
+## Limitations (honest)
+
+| Area | Behavior |
+| --- | --- |
+| Isolation | **Principal-bucket only** via `containerTag(tenantId, principalId)`. Each principal has a private container; docs are not shared across principals. |
+| Visibility ladder | `visibility` / `share` / `blockPrincipalIds` are **not** enforced by this adapter. For multi-principal or tenant-wide ACL, use the default pgvector store or a store that implements the ladder. |
+| `recent` | Always `[]` — no recent-feed API in this adapter. |
+| `options.memory` | **Never** mount this package as `options.memory`. Product backend is `documentStore` only. |
 
 ## What is out of scope
 

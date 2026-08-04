@@ -134,9 +134,12 @@ export type MountKnowledgeEngineOptions = {
   textExtractor?: TextExtractor;
   /** Override durable storage (default: engine pgvector store). */
   documentStore?: DocumentStore;
-  /** Live source connectors (merge wired in CL-5227). */
+  /** Live source connectors merged into find/ask (fail-soft). */
   sources?: SourceProvider[];
-  /** Memory port accepted for wiring; product in M3. */
+  /**
+   * Optional ask side-channel only (`includeMemory`). Not a DocumentStore
+   * replacement — vendor backends mount as `documentStore`.
+   */
   memory?: MemoryProvider;
 };
 

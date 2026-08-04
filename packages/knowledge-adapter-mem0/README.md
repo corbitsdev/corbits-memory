@@ -8,10 +8,10 @@ length-prefixed `user_id` (`mapUser`) so free-form ids cannot collide.
 
 ## Product path: DocumentStore
 
-Mem0 is a **full backend replacement** for local pgvector — not a side-channel
-memory bolt-on. Mount it as `documentStore`; the plane routes `add` / `find` /
-`recent` (and `ask` via find) through the store. No Postgres / embed endpoints
-required.
+Mount Mem0 as `documentStore` so the plane routes `add` / `find` / `recent`
+(and `ask` via find) through this store — no Postgres / embed endpoints
+required. This is the product integration path (not `MemoryProvider` /
+`includeMemory`).
 
 ```ts
 import { createKnowledgePlane } from "@corbits/knowledge-engine";
@@ -48,11 +48,19 @@ mountKnowledgeEngine(app, {
 });
 ```
 
+## Limitations (honest)
+
+| Area | Behavior |
+| --- | --- |
+| Isolation | **Principal-bucket only** via `mapUser(tenantId, principalId)`. Each principal has a private Mem0 `user_id`; docs are not shared across principals. |
+| Visibility ladder | `visibility` / `share` / `blockPrincipalIds` are **not** enforced by this adapter (metadata at best). For multi-principal or tenant-wide ACL, use the default pgvector store or a store that implements the ladder. |
+| `recent` | Always `[]` — Mem0 has no recent-feed API here. |
+| `options.memory` | **Never** mount this package as `options.memory`. That port is an ask side-channel; Mem0 as product backend is `documentStore` only. |
+
 ## What is out of scope
 
 - **Not** a tools-shaped source (Linear-style live connectors stay separate).
-- **Not** the product path for `MemoryProvider` / `includeMemory` — that optional
-  personal-memory port is unrelated to using Mem0 as the durable store.
+- **Not** the product path for `MemoryProvider` / `includeMemory`.
 - `createMem0MemoryProvider` remains exported for back-compat only; prefer
   `createMem0DocumentStore`.
 

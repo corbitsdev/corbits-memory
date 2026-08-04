@@ -85,7 +85,7 @@ export type DocumentStore = {
 
 /**
  * One live hit from a SourceProvider.searchLive call.
- * Dedupe key for merge is `adapter:externalRef` (CL-5227).
+ * Dedupe key for merge is `adapter:externalRef`.
  */
 export type LiveSearchItem = {
   adapter: string;

@@ -930,18 +930,20 @@ function createPlaneFromStore(
       const { visibility, blockPrincipalIds } =
         resolveShareAndVisibility(params);
 
+      const externalRef =
+        params.externalRef ??
+        `knowledge:${params.tenantId}:${crypto.randomUUID()}`;
+
       return store.add({
         tenantId: params.tenantId,
         principalId: params.principalId,
         title,
         text,
         visibility,
+        externalRef,
         ...(blockPrincipalIds !== undefined ? { blockPrincipalIds } : {}),
         ...(params.attributes !== undefined
           ? { attributes: params.attributes }
-          : {}),
-        ...(params.externalRef !== undefined
-          ? { externalRef: params.externalRef }
           : {}),
       });
     },

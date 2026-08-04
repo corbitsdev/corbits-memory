@@ -69,6 +69,13 @@ Linear tools live in a **sibling repo** ([`@corbits/linear`](https://github.com/
 Core never imports vendor SDKs. Adapters are pure-fetch; tenant-safe keys only.
 `MemoryProvider` factories in the mem0/supermemory packages are back-compat only.
 
+**Vendor store honesty:** Mem0/Supermemory adapters isolate by **principal
+bucket** (one Mem0 `user_id` / Supermemory `containerTag` per tenant+principal).
+They do **not** implement the multi-principal / tenant visibility ladder or
+block lists — those need the default pgvector store (or a store that enforces
+them). `recent` is empty on both adapters. Never mount them as
+`options.memory`.
+
 ### What is not in scope
 
 - No auth, API keys, OAuth, webhooks, SPA, or standalone server in core.
