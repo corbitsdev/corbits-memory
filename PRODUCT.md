@@ -38,43 +38,48 @@ Identity on the plane is always **`principalId` + `tenantId`** (never
 
 | Port | Purpose |
 | --- | --- |
-| `DocumentStore` | Durable local docs (default: engine pgvector) |
-| `SourceProvider` | Optional live search (`searchLive`); merge is fail-soft |
-| `MemoryProvider` | Optional personal memory (`remember` / `recall`) |
+| `DocumentStore` | **The** durable backend for add/find/recent (default: engine pgvector). Replace with Mem0, Supermemory, or fakes — no Postgres required when overridden. |
+| `SourceProvider` | Optional **tools-shaped** live search (`searchLive`); merge is fail-soft. Not a store replacement. |
+| `MemoryProvider` | Optional ask side-channel only (`includeMemory`); **not** how you swap backends. |
 
 Mount options accept `documentStore`, `sources[]`, `memory`, plus in-package
 **fakes** so a host can mount with fakes only and exercise add/find/ask/recent
-without Postgres.
+without Postgres. Hosts that want Mem0 or Supermemory as the sole durable store
+pass that adapter as `documentStore` and omit `KnowledgeConfig`.
 
-**MergeLocalLiveV1** merges local + live: fail-soft per provider (timeout/error
-→ degrade flags, never fail the request), dedupe by `adapter:externalRef`,
-optional `sources` filter (`local` + provider ids).
+**MergeLocalLiveV1** merges local DocumentStore + live SourceProviders: fail-soft
+per provider (timeout/error → degrade flags, never fail the request), dedupe by
+`adapter:externalRef`, optional `sources` filter (`local` + provider ids).
 
-**Memory:** `includeMemory` on `ask` defaults **false**. When true and a
-provider is mounted, recall injects uncited personal context; failures degrade
-with `memory_unavailable` (docs-only). Writes are host-owned via
-`plane.remember` — ask never auto-writes.
+**Memory side-channel:** `includeMemory` on `ask` defaults **false**. When true
+and a `MemoryProvider` is mounted, recall injects uncited personal context;
+failures degrade with `memory_unavailable` (docs-only). This is unrelated to
+using Mem0/Supermemory as the DocumentStore. Writes via `plane.remember` are
+host-owned — ask never auto-writes.
 
 ### Adapter packages (same monorepo tree)
 
 | Package | Role |
 | --- | --- |
-| `@corbits/knowledge-adapter-mem0` | MemoryProvider; user id `tenantId::principalId` |
-| `@corbits/knowledge-adapter-supermemory` | MemoryProvider; container `t_{tenant}_u_{principal}` |
-| `@corbits/knowledge-source-linear` | SourceProvider + webhook → AdaptedDocument mappers |
+| `@corbits/knowledge-adapter-mem0` | **DocumentStore** via Mem0 Platform HTTP; tenant key `mapUser` length-prefixed |
+| `@corbits/knowledge-adapter-supermemory` | **DocumentStore** via Supermemory HTTP; tenant key `containerTag` length-prefixed |
+| `@corbits/knowledge-source-linear` | **SourceProvider** + webhook → AdaptedDocument mappers (tools-shaped, not a store) |
 
 Core never imports vendor SDKs. Adapters are pure-fetch; tenant-safe keys only.
+`MemoryProvider` factories in the mem0/supermemory packages are back-compat only.
 
 ### What is not in scope
 
 - No auth, API keys, OAuth, webhooks, SPA, or standalone server in core.
 - No dual ACL / aspirational `source_acl` writes as a security boundary.
 - Workbench is a client, not required.
+- Linear / Granola / MCP tools are **not** DocumentStore replacements.
 
-**One Postgres for the SDK:** `KNOWLEDGE_DATABASE_URL` only (no `DATABASE_URL`
-fallback). All tables live under the **`knowledge`** schema
-(`knowledge.document`, `knowledge.chunk`, …). Cross-refs (`tenant_id`,
-`principal_id`) are plain `text` — no FKs into the host control plane.
+**Default durable store:** local Postgres via `KNOWLEDGE_DATABASE_URL` only (no
+`DATABASE_URL` fallback), tables under the **`knowledge`** schema. When
+`documentStore` is injected, Postgres is not opened. Cross-refs (`tenant_id`,
+`principal_id`) on the default store are plain `text` — no FKs into the host
+control plane.
 
 ```
 Claude Code / Codex / Workbench (clients)
@@ -84,12 +89,14 @@ Claude Code / Codex / Workbench (clients)
 │  Host Interchange createApp                  │
 │  + mountKnowledgeEngine(app, opts)           │
 │       grants: knowledge:add | knowledge:find │
-│       optional: documentStore, sources,      │
-│                 memory, textExtractor        │
+│       documentStore: pgvector | Mem0 | SM |  │
+│                      fake                    │
+│       optional: sources, memory,             │
+│                 textExtractor                │
 │         │  in-process                        │
 │         ▼                                    │
 │  Knowledge plane: add / find / ask / recent  │
-│  Postgres schema knowledge.* (pgvector)      │
+│  → DocumentStore (sole durable backend)      │
 └──────────────────────────────────────────────┘
 ```
 

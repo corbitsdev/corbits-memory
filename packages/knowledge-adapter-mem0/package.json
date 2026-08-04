@@ -1,7 +1,8 @@
 {
   "name": "@corbits/knowledge-adapter-mem0",
   "version": "0.1.0",
-  "description": "Mem0 MemoryProvider adapter for @corbits/knowledge-engine (pure fetch, no SDK)",
+  "description": "Mem0 DocumentStore adapter for @corbits/knowledge-engine (pure fetch, no SDK)",
+
   "type": "module",
   "module": "src/index.ts",
   "exports": {

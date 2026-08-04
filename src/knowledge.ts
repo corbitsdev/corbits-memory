@@ -373,16 +373,18 @@ export type KnowledgePlaneOptions = {
   textExtractor?: TextExtractor;
   /**
    * Override durable storage. When set, the plane does not open Postgres or
-   * call embed/rerank endpoints — useful for fakes and alternate backends.
+   * call embed/rerank endpoints — use for fakes and replaceable backends
+   * (Mem0, Supermemory). This is the product path for swapping stores.
    */
   documentStore?: DocumentStore;
   /**
-   * Live source connectors. Wired into find/ask merge in CL-5227; accepted
-   * here so mounts can declare them early.
+   * Live source connectors (tools-shaped). Merged into find/ask via
+   * MergeLocalLiveV1; not a DocumentStore replacement.
    */
   sources?: SourceProvider[];
   /**
-   * Memory port type accepted for mount wiring; remember/recall product is M3.
+   * Optional personal-memory side channel for ask(includeMemory).
+   * Not how you swap durable backends — use documentStore for that.
    */
   memory?: MemoryProvider;
 };
