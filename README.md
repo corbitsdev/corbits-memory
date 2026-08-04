@@ -1,6 +1,6 @@
 # @corbits/memory
 
-Mountable knowledge plane for [Interchange](https://github.com/corbitsdev) hubs:
+Mountable memory plane for [Interchange](https://github.com/corbitsdev) hubs:
 **add** documents, **find** with hybrid search, **ask** grounded answers, **recent**
 timeline — with optional live sources and personal memory.
 
@@ -13,21 +13,28 @@ Requires Bun 1.2+.
 
 ## Install
 
+Not published to npm yet. Install from git:
+
 ```bash
-bun add @corbits/memory
+bun add git+https://github.com/corbitsdev/corbits-memory.git
 ```
 
-## Mount (green path)
+## Mount
 
 ```ts
-import { mountMemory } from "@corbits/memory";
-import { loadMemoryConfig } from "@corbits/memory/config";
+import { mountMemory, loadMemoryConfig } from "@corbits/memory";
+import type { GrantStore, ConditionRegistry } from "@intx/authz";
+
+// Same pair the host passes to createApp / createRequireGrant.
+const grants = {
+  grantStore: hostGrantStore as GrantStore,
+  conditionRegistry: hostConditionRegistry as ConditionRegistry,
+};
 
 mountMemory(app, {
   config: loadMemoryConfig(),
-  grants: { grantStore, conditionRegistry },
-  // optional ports:
-  // documentStore, sources, memoryProvider, textExtractor, generate
+  grants,
+  // optional: documentStore, sources, memoryProvider, textExtractor, generate
 });
 ```
 
@@ -50,17 +57,26 @@ Without it: **401 `principal_required`**.
 
 ### Plane without HTTP
 
+One options bag — never `createMemory(undefined, …)`.
+
 ```ts
 import {
   createMemory,
   createFakeDocumentStore,
   createFakeMemoryProvider,
 } from "@corbits/memory";
+import type { GrantStore, ConditionRegistry } from "@intx/authz";
 
-const memory = createMemory(undefined, grants, {
+const grants = {
+  grantStore: hostGrantStore as GrantStore,
+  conditionRegistry: hostConditionRegistry as ConditionRegistry,
+};
+
+const memory = createMemory({
+  grants,
   documentStore: createFakeDocumentStore(),
   memoryProvider: createFakeMemoryProvider(),
-  generate: async (messages) => "…", // wire your inference layer
+  generate: async (messages) => "…", // wire your inference layer for ask()
 });
 
 await memory.add({
@@ -77,6 +93,15 @@ const answer = await memory.ask({
 });
 ```
 
+With the default Postgres store:
+
+```ts
+const memory = createMemory({
+  config: loadMemoryConfig(),
+  grants,
+});
+```
+
 ## Ports
 
 | Port | Default | Override |
@@ -88,27 +113,30 @@ const answer = await memory.ask({
 **Live merge (MergeLocalLiveV1):** per-provider timeout/error → `live_timeout` /
 `live_error` degrade; dedupe `adapter:externalRef`; optional `sources` filter.
 
-**Memory:** `ask({ includeMemory: true })` recalls when a provider is mounted;
-failure → `memory_unavailable`, docs-only. `plane.remember` / `plane.recall` for
-host-owned writes (ask never auto-remembers).
+**Memory side-channel:** `ask({ includeMemory: true })` recalls when a provider
+is mounted; failure → `memory_unavailable`, docs-only. `plane.remember` /
+`plane.recall` for host-owned writes (ask never auto-remembers).
 
-### Optional DocumentStore adapters
+### Optional DocumentStore adapters (sibling packages)
 
-Optional adapters are **sibling packages** (not vendored in this repo). Core
-never imports vendor SDKs. See each package README for mount examples and
-isolation limits:
+Optional backends are **sibling packages**, not vendored here. Core never imports
+vendor SDKs. Install each from git; each README only documents itself + this core.
 
-- [`@corbits/mem0`](https://github.com/corbitsdev/corbits-mem0)
-- [`@corbits/supermemory`](https://github.com/corbitsdev/corbits-supermemory)
+| Package | Role |
+| --- | --- |
+| [`@corbits/mem0-memory-adapter`](https://github.com/corbitsdev/corbits-mem0-memory-adapter) | Mem0 as `documentStore` |
+| [`@corbits/supermemory-memory-adapter`](https://github.com/corbitsdev/corbits-supermemory-memory-adapter) | Supermemory as `documentStore` |
+| [`@corbits/linear-tools`](https://github.com/corbitsdev/corbits-linear-tools) | Linear **tools** (`SourceProvider` + webhook map) — not a store |
 
 ```ts
-// Linear SourceProvider lives in sibling repo @corbits/linear
-// (https://github.com/corbitsdev/corbits-linear), not this monorepo.
-import {
-  createLinearSourceProvider,
-  mapLinearWebhook,
-} from "@corbits/linear";
-// host owns OAuth + webhook verify; private issues never map into tenant docs
+import { createMem0DocumentStore } from "@corbits/mem0-memory-adapter";
+// or: createSupermemoryDocumentStore from @corbits/supermemory-memory-adapter
+// or: createLinearSourceProvider from @corbits/linear-tools
+
+const memory = createMemory({
+  documentStore: createMem0DocumentStore({ apiKey: process.env.MEM0_API_KEY! }),
+  grants,
+});
 ```
 
 ## Migrations
@@ -144,8 +172,6 @@ Full design: `docs/AUTHZ-DOCUMENT-ACCESS.md`.
 bun install
 bun run typecheck
 bun run test
-# DocumentStore adapters: sibling @corbits/mem0, @corbits/supermemory
-# Linear tools: sibling @corbits/linear
 ```
 
 License: LGPL-2.1 (`LICENSE`). Contributions: `CLA.md`.

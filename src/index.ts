@@ -41,6 +41,7 @@ export { RerankConfigError } from "./core/rerank-client.ts";
 // responsible for the capability check `requireGrant` would have performed; see
 // the README. Rerank config is validated at construction (same as mount).
 // Pass `grants` + optional `generate` when the host will call `ask()`.
+// One options bag — never createMemory(undefined, …).
 export { createMemory } from "./memory.ts";
 export type {
   AskCitation,
@@ -163,11 +164,11 @@ export function mountMemory(
       ? { memoryProvider: options.memoryProvider }
       : {}),
   };
-  const memory = createMemory(
-    options.config,
-    options.grants,
-    planeOptions,
-  );
+  const memory = createMemory({
+    ...(options.config ? { config: options.config } : {}),
+    grants: options.grants,
+    ...planeOptions,
+  });
   const deps: RouteDeps = {
     memory,
     grants: options.grants,

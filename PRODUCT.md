@@ -12,7 +12,7 @@ SDK never creates one; it mounts onto yours.
 | Surface | Role |
 | --- | --- |
 | `mountMemory(app, opts)` | Plane + HTTP on an Interchange `createApp` |
-| `createMemory(config, grants?, options?)` | Same plane without HTTP |
+| `createMemory(options?: MemoryOptions)` | Same plane without HTTP |
 | `runMemoryMigrations(url)` | Apply pgvector schema under Postgres `knowledge` |
 | `loadMemoryConfig()` | Mount config from env |
 
@@ -60,22 +60,22 @@ never auto-writes.
 
 ### Optional adapter packages
 
-Optional `DocumentStore` implementations live as **sibling packages** (not in
-this tree), same pattern as `@corbits/linear` / `@corbits/granola`:
+Optional `DocumentStore` implementations and tools live as **sibling packages**
+(not in this tree), same pattern as `@corbits/granola`:
 
-- [`@corbits/mem0`](https://github.com/corbitsdev/corbits-mem0) — Mem0 backend
-- [`@corbits/supermemory`](https://github.com/corbitsdev/corbits-supermemory) — Supermemory backend
+- [`@corbits/mem0-memory-adapter`](https://github.com/corbitsdev/corbits-mem0-memory-adapter) — Mem0 backend
+- [`@corbits/supermemory-memory-adapter`](https://github.com/corbitsdev/corbits-supermemory-memory-adapter) — Supermemory backend
+- [`@corbits/linear-tools`](https://github.com/corbitsdev/corbits-linear-tools) — Linear SourceProvider + webhook tools (not a store)
 
 Core never imports vendor SDKs. Hosts that need a store beyond default pgvector
 mount their own `documentStore`.
 
-**Third-party store honesty:** not every `DocumentStore` evaluates host grant
-tags. Some isolate by **principal bucket** only (one private namespace per
-tenant+principal) and do **not** multi-share via `accessTags` + host
-`GrantStore`. For full grant-tag ACL, use the default pgvector store (or a store
-that implements the contract in `docs/AUTHZ-DOCUMENT-ACCESS.md`). Adapter
-packages must document their isolation model in their own README. Never mount a
-durable store as `options.memoryProvider`.
+Not every `DocumentStore` evaluates host grant tags the same way. Some isolate by
+**principal bucket** only (one private namespace per tenant+principal) and do not
+multi-share via `accessTags` + host `GrantStore`. For full grant-tag ACL, use the
+default pgvector store (or a store that implements
+`docs/AUTHZ-DOCUMENT-ACCESS.md`). Adapter packages document their isolation model
+in their own README. Never mount a durable store as `options.memoryProvider`.
 
 ### What is not in scope
 

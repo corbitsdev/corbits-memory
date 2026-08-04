@@ -44,21 +44,18 @@ describe("MemoryProvider product wire (CL-5228)", () => {
       },
     };
     const store = createFakeDocumentStore();
-    const plane = createMemory(
-      undefined,
-      {
+    const plane = createMemory({
+      grants: {
         grantStore: createInMemoryGrantStore([grant("find")]),
         conditionRegistry: {},
       },
-      {
-        documentStore: store,
-        memoryProvider: memory,
-        generate: async (msgs) => {
-          const last = msgs[msgs.length - 1]?.content ?? "";
-          return last.includes("Personal memory") ? "HAS_MEM" : "NO_MEM";
-        },
+      documentStore: store,
+      memoryProvider: memory,
+      generate: async (msgs) => {
+        const last = msgs[msgs.length - 1]?.content ?? "";
+        return last.includes("Personal memory") ? "HAS_MEM" : "NO_MEM";
       },
-    );
+    });
     await plane.add({
       tenantId: TENANT,
       principalId: PRINCIPAL,
@@ -82,23 +79,20 @@ describe("MemoryProvider product wire (CL-5228)", () => {
       text: "user prefers dark mode",
     });
     const store = createFakeDocumentStore();
-    const plane = createMemory(
-      undefined,
-      {
+    const plane = createMemory({
+      grants: {
         grantStore: createInMemoryGrantStore([grant("find")]),
         conditionRegistry: {},
       },
-      {
-        documentStore: store,
-        memoryProvider: memory,
-        generate: async (msgs) => {
-          const last = msgs[msgs.length - 1]?.content ?? "";
-          return last.includes("user prefers dark mode")
-            ? "saw-memory"
-            : "missed";
-        },
+      documentStore: store,
+      memoryProvider: memory,
+      generate: async (msgs) => {
+        const last = msgs[msgs.length - 1]?.content ?? "";
+        return last.includes("user prefers dark mode")
+          ? "saw-memory"
+          : "missed";
       },
-    );
+    });
     await plane.add({
       tenantId: TENANT,
       principalId: PRINCIPAL,
@@ -122,18 +116,15 @@ describe("MemoryProvider product wire (CL-5228)", () => {
       },
     };
     const store = createFakeDocumentStore();
-    const plane = createMemory(
-      undefined,
-      {
+    const plane = createMemory({
+      grants: {
         grantStore: createInMemoryGrantStore([grant("find")]),
         conditionRegistry: {},
       },
-      {
-        documentStore: store,
-        memoryProvider: memory,
-        generate: async () => "docs-only [1]",
-      },
-    );
+      documentStore: store,
+      memoryProvider: memory,
+      generate: async () => "docs-only [1]",
+    });
     await plane.add({
       tenantId: TENANT,
       principalId: PRINCIPAL,
@@ -152,7 +143,7 @@ describe("MemoryProvider product wire (CL-5228)", () => {
 
   it("plane.remember writes; plane.recall reads", async () => {
     const memory = createFakeMemoryProvider();
-    const plane = createMemory(undefined, undefined, {
+    const plane = createMemory({
       documentStore: createFakeDocumentStore(),
       memoryProvider: memory,
     });
@@ -171,7 +162,7 @@ describe("MemoryProvider product wire (CL-5228)", () => {
   });
 
   it("plane.remember without memory throws 501", async () => {
-    const plane = createMemory(undefined, undefined, {
+    const plane = createMemory({
       documentStore: createFakeDocumentStore(),
     });
     try {
@@ -189,7 +180,7 @@ describe("MemoryProvider product wire (CL-5228)", () => {
   });
 
   it("plane.recall without memory returns empty", async () => {
-    const plane = createMemory(undefined, undefined, {
+    const plane = createMemory({
       documentStore: createFakeDocumentStore(),
     });
     const items = await plane.recall({

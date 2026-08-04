@@ -175,14 +175,14 @@ describe("createMemory — construction validation", () => {
     // mountMemory): a standalone plane with a bad override must fail
     // construction, not silently degrade on every later find.
     expect(() =>
-      createMemory(
-        baseConfig({
+      createMemory({
+        config: baseConfig({
           baseUrl: "https://tei.example.com",
           model: "bge-reranker-base",
           apiKey: undefined,
           maxDocChars: 5_000,
         }),
-      ),
+      }),
     ).toThrow(RerankConfigError);
   });
 });
@@ -260,7 +260,8 @@ describe("createMemory.find — grant-tag post-filter wiring", () => {
     const { createMemory: makePlane } = await import(
       `./memory.ts?wiring-blocked=${Date.now()}`
     );
-    const plane = makePlane(wiringConfig);
+    const plane = makePlane({ config: wiringConfig });
+
     const result = await plane.find({
       tenantId: TENANT,
       principalId: PRINCIPAL,
@@ -290,7 +291,8 @@ describe("createMemory.find — grant-tag post-filter wiring", () => {
     const { createMemory: makePlane } = await import(
       `./memory.ts?wiring-kinds=${Date.now()}`
     );
-    const plane = makePlane(wiringConfig);
+    const plane = makePlane({ config: wiringConfig });
+
     await plane.find({
       tenantId: TENANT,
       principalId: PRINCIPAL,
@@ -324,7 +326,8 @@ describe("createMemory.find — grant-tag post-filter wiring", () => {
     const { createMemory: makePlane } = await import(
       `./memory.ts?wiring-unreadable=${Date.now()}`
     );
-    const plane = makePlane(wiringConfig);
+    const plane = makePlane({ config: wiringConfig });
+
     const result = await plane.find({
       tenantId: TENANT,
       principalId: PRINCIPAL,
@@ -361,7 +364,8 @@ describe("createMemory.find — grant-tag post-filter wiring", () => {
     const { createMemory: makePlane } = await import(
       `./memory.ts?wiring-evidence=${Date.now()}`
     );
-    const plane = makePlane(wiringConfig);
+    const plane = makePlane({ config: wiringConfig });
+
 
     const without = await plane.find({
       tenantId: TENANT,
@@ -389,7 +393,7 @@ describe("createMemory.find — grant-tag post-filter wiring", () => {
 describe("find/recent — limit bounds", () => {
   // These throw before any DB work, so a nonexistent URL is fine.
   it("find rejects limit below 1", async () => {
-    const plane = createMemory(wiringConfig);
+    const plane = createMemory({ config: wiringConfig });
     try {
       await plane.find({
         tenantId: TENANT,
@@ -406,7 +410,7 @@ describe("find/recent — limit bounds", () => {
   });
 
   it("find rejects limit above 50", async () => {
-    const plane = createMemory(wiringConfig);
+    const plane = createMemory({ config: wiringConfig });
     try {
       await plane.find({
         tenantId: TENANT,
@@ -422,7 +426,7 @@ describe("find/recent — limit bounds", () => {
   });
 
   it("recent rejects limit above 100", async () => {
-    const plane = createMemory(wiringConfig);
+    const plane = createMemory({ config: wiringConfig });
     try {
       await plane.recent({
         tenantId: TENANT,
@@ -437,7 +441,7 @@ describe("find/recent — limit bounds", () => {
   });
 
   it("recent rejects limit below 1", async () => {
-    const plane = createMemory(wiringConfig);
+    const plane = createMemory({ config: wiringConfig });
     try {
       await plane.recent({
         tenantId: TENANT,
@@ -496,7 +500,8 @@ async function freshPlane(opts?: {
     const { createMemory: makePlane } = await import(
       `./memory.ts?add-${Date.now()}-${Math.random()}`
     );
-    return makePlane(wiringConfig, undefined, opts ?? {});
+    return makePlane({ config: wiringConfig, ...(opts ?? {}) });
+
   }
 
   /** Dynamic re-import yields a distinct MemoryError class; match by shape. */
@@ -733,7 +738,7 @@ describe("ask() — grant check", () => {
       grantStore: createInMemoryGrantStore([]),
       conditionRegistry: {},
     };
-    const plane = createMemory(askConfig, grants);
+    const plane = createMemory({ config: askConfig, grants });
     await expect(
       plane.ask({ tenantId: TENANT, principalId: PRINCIPAL, query: "q" }),
     ).rejects.toBeInstanceOf(MemoryNotPermittedError);
@@ -745,7 +750,7 @@ const denyGrant: GrantRule = { ...grant("find"), effect: "deny" };
       grantStore: createInMemoryGrantStore([denyGrant]),
       conditionRegistry: {},
     };
-    const plane = createMemory(askConfig, grants);
+    const plane = createMemory({ config: askConfig, grants });
     await expect(
       plane.ask({ tenantId: TENANT, principalId: PRINCIPAL, query: "q" }),
     ).rejects.toBeInstanceOf(MemoryNotPermittedError);
@@ -760,7 +765,7 @@ describe("ask() — missing generate", () => {
 grantStore: createInMemoryGrantStore([grant("find")]),
       conditionRegistry: {},
     };
-    const plane = createMemory(askConfig, grants);
+    const plane = createMemory({ config: askConfig, grants });
     try {
       await plane.ask({ tenantId: TENANT, principalId: PRINCIPAL, query: "q" });
       throw new Error("expected ask() to reject");
@@ -785,7 +790,7 @@ describe("ask() — allow path", () => {
       expect(messages[1]?.content).toContain("the relevant snippet");
       return Promise.resolve("Answer from context [1].");
     });
-    const plane = createMemory(askConfig, grants, { generate });
+    const plane = createMemory({ config: askConfig, grants, generate });
     // Stub find so this unit test never needs a live Postgres. ask() looks
     // up plane.find at call time, so reassignment is the wiring under test.
     plane.find = mock(() =>

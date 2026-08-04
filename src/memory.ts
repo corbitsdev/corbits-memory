@@ -374,6 +374,13 @@ export async function synthesizeAnswer(
 }
 
 export type MemoryOptions = {
+  /** Engine config (DB + model endpoints). Required when `documentStore` is omitted. */
+  config?: MemoryConfig;
+  /**
+   * Host grant store + condition registry. Required for `ask()` (in-process
+   * capability check). Standalone add/find callers may omit it.
+   */
+  grants?: GrantConfig;
   /** Required for `ask()`; omit if the host only adds and finds. */
   generate?: Generate;
   /** Required for `add({ file })`; omit if the host only adds text content. */
@@ -471,36 +478,66 @@ function resolveAddAccessTags(params: MemoryAddParams): string[] {
 }
 
 /**
- * Build a knowledge plane.
+ * Build a memory plane.
  *
  * One product path: every plane is store-backed. When `options.documentStore`
  * is omitted, the default pgvector engine is wrapped as that store. Hosts
  * inject a DocumentStore or fakes the same way — no second plane implementation.
  *
- * - `grants` is required for `ask()` (in-process capability check). Standalone
- *   add/find callers may omit it.
+ * - `options.grants` is required for `ask()` (in-process capability check).
+ *   Standalone add/find callers may omit it.
  * - Rerank config is validated at construction when using the default store.
  * - Pass `options.sources` for live SourceProviders; find/ask merge via
  *   MergeLocalLiveV1 (fail-soft, 800ms timeout, prefer-local dedupe).
  * - Document access uses grant tags via the host GrantStore (not mini-ACL).
+ *
+ * @example With default pgvector store
+ * ```ts
+ * const memory = createMemory({
+ *   config: loadMemoryConfig(),
+ *   grants: { grantStore, conditionRegistry },
+ * });
+ * ```
+ *
+ * @example With a host DocumentStore (no Postgres)
+ * ```ts
+ * const memory = createMemory({
+ *   documentStore: myStore,
+ *   grants: { grantStore, conditionRegistry },
+ * });
+ * ```
  */
-export function createMemory(
-  config: MemoryConfig | undefined,
-  grants?: GrantConfig,
-  options: MemoryOptions = {},
-): Memory {
+export function createMemory(options: MemoryOptions = {}): Memory {
+  const {
+    config,
+    grants,
+    documentStore,
+    generate,
+    textExtractor,
+    sources,
+    memoryProvider,
+  } = options;
   const store =
-    options.documentStore ??
+    documentStore ??
     (() => {
       if (!config) {
         throw new MemoryError(
           500,
-          "MemoryConfig is required when documentStore is not provided",
+          "config is required when documentStore is not provided",
         );
       }
       return createEngineDocumentStore(config);
     })();
-  return createPlaneFromStore(store, grants, options);
+  return createPlaneFromStore(
+    store,
+    grants,
+    {
+      ...(generate ? { generate } : {}),
+      ...(textExtractor ? { textExtractor } : {}),
+      ...(sources ? { sources } : {}),
+      ...(memoryProvider ? { memoryProvider } : {}),
+    },
+  );
 }
 
 function wantsLocalChannel(sources: string[] | undefined): boolean {

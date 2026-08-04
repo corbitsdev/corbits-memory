@@ -54,7 +54,7 @@ function liveHit(
 describe("plane merge (MergeLocalLiveV1)", () => {
   it("merges local store hits with live source hits", async () => {
     const store = createFakeDocumentStore();
-    const plane = createMemory(undefined, undefined, {
+    const plane = createMemory({
       documentStore: store,
       sources: [
         createFakeSourceProvider("linear", [
@@ -83,7 +83,7 @@ describe("plane merge (MergeLocalLiveV1)", () => {
 
   it("includes live-only hits when query matches catalog", async () => {
     const store = createFakeDocumentStore();
-    const plane = createMemory(undefined, undefined, {
+    const plane = createMemory({
       documentStore: store,
       sources: [
         createFakeSourceProvider("linear", [
@@ -105,7 +105,7 @@ describe("plane merge (MergeLocalLiveV1)", () => {
 
   it("source filter local-only excludes live hits", async () => {
     const store = createFakeDocumentStore();
-    const plane = createMemory(undefined, undefined, {
+    const plane = createMemory({
       documentStore: store,
       sources: [
         createFakeSourceProvider("linear", [
@@ -152,7 +152,7 @@ describe("plane merge (MergeLocalLiveV1)", () => {
       },
     };
 
-    const plane = createMemory(undefined, undefined, {
+    const plane = createMemory({
       documentStore: store,
       sources: [brokenSource, slowSource],
     });
@@ -187,7 +187,7 @@ describe("plane merge (MergeLocalLiveV1)", () => {
     // Fake store citation uses adapter "fake" not linear — force collision by
     // using a custom store find isn't possible; instead use live adapter
     // "fake" so keys match fake store's citation adapter.
-    const plane = createMemory(undefined, undefined, {
+    const plane = createMemory({
       documentStore: store,
       sources: [
         {
@@ -231,25 +231,22 @@ describe("plane merge (MergeLocalLiveV1)", () => {
 
   it("ask still works when live source errors", async () => {
     const store = createFakeDocumentStore();
-    const plane = createMemory(
-      undefined,
-      {
+    const plane = createMemory({
+      grants: {
         grantStore: createInMemoryGrantStore([grant("find")]),
         conditionRegistry: {},
       },
-      {
-        documentStore: store,
-        sources: [
-          {
-            id: "broken",
-            searchLive: async () => {
-              throw new Error("boom");
-            },
+      documentStore: store,
+      sources: [
+        {
+          id: "broken",
+          searchLive: async () => {
+            throw new Error("boom");
           },
-        ],
-        generate: async () => "ok [1]",
-      },
-    );
+        },
+      ],
+      generate: async () => "ok [1]",
+    });
     await plane.add({
       tenantId: TENANT,
       principalId: PRINCIPAL,
