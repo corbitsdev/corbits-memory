@@ -1,7 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import { createInMemoryGrantStore } from "@intx/authz";
 
-import { ownerTag, tenantTag } from "../acl.ts";
+import { ownerTag, tenantTag } from "../grant-tags.ts";
+
 import {
   createFakeDocumentStore,
   createFakeSourceProvider,

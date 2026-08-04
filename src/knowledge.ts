@@ -5,7 +5,8 @@ import {
   resolveAccessTags,
   ownerTag,
   type ShareSugar,
-} from "./acl.ts";
+} from "./grant-tags.ts";
+
 import type { EngineConfig } from "./config.ts";
 import { log } from "./log.ts";
 import { createDb, type Db, type RawSql } from "./db/client.ts";
@@ -60,7 +61,8 @@ export {
   tenantTag,
   canAccessDocument,
   type ShareSugar,
-} from "./acl.ts";
+} from "./grant-tags.ts";
+
 
 export type ChatMessage = {
   role: "system" | "user" | "assistant";

@@ -9,7 +9,8 @@
  */
 import { and, desc, eq, sql } from "drizzle-orm";
 import type { ConditionRegistry, GrantStore } from "@intx/authz";
-import { canAccessDocument } from "../acl.ts";
+import { canAccessDocument } from "../grant-tags.ts";
+
 import type { Db } from "../db/client.ts";
 import { knowledgeDocument, knowledgeVersion } from "../db/schema.ts";
 import { log } from "../log.ts";

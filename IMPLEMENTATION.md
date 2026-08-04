@@ -12,7 +12,8 @@ src/
   mount-config.ts         # KnowledgeConfig + loadKnowledgeConfig() — the mount config
   config.ts               # EngineConfig — the core vector-plane config (db + embed + rerank)
   knowledge.ts            # createKnowledgePlane — add/find/ask/recent against store or pgvector
-  acl.ts                  # resolveAccessTags + canAccessDocument (grant tags)
+  grant-tags.ts           # resolveAccessTags + canAccessDocument (host grants)
+
   log.ts                  # getLogger(["knowledge-engine"]) from @intx/log
   migrations.ts           # runKnowledgeMigrations(url)
   ports/                  # DocumentStore / SourceProvider / MemoryProvider + fakes

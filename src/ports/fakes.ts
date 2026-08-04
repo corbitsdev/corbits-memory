@@ -6,7 +6,8 @@
  * authorize(grants, …, tag, "find") allows when grants are provided. Without
  * grants, only creator access (safe default for unit tests).
  */
-import { canAccessDocument } from "../acl.ts";
+import { canAccessDocument } from "../grant-tags.ts";
+
 import type {
   DocumentStore,
   DocumentStoreAddParams,

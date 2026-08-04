@@ -1,14 +1,12 @@
 /**
- * Document access via Interchange authz grant tags — not a mini-ACL.
+ * Grant-tag helpers for document access (Interchange `@intx/authz`).
  *
  * Spec: docs/AUTHZ-DOCUMENT-ACCESS.md
  *
- * - Capability (knowledge:add / knowledge:find) is checked elsewhere.
- * - Document access: creator always sees own docs; otherwise any accessTag
- *   that authorize(…, tag, "find") allows.
- * - Share sugars only mint tags.
- *
- * Hard cutover: no visibility modes, no block lists, no dual-read ACL path.
+ * - Capability checks (add/find on `knowledge`) live on the HTTP mount.
+ * - Document access: creator always sees own docs; otherwise any `accessTag`
+ *   that `authorize(…, tag, "find")` allows.
+ * - Share sugars only mint tags — they never write grants.
  */
 import { authorize } from "@intx/authz";
 import type { ConditionRegistry, GrantStore } from "@intx/authz";

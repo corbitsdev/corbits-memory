@@ -7,7 +7,8 @@ import {
   ownerTag,
   resolveAccessTags,
   tenantTag,
-} from "./acl.ts";
+} from "./grant-tags.ts";
+
 
 describe("resolveAccessTags", () => {
   test("always includes owner tag", () => {

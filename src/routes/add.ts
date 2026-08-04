@@ -4,7 +4,8 @@ import { describeRoute, resolver, validator } from "hono-openapi";
 import { type } from "arktype";
 
 import { formatCaughtError, log } from "../log.ts";
-import { resolveAccessTags, type ShareSugar } from "../acl.ts";
+import { resolveAccessTags, type ShareSugar } from "../grant-tags.ts";
+
 import { KnowledgeError } from "../knowledge.ts";
 import type { RouteDeps } from "./deps.ts";
 import { caller, grantGuard, requirePrincipal } from "./deps.ts";
