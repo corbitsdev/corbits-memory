@@ -11,28 +11,33 @@ src/
   index.ts                # mountKnowledgeEngine / mountKnowledgeRoutes
   mount-config.ts         # KnowledgeConfig + loadKnowledgeConfig() — the mount config
   config.ts               # EngineConfig — the core vector-plane config (db + embed + rerank)
-  knowledge.ts            # createKnowledgePlane — capture/search/timeline against pgvector
+  knowledge.ts            # createKnowledgePlane — add/find/ask/recent against store or pgvector
   acl.ts                  # parseAcl + shared acl_block read-path helpers
   log.ts                  # getLogger(["knowledge-engine"]) from @intx/log
   migrations.ts           # runKnowledgeMigrations(url)
+  ports/                  # DocumentStore / SourceProvider / MemoryProvider + fakes
   routes/                 # the mounted routes
     mount.ts              # mountKnowledgeRoutes (HTTP)
     deps.ts               # RouteDeps, caller(c) (context identity), grantGuard
-    capture.ts, search.ts, timeline.ts
+    add.ts, find.ts, ask.ts, recent.ts
   db/
-    schema.ts             # Drizzle table defs for every fixed-shape table
+    schema.ts             # Drizzle table defs (knowledge.* schema)
     client.ts             # createDb(config) -> { db (drizzle), sql (raw postgres-js) }
   services/
     capture.ts            # captureDocument, deriveFromRawCapture — the write path
     search.ts             # hybridSearch and every retrieval-candidate query
     timeline.ts           # listTimelineEvents — durable recent docs + ACL filter
     transform.ts          # transform_config CRUD + runTransform (replay)
-  core/                   # framework-agnostic, mostly pure (chunking, embed/rerank
-                          # clients, authority, hybrid fusion, MMR, schemas)
+  core/                   # framework-agnostic (chunking, embed/rerank, merge, schemas)
+packages/
+  knowledge-adapter-mem0/
+  knowledge-adapter-supermemory/
+  knowledge-source-linear/
 migrations/               # pgvector schema, applied in filename order by scripts/db-setup.ts
 scripts/db-setup.ts       # idempotent migration runner, tracked in `_migrations`
 compose.yml               # pgvector + Ollama + reranker for local dev
 ```
+
 
 The SDK has no server and no process entrypoint. `mountKnowledgeEngine` takes
 the host's `Hono<TenantEnv>` app plus `{ config, grants? }` and mounts the
@@ -126,7 +131,7 @@ columns (`authority`, `actor_count`, `has_social_signal`, `source_class`) are
 a **snapshot computed once at capture time** (`computeAuthority`, never
 recomputed retroactively). `raw_capture_id` points at the immutable source row
 this version was derived from. `generation` (added by migration 0009,
-default `'live'`) is the replay-generation tag: the normal `/capture` path always writes
+default `'live'`) is the replay-generation tag: the normal add path always writes
 `'live'`; a replay (`runTransform`) writes its own `transform_run.id` instead,
 so a replayed corpus's versions never collide with, or even become visible
 alongside, the live ones unless a caller explicitly searches that generation.
@@ -245,7 +250,7 @@ string-interpolated into raw SQL — this is the only place in the codebase a
 computed identifier is spliced into DDL/DML.
 
 ### `raw_capture`
-The immutable, append-only substrate (the raw-capture layer). Stores the exact `/capture`
+The immutable, append-only substrate (the raw-capture layer). Stores the exact add/ingest
 request payload (`adapter`, `occurred_at`, `document`) as JSON in `raw_text`
 (there's also a `raw_bytes bytea` column for non-textual payloads, currently
 unused by any write path — everything captured today is JSON). Deduped on
@@ -320,7 +325,7 @@ returns the run summary either way.
    this repo; chunks left unembedded simply never populate the dense
    channel for the query — they're still found by lexical/FTS). Any of these
    failure modes sets `degraded: true` on the `CaptureResult`, surfaced by
-   `POST /api/knowledge/capture` as a `degraded` field in its response — the capture
+   `POST /api/knowledge/add` as a `degraded` field in its response — the add
    still succeeded (chunks are durable and lexically searchable), only the
    dense/vector channel for those chunks is incomplete.
 
@@ -493,7 +498,7 @@ timeline maps different columns:
 |---|---|
 | `at` | `knowledge_document.last_seen_at` (ISO) — re-captures rise in the feed |
 | `title` | `knowledge_document.title` |
-| `source` | `knowledge_document.adapter` (HTTP capture defaults to `"mcp"`, not `"api"`) |
+| `source` | `knowledge_document.adapter` (HTTP add defaults to `"http"`, not `"api"`) |
 | `tenantId` | `knowledge_document.tenant_id` |
 | `principalId` | `knowledge_version.created_by_principal_id` of the active live version (empty string when null) — the capturing actor stored on the version, not the request principal of a later timeline read |
 

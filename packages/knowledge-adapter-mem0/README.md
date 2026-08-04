@@ -9,7 +9,8 @@ Pure HTTP (`fetch`) against the Mem0 Platform API — **no** `mem0ai` SDK depend
 Mem0 scopes memories by `user_id`. This adapter never sends a bare principal:
 
 ```ts
-mapUser(tenantId, principalId) // → `${tenantId}::${principalId}`
+mapUser(tenantId, principalId) // → `${tenantId.length}:${tenantId}:${principalId.length}:${principalId}`
+// e.g. mapUser("acme", "alice") → "4:acme:5:alice"
 ```
 
 Empty/missing `tenantId` or `principalId` throws. Same principal under two tenants gets two distinct Mem0 users.

@@ -26,15 +26,21 @@ const DEFAULT_BASE_URL = "https://api.supermemory.ai";
 
 /**
  * Map tenant + principal to a Supermemory containerTag.
- * Format: `t_{tenantId}_u_{principalId}`
+ * Length-prefixed so free-form ids cannot collide across delimiter injection:
+ * `t{len}_{tenant}_u{len}_{principal}`
  */
 export function containerTag(tenantId: string, principalId: string): string {
-  if (tenantId === "" || principalId === "") {
+  if (typeof tenantId !== "string" || tenantId.trim() === "") {
     throw new Error(
       "containerTag requires non-empty tenantId and principalId",
     );
   }
-  return `t_${tenantId}_u_${principalId}`;
+  if (typeof principalId !== "string" || principalId.trim() === "") {
+    throw new Error(
+      "containerTag requires non-empty tenantId and principalId",
+    );
+  }
+  return `t${tenantId.length}_${tenantId}_u${principalId.length}_${principalId}`;
 }
 
 export type SupermemoryMemoryProviderOpts = {
@@ -46,9 +52,14 @@ export type SupermemoryMemoryProviderOpts = {
 };
 
 function requireIdentity(tenantId: string, principalId: string): void {
-  if (tenantId === "" || principalId === "") {
+  if (typeof tenantId !== "string" || tenantId.trim() === "") {
     throw new Error(
-      "tenantId and principalId must be non-empty strings",
+      "remember/recall requires non-empty tenantId and principalId",
+    );
+  }
+  if (typeof principalId !== "string" || principalId.trim() === "") {
+    throw new Error(
+      "remember/recall requires non-empty tenantId and principalId",
     );
   }
 }

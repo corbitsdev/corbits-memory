@@ -34,6 +34,7 @@ export function mountAddRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
         400: { description: "Invalid request or ACL" },
         401: { description: "No principal on the request context" },
         403: { description: "Missing the knowledge:add grant" },
+        502: { description: "add failed" },
       },
     }),
     requirePrincipal(),

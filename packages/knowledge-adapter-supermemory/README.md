@@ -33,10 +33,10 @@ const memory = createSupermemoryMemoryProvider({
 Tenant isolation maps to Supermemory `containerTag`:
 
 ```
-t_{tenantId}_u_{principalId}
+t{len}_{tenantId}_u{len}_{principalId}
 ```
 
-Example: `containerTag("acme", "alice")` → `t_acme_u_alice`.
+Example: `containerTag("acme", "alice")` → `t4_acme_u5_alice`.
 
 Empty `tenantId` / `principalId` are rejected.
 

@@ -613,6 +613,8 @@ async function collectLiveItems(params: {
 function mergeToFindResult(params: {
   localItems: FindItem[];
   localDegraded?: DegradeFlag[];
+  /** Hybrid evidence from the local channel when no live items were active. */
+  localEvidence?: HybridSearchResult["evidence"];
   liveItems: MergeChannelItem[];
   liveDegraded: DegradeFlag[];
   limit: number;
@@ -641,9 +643,22 @@ function mergeToFindResult(params: {
   ];
 
   if (params.includeEvidence) {
+    // Preserve hybrid strong/weak when live did not contribute hits; mixed or
+    // live-only merges stay conservatively "weak".
+    const liveContributed = params.liveItems.length > 0;
+    let evidence: HybridSearchResult["evidence"];
+    if (items.length === 0) {
+      evidence = "none";
+    } else if (!liveContributed && params.localEvidence) {
+      evidence = params.localEvidence;
+    } else if (!liveContributed) {
+      evidence = "weak";
+    } else {
+      evidence = "weak";
+    }
     return {
       items,
-      evidence: items.length === 0 ? "none" : "weak",
+      evidence,
       ...(degraded.length > 0 ? { degraded } : {}),
     };
   }
@@ -722,7 +737,8 @@ function makeRememberRecall(options: KnowledgePlaneOptions): {
   };
 }
 
-/** Plane backed by an injected DocumentStore (fake or host override). */
+/** Plane backed by an injected DocumentStore (fake or host override).
+ * Store owns tenancy and document ACL; plane does not re-filter. */
 function createPlaneFromStore(
   store: DocumentStore,
   grants: GrantConfig | undefined,
@@ -1097,6 +1113,7 @@ function createPlaneFromEngine(
       return mergeToFindResult({
         localItems,
         ...(localDegraded !== undefined ? { localDegraded } : {}),
+        ...(localEvidence !== undefined ? { localEvidence } : {}),
         liveItems: live.items,
         liveDegraded: live.degraded,
         limit,
@@ -1238,7 +1255,8 @@ function createPlaneFromEngine(
       const { visibility, blockPrincipalIds } =
         resolveShareAndVisibility(params);
 
-      const adapter = params.adapter ?? "mcp";
+      const adapter = params.adapter ?? "http";
+
       const externalRef =
         params.externalRef ??
         `knowledge:${params.tenantId}:${crypto.randomUUID()}`;

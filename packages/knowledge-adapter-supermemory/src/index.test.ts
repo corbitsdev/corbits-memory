@@ -13,25 +13,35 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 describe("containerTag", () => {
-  it("maps tenant + principal to t_{tenant}_u_{principal}", () => {
-    expect(containerTag("acme", "alice")).toBe("t_acme_u_alice");
-    expect(containerTag("org-1", "user-42")).toBe("t_org-1_u_user-42");
+  it("maps tenant + principal with length prefixes", () => {
+    expect(containerTag("acme", "alice")).toBe("t4_acme_u5_alice");
+    expect(containerTag("org-1", "user-42")).toBe("t5_org-1_u7_user-42");
   });
 
   it("produces distinct tags per tenant for the same principal", () => {
     const a = containerTag("tenant-a", "user-1");
     const b = containerTag("tenant-b", "user-1");
-    expect(a).toBe("t_tenant-a_u_user-1");
-    expect(b).toBe("t_tenant-b_u_user-1");
+    expect(a).toBe("t8_tenant-a_u6_user-1");
+    expect(b).toBe("t8_tenant-b_u6_user-1");
     expect(a).not.toBe(b);
+  });
+
+  it("is injective when ids contain delimiter sequences", () => {
+    const a = containerTag("x_u_y", "z");
+    const b = containerTag("x", "y_u_z");
+    expect(a).not.toBe(b);
+    expect(a).toBe("t5_x_u_y_u1_z");
+    expect(b).toBe("t1_x_u5_y_u_z");
   });
 
   it("rejects empty tenantId or principalId", () => {
     expect(() => containerTag("", "alice")).toThrow(/non-empty/);
     expect(() => containerTag("acme", "")).toThrow(/non-empty/);
     expect(() => containerTag("", "")).toThrow(/non-empty/);
+    expect(() => containerTag("  ", "alice")).toThrow(/non-empty/);
   });
 });
+
 
 describe("createSupermemoryMemoryProvider", () => {
   it("rejects empty identity on remember", async () => {
@@ -98,7 +108,8 @@ describe("createSupermemoryMemoryProvider", () => {
         metadata?: Record<string, string>;
       };
       expect(body.content).toBe("prefers dark mode");
-      expect(body.containerTag).toBe("t_acme_u_alice");
+      expect(body.containerTag).toBe("t4_acme_u5_alice");
+
       expect(body.metadata).toEqual({ source: "chat" });
       return Promise.resolve(jsonResponse({ id: "doc_1", status: "queued" }));
     });
@@ -129,7 +140,8 @@ describe("createSupermemoryMemoryProvider", () => {
         limit?: number;
       };
       expect(body.q).toBe("preferences");
-      expect(body.containerTag).toBe("t_acme_u_alice");
+      expect(body.containerTag).toBe("t4_acme_u5_alice");
+
       expect(body.searchMode).toBe("memories");
       expect(body.limit).toBe(3);
       // Must not omit searchMode (would fall through to API default).
@@ -189,7 +201,8 @@ describe("createSupermemoryMemoryProvider", () => {
       text: "fact b",
     });
 
-    expect(tags).toEqual(["t_tenant-a_u_user-1", "t_tenant-b_u_user-1"]);
+    expect(tags).toEqual(["t8_tenant-a_u6_user-1", "t8_tenant-b_u6_user-1"]);
+
   });
 
   it("uses custom baseUrl when provided", async () => {

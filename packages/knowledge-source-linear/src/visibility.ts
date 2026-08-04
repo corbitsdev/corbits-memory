@@ -27,28 +27,44 @@ export function isPrivateIssue(data: LinearIssueData): boolean {
 }
 
 /**
+ * True when the payload carries an explicit public/private signal.
+ * Missing flags are treated as unknown (fail closed — never tenant).
+ */
+export function isPrivacyKnown(data: LinearIssueData): boolean {
+  if (data.private === true || data.private === false) return true;
+  if (data.team?.private === true || data.team?.private === false) return true;
+  return false;
+}
+
+function privateOrPrincipals(principalIds: string[]): VisibilitySpec {
+  if (principalIds.length <= 1) {
+    const spec: VisibilitySpec = { mode: "private" };
+    if (principalIds.length === 1) {
+      spec.principalIds = principalIds;
+    }
+    return spec;
+  }
+  return { mode: "principals", principalIds };
+}
+
+/**
  * Map Linear issue visibility → KE VisibilitySpec.
  *
  * Rules:
  * 1. Private issues → `private` (one principal) or `principals` (creator /
  *    assignee / subscribers only). NEVER `tenant` (overshare guard).
- * 2. Team-visible → `tenant` (company-brain default). Never `source_acl`
- *    (no aspirational ACL level without a read path).
+ * 2. Explicit team-visible (`private: false` / `team.private: false`) →
+ *    `tenant` (company-brain default). Never `source_acl`.
+ * 3. Unknown privacy (flags omitted) → fail closed as private/principals.
+ *    Partial webhook payloads must not become company-brain by default.
  */
 export function mapIssueVisibility(data: LinearIssueData): VisibilitySpec {
   const principalIds = collectPrincipalIds(data);
 
-  if (isPrivateIssue(data)) {
-    if (principalIds.length <= 1) {
-      const spec: VisibilitySpec = { mode: "private" };
-      if (principalIds.length === 1) {
-        spec.principalIds = principalIds;
-      }
-      return spec;
-    }
-    return { mode: "principals", principalIds };
+  if (isPrivateIssue(data) || !isPrivacyKnown(data)) {
+    return privateOrPrincipals(principalIds);
   }
 
-  // Team-visible company knowledge. Prefer tenant; never source_acl.
+  // Explicit non-private → team-visible company knowledge.
   return { mode: "tenant" };
 }

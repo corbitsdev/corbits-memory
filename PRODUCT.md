@@ -23,7 +23,7 @@ SDK never creates one; it mounts onto yours.
 | `add` | Capture a document (`content` **xor** `file` + TextExtractor) |
 | `find` | Hybrid retrieval (+ optional live sources) |
 | `ask` | Grounded answer from find (+ optional memory) |
-| `recent` | Recent capture timeline for the principal |
+| `recent` | Recent documents for the principal |
 
 Hard cutover: there is no `capture` / `search` / `timeline` export. HTTP paths
 and grants match the verbs: `POST /api/knowledge/add|find|ask`,
@@ -106,8 +106,11 @@ cannot prove a principal set, it must not write `tenant` visibility.
 
 ### On the wire
 
+HTTP bodies are a thin subset of the in-process plane (identity always comes
+from the host principal context, never the body):
+
 ```http
-POST /api/knowledge/add      { "content": { "title", "text" }, "share"? }
+POST /api/knowledge/add      { "title", "text", "acl"? }
 POST /api/knowledge/find     { "query", "limit?", "kinds?", "entity_ids?", "sources?", "includeEvidence?" }
 POST /api/knowledge/ask      { "query", "limit?", "sources?", "includeMemory?" }
 GET  /api/knowledge/recent   ?limit=
@@ -115,6 +118,21 @@ GET  /api/knowledge/recent   ?limit=
 
 `kinds` / `entity_ids` on find narrow both lexical and dense channels before
 fusion (unset or `[]` = no filter).
+
+Plane-only shapes (`content`/`file` XOR, `share` sugars, full `visibility`)
+are available via `createKnowledgePlane` / `plane.add`. HTTP `acl` maps to the
+document visibility ladder; `share` is plane sugar only.
+
+### Live sources and memory (trust)
+
+- **Local documents** are the durable ACL plane (visibility + block). Engine
+  path enforces this; a host-supplied `DocumentStore` **owns** ACL for that
+  mount — the engine does not re-filter store results.
+- **Live `SourceProvider` hits** merge into find/ask without document-row ACL.
+  Auth is the host token / connector scope, not Interchange principal
+  visibility. Treat live as enrichment; fail-soft on timeout/error.
+- **Memory** is opt-in recall (`includeMemory`, default false). Adapters must
+  key by injective tenant+principal encodings; ask never auto-writes memory.
 
 ## Out of scope forever here
 

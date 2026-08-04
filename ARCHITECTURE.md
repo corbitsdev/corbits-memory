@@ -1,6 +1,6 @@
 # Knowledge Engine — Architecture
 
-A knowledge capture + retrieval SDK that mounts onto an Interchange hub. The
+A knowledge add / find / ask / recent SDK that mounts onto an Interchange hub. The
 host owns auth, tenancy, and the process; this library owns the knowledge /
 vector plane and the routes that read and write it.
 
@@ -66,25 +66,29 @@ model.
 
 `mountKnowledgeEngine` adds, under the host app:
 
-- `POST /api/knowledge/capture` — ingest content (raw + derive).
-- `POST /api/knowledge/search` — hybrid retrieval: FTS + dense (pgvector) → RRF
-  fusion → cross-encoder rerank → bounded authority/recency boosts → MMR.
-- `GET /api/knowledge/timeline` — recent captures for the caller's scope,
-  filtered with the same document ACL as search (visibility + block list).
+- `POST /api/knowledge/add` — ingest a note (raw + derive).
+- `POST /api/knowledge/find` — hybrid retrieval: FTS + dense (pgvector) → RRF
+  fusion → cross-encoder rerank → bounded authority/recency boosts → MMR;
+  optional live `SourceProvider` merge (fail-soft).
+- `POST /api/knowledge/ask` — grant-checked as `knowledge:find`; retrieves as
+  the principal, grounds a prompt from hit snippets, calls host-injected
+  `generate`. Optional memory recall when `includeMemory` is true.
+- `GET /api/knowledge/recent` — recent documents for the caller's scope,
+  filtered with the same document ACL as local find (visibility + block list).
 
-It also returns an in-process `KnowledgePlane` (`capture`, `search`, `ask`).
-`ask()` is grant-checked in-process (callers bypass the HTTP `requireGrant`
-guard), searches as the asking principal, grounds a prompt from hit `snippet`
-text (search truncates snippets to ≤240 chars today — that is the MVP
-grounding limit), and calls a host-injected `generate` function. The engine
-owns no generation client; hosts wire `generate` to their inference layer.
+It also returns an in-process `KnowledgePlane` (`add`, `find`, `ask`,
+`recent`, optional `remember` / `recall`). `ask()` is grant-checked in-process
+(callers bypass the HTTP `requireGrant` guard). The engine owns no generation
+client; hosts wire `generate` to their inference layer.
 
 MCP is not part of this package — mount `@corbitsdev/hono-openapi-mcp` to expose
 these routes as MCP tools.
 
 External ingestion (Linear, GitHub, …) is not a route here — the host
-authenticates the forwarder to Interchange and it calls the capture route, or
-the host calls `knowledge.capture()` directly.
+authenticates the forwarder to Interchange and calls `plane.add` / a
+`SourceProvider` mapper, or mounts HTTP add after its own auth.
+
+Legacy paths `/capture`, `/search`, `/timeline` are not mounted (hard cutover).
 
 ## Provenance
 

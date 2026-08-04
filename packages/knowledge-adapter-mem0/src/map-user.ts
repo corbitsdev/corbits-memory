@@ -1,8 +1,9 @@
 /**
  * Map Corbits (tenantId, principalId) → Mem0 user_id.
  *
- * Always `tenantId::principalId` so the same principal in different tenants
- * never shares a Mem0 user. Bare principal is forbidden.
+ * Length-prefixed encoding is injective for any free-form ids that do not
+ * contain only digits-before-colon collisions: distinct pairs never share a
+ * user_id even when ids contain `::` or `_`.
  */
 export function mapUser(tenantId: string, principalId: string): string {
   if (typeof tenantId !== "string" || tenantId.trim() === "") {
@@ -15,5 +16,6 @@ export function mapUser(tenantId: string, principalId: string): string {
       "mapUser: principalId is required and must be a non-empty string",
     );
   }
-  return `${tenantId}::${principalId}`;
+  // `${len}:${id}` twice — cannot collide across delimiter injection.
+  return `${tenantId.length}:${tenantId}:${principalId.length}:${principalId}`;
 }

@@ -16,7 +16,7 @@ const base: LinearIssueData = {
 };
 
 describe("mapIssueVisibility", () => {
-  it("team-visible → tenant, never source_acl", () => {
+  it("explicit team-visible → tenant, never source_acl", () => {
     const v = mapIssueVisibility({
       ...base,
       private: false,
@@ -58,6 +58,22 @@ describe("mapIssueVisibility", () => {
       team: { private: true },
     });
     expect(v.mode).not.toBe("tenant");
+  });
+
+  it("unknown privacy (flags omitted) fails closed — never tenant", () => {
+    const v = mapIssueVisibility({
+      id: "i4",
+      creatorId: "alice",
+      assigneeId: "bob",
+    });
+    expect(v.mode).not.toBe("tenant");
+    expect(v.mode).toBe("principals");
+    expect(v.principalIds).toEqual(["alice", "bob"]);
+  });
+
+  it("unknown privacy with single principal → private", () => {
+    const v = mapIssueVisibility({ id: "i5", creatorId: "solo" });
+    expect(v).toEqual({ mode: "private", principalIds: ["solo"] });
   });
 });
 

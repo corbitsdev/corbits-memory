@@ -1,11 +1,15 @@
 import type { Hono } from "hono";
 import type { TenantEnv } from "@intx/hub-api";
-import { describeRoute, resolver } from "hono-openapi";
+import { describeRoute, resolver, validator } from "hono-openapi";
 import { type } from "arktype";
 
 import { formatCaughtError, log } from "../log.ts";
 import type { RouteDeps } from "./deps.ts";
 import { caller, grantGuard, requirePrincipal } from "./deps.ts";
+
+const RecentQuery = type({
+  "limit?": "string",
+});
 
 const RecentResponse = type({
   events: type({
@@ -16,6 +20,13 @@ const RecentResponse = type({
     principalId: "string",
   }).array(),
 });
+
+function parseLimit(raw: string | undefined): number | undefined {
+  if (raw === undefined || raw === "") return undefined;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 1 || n > 50) return undefined;
+  return n;
+}
 
 export function mountRecentRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
   app.get(
@@ -30,6 +41,7 @@ export function mountRecentRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
             "application/json": { schema: resolver(RecentResponse) },
           },
         },
+        400: { description: "Invalid limit query param" },
         401: { description: "No principal on the request context" },
         403: { description: "Missing the knowledge:find grant" },
         502: { description: "Recent query failed" },
@@ -37,12 +49,23 @@ export function mountRecentRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
     }),
     requirePrincipal(),
     grantGuard(deps, "find"),
+    validator("query", RecentQuery),
     async (c) => {
       const { scopeId, subjectId } = caller(c);
+      const rawLimit = c.req.valid("query").limit;
+      if (
+        rawLimit !== undefined &&
+        rawLimit !== "" &&
+        parseLimit(rawLimit) === undefined
+      ) {
+        return c.json({ error: "limit must be an integer from 1 to 50" }, 400);
+      }
+      const limit = parseLimit(rawLimit);
       try {
         const events = await deps.knowledge.recent({
           tenantId: scopeId,
           principalId: subjectId,
+          ...(limit !== undefined ? { limit } : {}),
         });
         return c.json({ events });
       } catch (err) {

@@ -17,7 +17,7 @@ function mockFetch(
 ): { fetch: typeof fetch; calls: Captured[] } {
   const calls: Captured[] = [];
   const fetchImpl = (async (
-    input: RequestInfo | URL,
+    input: string | URL | Request,
     init?: RequestInit,
   ): Promise<Response> => {
     const url =
@@ -86,7 +86,8 @@ describe("createMem0MemoryProvider", () => {
       "Token test-key",
     );
     const body = call.body as Record<string, unknown>;
-    expect(body.user_id).toBe("t1::p1");
+    expect(body.user_id).toBe("2:t1:2:p1");
+
     expect(body.user_id).not.toBe("p1");
     expect(body.messages).toEqual([
       { role: "user", content: "Prefers dark mode" },
@@ -124,7 +125,8 @@ describe("createMem0MemoryProvider", () => {
     const body = call.body as Record<string, unknown>;
     expect(body.query).toBe("where do I live?");
     expect(body.top_k).toBe(3);
-    expect(body.filters).toEqual({ user_id: "acme::bob" });
+    expect(body.filters).toEqual({ user_id: "4:acme:3:bob" });
+
     expect(hits).toEqual([
       { text: "Lives in SF", score: 0.91 },
       { text: "Works remote", score: 0.7 },
@@ -190,7 +192,8 @@ describe("createMem0MemoryProvider", () => {
     const userIds = calls.map(
       (c) => (c.body as { filters: { user_id: string } }).filters.user_id,
     );
-    expect(userIds).toEqual(["tenant-a::alice", "tenant-b::alice"]);
+    expect(userIds).toEqual(["8:tenant-a:5:alice", "8:tenant-b:5:alice"]);
+
     expect(userIds[0]).not.toBe(userIds[1]);
   });
 });
