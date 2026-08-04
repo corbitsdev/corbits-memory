@@ -94,9 +94,12 @@ host-owned writes (ask never auto-remembers).
 
 ### Optional DocumentStore adapters
 
-Optional adapter packages under `packages/` implement `DocumentStore` for hosts
-that want a non-pgvector backend. Core never imports vendor SDKs. See each
-package's README for mount examples and isolation limits.
+Optional adapters are **sibling packages** (not vendored in this repo). Core
+never imports vendor SDKs. See each package README for mount examples and
+isolation limits:
+
+- [`@corbits/mem0`](https://github.com/corbitsdev/corbits-mem0)
+- [`@corbits/supermemory`](https://github.com/corbitsdev/corbits-supermemory)
 
 ```ts
 // Linear SourceProvider lives in sibling repo @corbits/linear
@@ -141,8 +144,8 @@ Full design: `docs/AUTHZ-DOCUMENT-ACCESS.md`.
 bun install
 bun run typecheck
 bun run test
-# optional DocumentStore adapters under packages/ (each package has its own tests)
-# Linear tools: sibling repo @corbits/linear
+# DocumentStore adapters: sibling @corbits/mem0, @corbits/supermemory
+# Linear tools: sibling @corbits/linear
 ```
 
 License: LGPL-2.1 (`LICENSE`). Contributions: `CLA.md`.

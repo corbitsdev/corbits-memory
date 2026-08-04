@@ -25,7 +25,8 @@ CI runs `typecheck` + `test` — both must pass before any push.
 - `src/ports/` — `DocumentStore` / `SourceProvider` / `MemoryProvider` + fakes
 - `src/core/` — embed/rerank clients, merge, arktype schemas
 - `src/db/` + `migrations/` — Drizzle schema + SQL migrations (pgvector, `knowledge.*`)
-- `packages/` — optional DocumentStore adapters (pure fetch; no vendor SDKs in core). Linear tools live in sibling `@corbits/linear`.
+- `packages/` — removed; DocumentStore adapters are sibling packages
+  (`@corbits/mem0`, `@corbits/supermemory`). Linear tools: `@corbits/linear`.
 
 ## Non-negotiable invariants
 

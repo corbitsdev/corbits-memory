@@ -30,8 +30,10 @@ src/
     timeline.ts           # listTimelineEvents — durable recent docs + grant-tag filter
     transform.ts          # transform_config CRUD + runTransform (replay)
   core/                   # framework-agnostic (chunking, embed/rerank, merge, schemas)
-packages/
-  # optional DocumentStore adapters (not part of public product surface)
+# DocumentStore adapters live as sibling packages (not in this tree):
+#   @corbits/mem0         → github.com/corbitsdev/corbits-mem0
+#   @corbits/supermemory  → github.com/corbitsdev/corbits-supermemory
+# Linear SourceProvider: sibling @corbits/linear
 migrations/               # pgvector schema, applied in filename order by scripts/db-setup.ts
 scripts/db-setup.ts       # idempotent migration runner, tracked in `_migrations`
 compose.yml               # pgvector + Ollama + reranker for local dev

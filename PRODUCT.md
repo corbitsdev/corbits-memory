@@ -60,9 +60,14 @@ never auto-writes.
 
 ### Optional adapter packages
 
-Optional `DocumentStore` implementations live under `packages/` in this tree
-(or as separate packages). Core never imports vendor SDKs. Hosts that need a
-store beyond default pgvector mount their own `documentStore`.
+Optional `DocumentStore` implementations live as **sibling packages** (not in
+this tree), same pattern as `@corbits/linear` / `@corbits/granola`:
+
+- [`@corbits/mem0`](https://github.com/corbitsdev/corbits-mem0) — Mem0 backend
+- [`@corbits/supermemory`](https://github.com/corbitsdev/corbits-supermemory) — Supermemory backend
+
+Core never imports vendor SDKs. Hosts that need a store beyond default pgvector
+mount their own `documentStore`.
 
 **Third-party store honesty:** not every `DocumentStore` evaluates host grant
 tags. Some isolate by **principal bucket** only (one private namespace per
