@@ -95,19 +95,18 @@ host-owned writes (ask never auto-remembers).
 ### Adapter packages
 
 ```ts
-// packages/knowledge-adapter-mem0
-import { createMem0MemoryProvider } from "@corbits/knowledge-adapter-mem0";
-// user key: tenantId::principalId
+// packages/knowledge-adapter-mem0 — DocumentStore (not MemoryProvider)
+import { createMem0DocumentStore } from "@corbits/knowledge-adapter-mem0";
 
-// packages/knowledge-adapter-supermemory
-import { createSupermemoryMemoryProvider } from "@corbits/knowledge-adapter-supermemory";
-// container: t_{tenant}_u_{principal}; searchMode always "memories"
+// packages/knowledge-adapter-supermemory — DocumentStore
+import { createSupermemoryDocumentStore } from "@corbits/knowledge-adapter-supermemory";
 
-// packages/knowledge-source-linear
+// Linear SourceProvider lives in sibling repo @corbits/linear
+// (https://github.com/corbitsdev/corbits-linear), not this monorepo.
 import {
   createLinearSourceProvider,
   mapLinearWebhook,
-} from "@corbits/knowledge-source-linear";
+} from "@corbits/linear";
 // host owns OAuth + webhook verify; private issues never map to tenant visibility
 ```
 
@@ -142,10 +141,10 @@ pre-1.0: re-run migrations on a fresh knowledge DB.
 bun install
 bun run typecheck
 bun run test
-# adapter packages:
+# adapter packages (DocumentStore backends):
 bun test packages/knowledge-adapter-mem0
 bun test packages/knowledge-adapter-supermemory
-bun test packages/knowledge-source-linear
+# Linear tools: sibling repo @corbits/linear
 ```
 
 License: LGPL-2.1 (`LICENSE`). Contributions: `CLA.md`.

@@ -25,7 +25,7 @@ CI runs `typecheck` + `test` — both must pass before any push.
 - `src/ports/` — `DocumentStore` / `SourceProvider` / `MemoryProvider` + fakes
 - `src/core/` — embed/rerank clients, merge, arktype schemas
 - `src/db/` + `migrations/` — Drizzle schema + SQL migrations (pgvector, `knowledge.*`)
-- `packages/` — optional adapters (`knowledge-adapter-mem0`, `knowledge-adapter-supermemory`, `knowledge-source-linear`); pure fetch, no vendor SDKs in core
+- `packages/` — optional DocumentStore adapters (`knowledge-adapter-mem0`, `knowledge-adapter-supermemory`); pure fetch, no vendor SDKs in core. Linear tools live in sibling `@corbits/linear`.
 
 ## Non-negotiable invariants
 

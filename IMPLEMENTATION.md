@@ -30,9 +30,8 @@ src/
     transform.ts          # transform_config CRUD + runTransform (replay)
   core/                   # framework-agnostic (chunking, embed/rerank, merge, schemas)
 packages/
-  knowledge-adapter-mem0/
-  knowledge-adapter-supermemory/
-  knowledge-source-linear/
+  knowledge-adapter-mem0/       # DocumentStore backend (Mem0)
+  knowledge-adapter-supermemory/ # DocumentStore backend (Supermemory)
 migrations/               # pgvector schema, applied in filename order by scripts/db-setup.ts
 scripts/db-setup.ts       # idempotent migration runner, tracked in `_migrations`
 compose.yml               # pgvector + Ollama + reranker for local dev

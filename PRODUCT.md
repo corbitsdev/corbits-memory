@@ -63,7 +63,8 @@ host-owned — ask never auto-writes.
 | --- | --- |
 | `@corbits/knowledge-adapter-mem0` | **DocumentStore** via Mem0 Platform HTTP; tenant key `mapUser` length-prefixed |
 | `@corbits/knowledge-adapter-supermemory` | **DocumentStore** via Supermemory HTTP; tenant key `containerTag` length-prefixed |
-| `@corbits/knowledge-source-linear` | **SourceProvider** + webhook → AdaptedDocument mappers (tools-shaped, not a store) |
+
+Linear tools live in a **sibling repo** ([`@corbits/linear`](https://github.com/corbitsdev/corbits-linear)) — same tools shape as Granola, not a DocumentStore.
 
 Core never imports vendor SDKs. Adapters are pure-fetch; tenant-safe keys only.
 `MemoryProvider` factories in the mem0/supermemory packages are back-compat only.
