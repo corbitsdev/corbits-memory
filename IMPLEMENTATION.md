@@ -422,7 +422,7 @@ search); otherwise it throws `KnowledgeSearchInputError` (400).
     AUTHORITY_STRONG_FLOOR (0.3)`; else `"weak"`.
 
 Tenant isolation is unconditional and first in every query (`tenant_id`
-filtered before any visibility logic); every table/channel is scoped that
+filtered before grant-tag / creator document access); every table/channel is scoped that
 way, with no exception.
 
 ## Raw + replay (the replay pipeline — `services/transform.ts`)

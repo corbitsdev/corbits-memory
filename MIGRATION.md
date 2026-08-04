@@ -24,8 +24,9 @@ Identity fields on every call:
 - Returns `{ documentId }` only (no `status` / `versionId` / `chunks` on the public result).
 - Exactly one of `content: { title, text }` or `file: { bytes, mimeType?, filename? }`.
 - File ingest requires a host-supplied `textExtractor` on the plane options.
-- Optional `share` sugar (`private` / `tenant` / `principals`) maps to **access tags**
-  only (see `docs/AUTHZ-DOCUMENT-ACCESS.md`). There is no separate `visibility` field.
+- Optional `share` sugar (`tenant` / `principals` / `tags`) maps to **access tags**
+  only (see `docs/AUTHZ-DOCUMENT-ACCESS.md`). Omit `share` for owner-only. There is
+  no separate `visibility` field and no `share.private` key.
 
 ### `find`
 

@@ -28,9 +28,11 @@ createdByPrincipalId: string  // audit + default owner tag
 When the caller does not pass tags/share:
 
 1. Always tag: `knowledge.owner:<principalId>`
-2. No other tags → **owner-only** (only principals granted `find` on that owner resource can see it; typically the owner has that grant, or the plane treats owner as implicit allow for the creating principal)
+2. No other tags → **owner-only by default**. The **creating** principal always
+   sees their own docs (engine convenience). **Peers** need an explicit host
+   grant of `find` on that owner resource (or a matching pattern) — the engine
+   never auto-grants tags to anyone.
 
-**Implicit owner rule (engine convenience, not a second ACL):** the creating principal may always find/recent their own documents without a matching grant tag. Everyone else must match a tag via `authorize`. This is equivalent to auto-issuing a creator grant without writing one.
 
 ### Explicit tags
 
@@ -63,10 +65,30 @@ Share helpers **must not** reintroduce visibility modes. They only mint tags:
 
 | Sugar | Tags written |
 | --- | --- |
-| (default / private) | `knowledge.owner:<caller>` |
+| (omit `share` — owner-only default) | `knowledge.owner:<caller>` |
 | `share: { tenant: true }` | `knowledge.owner:<caller>`, `knowledge.tenant:<tenantId>` |
 | `share: { principals: ["p2","p3"] }` | `knowledge.owner:<caller>`, `knowledge.owner:p2`, `knowledge.owner:p3` |
 | `share: { tags: ["knowledge.space:eng"] }` | `knowledge.owner:<caller>`, plus those tags |
+
+There is **no** `share.private` key. Owner-only is the default when `share` is omitted.
+
+### Host contract for multi-user share (required)
+
+Tag minting is **not** grant minting. For peer share to work in product:
+
+1. When Alice adds with `share: { principals: ["bob"] }`, the document is tagged
+   `knowledge.owner:alice` and `knowledge.owner:bob`.
+2. Bob sees it only if the host has granted Bob `find` on `knowledge.owner:bob`
+   (or a pattern that matches). **Recommended host bootstrap:** every principal
+   receives `find` (and optionally `add` side-effects as you prefer) on
+   `knowledge.owner:<self>` at signup, or a single pattern grant such as
+   `knowledge.owner:*` only if that matches your tenancy model.
+3. Space/tenant tags work the same way: host must issue grants on
+   `knowledge.space:eng` / `knowledge.tenant:<id>` for non-creators to match.
+
+Without (2), `share.principals` is a silent no-op for peers (fail-closed; looks
+like empty search). Document this in host mount guides — do not reintroduce a
+document mini-ACL in this package.
 
 **Removed:** `visibility: { mode: private|principals|tenant }`, `blockPrincipalIds`, product `acl.mode` / `acl.allow` / `acl.block` as security.
 

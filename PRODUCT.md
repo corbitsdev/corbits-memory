@@ -117,6 +117,10 @@ Knowledge does **not** ship a second ACL. Document access uses the host’s
    the document. Patterns (`knowledge.space:*`) work via `@intx/authz`.
 3. **Share sugars on add** — only mint tags (owner / tenant / peer owner tags /
    explicit tags). They do **not** invent visibility modes or block lists.
+   **Host contract:** peers named in `share.principals` only see the doc if the
+   host has granted them `find` on their owner tag (or matching pattern) —
+   typically bootstrap every principal with `find` on `knowledge.owner:<self>`.
+   Tag minting is not grant minting. See `docs/AUTHZ-DOCUMENT-ACCESS.md`.
 
 Default add is **owner-only** (`knowledge.owner:<principalId>` + creator rule).
 Deny is absence of allow (or a more specific host deny grant) — not a document
