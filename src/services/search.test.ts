@@ -469,7 +469,12 @@ describe("fetchDenseCandidates kind/entity filtering", () => {
     const rawSql = {
       unsafe: (sqlText: string) =>
         Promise.resolve(
-          sqlText.includes("FROM knowledge_embed_model") ? [MODEL_ROW] : [],
+          // CL-5233 qualified the table; keep the pre-qualify form so an
+          // accidental revert still fails this suite the same way.
+          sqlText.includes('FROM "knowledge"."embed_model"') ||
+            sqlText.includes("FROM knowledge_embed_model")
+            ? [MODEL_ROW]
+            : [],
         ),
       begin: (cb: (t: FakeTx) => Promise<unknown>) => cb(tx),
     };
