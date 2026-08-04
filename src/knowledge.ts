@@ -200,6 +200,8 @@ export type FindItem = {
   score: number;
   kind: string;
   citation: SearchHit["citation"];
+  /** ISO timestamp for merge recency when the store provides it. */
+  updatedAt?: string;
 };
 
 export type FindResult = {
@@ -545,6 +547,7 @@ function findItemsToMergeChannel(
     score: item.score,
     kind: item.kind,
     citation: item.citation,
+    ...(item.updatedAt !== undefined ? { updatedAt: item.updatedAt } : {}),
   }));
 }
 
@@ -753,6 +756,9 @@ function createPlaneFromStore(
   ): Promise<FindResult> {
     const limit = resolveFindLimit(params.limit);
     let localItems: FindItem[] = [];
+    let localDegraded: DegradeFlag[] | undefined;
+    let localEvidence: HybridSearchResult["evidence"] | undefined;
+
     if (wantsLocalChannel(params.sources)) {
       const local = await store.find({
         tenantId: params.tenantId,
@@ -768,7 +774,10 @@ function createPlaneFromStore(
         score: it.score,
         kind: it.kind,
         citation: it.citation,
+        ...(it.updatedAt !== undefined ? { updatedAt: it.updatedAt } : {}),
       }));
+      localDegraded = local.degraded as DegradeFlag[] | undefined;
+      localEvidence = local.evidence;
     }
 
     const live = await collectLiveItems({
@@ -780,8 +789,27 @@ function createPlaneFromStore(
       filter: params.sources,
     });
 
+    // No live channel activity → preserve store evidence semantics (same as
+    // the engine-backed plane).
+    if (
+      live.items.length === 0 &&
+      live.degraded.length === 0 &&
+      (options.sources ?? []).length === 0
+    ) {
+      if (params.includeEvidence) {
+        return {
+          items: localItems,
+          evidence: localEvidence ?? "none",
+          ...(localDegraded ? { degraded: localDegraded } : {}),
+        };
+      }
+      return { items: localItems };
+    }
+
     return mergeToFindResult({
       localItems,
+      ...(localDegraded !== undefined ? { localDegraded } : {}),
+      ...(localEvidence !== undefined ? { localEvidence } : {}),
       liveItems: live.items,
       liveDegraded: live.degraded,
       limit,

@@ -4,6 +4,11 @@ import { describeRoute, resolver, validator } from "hono-openapi";
 import { type } from "arktype";
 
 import { formatCaughtError, log } from "../log.ts";
+import {
+  KnowledgeError,
+  RECENT_LIMIT_MAX,
+  RECENT_LIMIT_MIN,
+} from "../knowledge.ts";
 import type { RouteDeps } from "./deps.ts";
 import { caller, grantGuard, requirePrincipal } from "./deps.ts";
 
@@ -24,7 +29,13 @@ const RecentResponse = type({
 function parseLimit(raw: string | undefined): number | undefined {
   if (raw === undefined || raw === "") return undefined;
   const n = Number(raw);
-  if (!Number.isInteger(n) || n < 1 || n > 50) return undefined;
+  if (
+    !Number.isInteger(n) ||
+    n < RECENT_LIMIT_MIN ||
+    n > RECENT_LIMIT_MAX
+  ) {
+    return undefined;
+  }
   return n;
 }
 
@@ -58,7 +69,12 @@ export function mountRecentRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
         rawLimit !== "" &&
         parseLimit(rawLimit) === undefined
       ) {
-        return c.json({ error: "limit must be an integer from 1 to 50" }, 400);
+        return c.json(
+          {
+            error: `limit must be an integer from ${RECENT_LIMIT_MIN} to ${RECENT_LIMIT_MAX}`,
+          },
+          400,
+        );
       }
       const limit = parseLimit(rawLimit);
       try {
@@ -69,6 +85,9 @@ export function mountRecentRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
         });
         return c.json({ events });
       } catch (err) {
+        if (err instanceof KnowledgeError) {
+          return c.json({ error: err.message }, err.status as 400);
+        }
         const errMessage = formatCaughtError(err);
         log.error(`knowledge recent failed: ${errMessage}`, {
           error: errMessage,

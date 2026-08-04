@@ -5,6 +5,7 @@ import { type } from "arktype";
 
 import { formatCaughtError, log } from "../log.ts";
 import { parseAcl } from "../acl.ts";
+import { KnowledgeError } from "../knowledge.ts";
 import type { RouteDeps } from "./deps.ts";
 import { caller, grantGuard, requirePrincipal } from "./deps.ts";
 
@@ -57,6 +58,12 @@ export function mountAddRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
         });
         return c.json({ documentId });
       } catch (err) {
+        if (err instanceof KnowledgeError) {
+          return c.json(
+            { error: err.message },
+            err.status as 400 | 501,
+          );
+        }
         const errMessage = formatCaughtError(err);
         log.error(`knowledge add failed: ${errMessage}`, { error: errMessage });
         return c.json({ error: "add failed" }, 502);

@@ -225,7 +225,7 @@ export function createSupermemoryDocumentStore(
   const fetchImpl = opts.fetch ?? globalThis.fetch;
   const { apiKey } = opts;
 
-  if (!apiKey) {
+  if (typeof apiKey !== "string" || apiKey.trim() === "") {
     throw new Error(
       "createSupermemoryDocumentStore requires a non-empty apiKey",
     );
@@ -376,7 +376,7 @@ export function createSupermemoryMemoryProvider(
   const fetchImpl = opts.fetch ?? globalThis.fetch;
   const { apiKey } = opts;
 
-  if (!apiKey) {
+  if (typeof apiKey !== "string" || apiKey.trim() === "") {
     throw new Error(
       "createSupermemoryMemoryProvider requires a non-empty apiKey",
     );
