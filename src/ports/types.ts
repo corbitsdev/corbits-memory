@@ -1,0 +1,132 @@
+/**
+ * Port contracts for pluggable storage and live sources.
+ *
+ * DocumentStore + SourceProvider are the M2 foundation. MemoryProvider is a
+ * type stub only until M3 wires remember/recall product behavior.
+ */
+import type { VisibilitySpec } from "../core/schemas/document.ts";
+import type {
+  SearchEvidence,
+  SearchHit,
+  SearchHitCitation,
+} from "../core/schemas/search.ts";
+import type { DegradeFlag } from "../core/hybrid-search.ts";
+
+/** Input the plane hands the store after content/file/share resolution. */
+export type DocumentStoreAddParams = {
+  tenantId: string;
+  principalId: string;
+  title: string;
+  text: string;
+  visibility: VisibilitySpec;
+  blockPrincipalIds?: string[];
+  attributes?: Record<string, string | number | boolean | null>;
+  externalRef?: string;
+};
+
+export type DocumentStoreFindParams = {
+  tenantId: string;
+  principalId: string;
+  query: string;
+  limit?: number;
+  includeEvidence?: boolean;
+};
+
+export type DocumentStoreFindItem = {
+  documentId: string;
+  title: string;
+  snippet: string;
+  score: number;
+  kind: string;
+  citation: SearchHitCitation;
+  /** When set, used by merge dedupe (`adapter:externalRef`). */
+  adapter?: string;
+  externalRef?: string;
+  updatedAt?: string;
+};
+
+export type DocumentStoreFindResult = {
+  items: DocumentStoreFindItem[];
+  evidence?: SearchEvidence;
+  degraded?: DegradeFlag[];
+};
+
+export type DocumentStoreRecentParams = {
+  tenantId: string;
+  principalId: string;
+  limit?: number;
+};
+
+export type DocumentStoreRecentEvent = {
+  at: string;
+  title: string;
+  source: string;
+  tenantId: string;
+  principalId: string;
+};
+
+/**
+ * Durable local document plane. Default implementation is the engine's
+ * pgvector store; hosts may inject a fake or alternate backend.
+ */
+export type DocumentStore = {
+  add(params: DocumentStoreAddParams): Promise<{ documentId: string }>;
+  find(params: DocumentStoreFindParams): Promise<DocumentStoreFindResult>;
+  recent(
+    params: DocumentStoreRecentParams,
+  ): Promise<DocumentStoreRecentEvent[]>;
+  close(): Promise<void>;
+};
+
+/**
+ * One live hit from a SourceProvider.searchLive call.
+ * Dedupe key for merge is `adapter:externalRef` (CL-5227).
+ */
+export type LiveSearchItem = {
+  adapter: string;
+  externalRef: string;
+  title: string;
+  snippet: string;
+  score: number;
+  kind: string;
+  citation: SearchHitCitation;
+  /** ISO timestamp for recency prior when present. */
+  updatedAt?: string;
+};
+
+/**
+ * Thin connector port. By default a provider only supplies capture inputs
+ * (adapter id + mapping live outside this type). `searchLive` is optional —
+ * providers that can answer live queries implement it.
+ */
+export type SourceProvider = {
+  readonly id: string;
+  searchLive?(params: {
+    query: string;
+    tenantId: string;
+    principalId: string;
+    limit?: number;
+  }): Promise<LiveSearchItem[]>;
+};
+
+/**
+ * M2 stub type only. remember/recall product wire is M3 (CL-5228).
+ * Adapters implement this in packages/*; core never imports vendor SDKs.
+ */
+export type MemoryProvider = {
+  remember(params: {
+    tenantId: string;
+    principalId: string;
+    text: string;
+    metadata?: Record<string, string>;
+  }): Promise<void>;
+  recall(params: {
+    tenantId: string;
+    principalId: string;
+    query: string;
+    limit?: number;
+  }): Promise<Array<{ text: string; score?: number }>>;
+};
+
+// Keep SearchHit import used if needed by consumers re-exporting citation shapes.
+export type { SearchHit };

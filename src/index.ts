@@ -14,7 +14,14 @@ import {
   createKnowledgePlane,
   type Generate,
   type KnowledgePlane,
+  type KnowledgePlaneOptions,
+  type TextExtractor,
 } from "./knowledge.ts";
+import type {
+  DocumentStore,
+  MemoryProvider,
+  SourceProvider,
+} from "./ports/types.ts";
 import {
   mountKnowledgeRoutes,
   type GrantConfig,
@@ -58,6 +65,24 @@ export type {
   VisibilitySpec,
 } from "./knowledge.ts";
 export { KnowledgeError, KnowledgeNotPermittedError } from "./knowledge.ts";
+// Ports (M2) — pluggable storage + live sources; MemoryProvider type stub for M3
+export type {
+  DocumentStore,
+  DocumentStoreAddParams,
+  DocumentStoreFindItem,
+  DocumentStoreFindParams,
+  DocumentStoreFindResult,
+  DocumentStoreRecentEvent,
+  DocumentStoreRecentParams,
+  LiveSearchItem,
+  MemoryProvider,
+  SourceProvider,
+} from "./ports/types.ts";
+export {
+  createFakeDocumentStore,
+  createFakeMemoryProvider,
+  createFakeSourceProvider,
+} from "./ports/fakes.ts";
 // Migrations
 export { runKnowledgeMigrations } from "./migrations.ts";
 // Degrade metrics — no metrics dependency exists in this package (see
@@ -80,7 +105,11 @@ export {
 export { mountKnowledgeRoutes, type GrantConfig } from "./routes/mount.ts";
 
 export type MountKnowledgeEngineOptions = {
-  config: KnowledgeConfig;
+  /**
+   * Engine config (DB + model endpoints). Optional when `documentStore` is
+   * provided — a host can mount with fakes only.
+   */
+  config?: KnowledgeConfig;
   /**
    * The host's grant store + condition registry — the same pair it passes to
    * `createApp`/`createRequireGrant`. Required: HTTP routes are guarded with
@@ -97,6 +126,14 @@ export type MountKnowledgeEngineOptions = {
    * retry, audit and authz gates. Wire this to that rather than to a bare fetch.
    */
   generate?: Generate;
+  /** Required for `add({ file })` via HTTP or plane. */
+  textExtractor?: TextExtractor;
+  /** Override durable storage (default: engine pgvector store). */
+  documentStore?: DocumentStore;
+  /** Live source connectors (merge wired in CL-5227). */
+  sources?: SourceProvider[];
+  /** Memory port accepted for wiring; product in M3. */
+  memory?: MemoryProvider;
 };
 
 export type MountedKnowledgeEngine = {
@@ -111,9 +148,18 @@ export function mountKnowledgeEngine(
   // Rerank config validation runs inside createKnowledgePlane so standalone
   // construction and the mount path share one check. Pass grants + generate so
   // the returned plane's ask() is grant-checked and can synthesize answers.
-  const knowledge = createKnowledgePlane(options.config, options.grants, {
+  const planeOptions: KnowledgePlaneOptions = {
     ...(options.generate ? { generate: options.generate } : {}),
-  });
+    ...(options.textExtractor ? { textExtractor: options.textExtractor } : {}),
+    ...(options.documentStore ? { documentStore: options.documentStore } : {}),
+    ...(options.sources ? { sources: options.sources } : {}),
+    ...(options.memory ? { memory: options.memory } : {}),
+  };
+  const knowledge = createKnowledgePlane(
+    options.config,
+    options.grants,
+    planeOptions,
+  );
   const deps: RouteDeps = {
     knowledge,
     grants: options.grants,
