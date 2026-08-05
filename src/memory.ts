@@ -41,6 +41,13 @@ import type {
   DocumentStoreSearchParams,
   SourceProvider,
 } from "./ports/types.ts";
+import {
+  LIST_LIMIT_MAX,
+  LIST_LIMIT_MIN,
+  SEARCH_LIMIT_MAX,
+  SEARCH_LIMIT_MIN,
+} from "./limits.ts";
+
 // (drizzle select was used briefly for grant-tag load; raw sql keeps unit-test
 // mocks simple and matches the rest of the engine store.)
 
@@ -53,6 +60,13 @@ export type {
   LiveSearchItem,
   SourceProvider,
 } from "./ports/types.ts";
+export {
+  SEARCH_LIMIT_MIN,
+  SEARCH_LIMIT_MAX,
+  LIST_LIMIT_MIN,
+  LIST_LIMIT_MAX,
+} from "./limits.ts";
+
 export {
   resolveAccessTags,
   ownerTag,
@@ -77,14 +91,6 @@ export type MemoryIdentity = {
   principalId: string;
   tenantId: string;
 };
-
-/** Green find limit bounds (stricter than hybridSearch's internal MAX_K). */
-export const SEARCH_LIMIT_MIN = 1;
-export const SEARCH_LIMIT_MAX = 50;
-
-/** Green recent limit bounds (matches timeline service default/cap). */
-export const LIST_LIMIT_MIN = 1;
-export const LIST_LIMIT_MAX = 100;
 
 export type MemorySearchParams = MemoryIdentity & {
   query: string;

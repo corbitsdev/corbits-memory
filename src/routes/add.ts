@@ -5,25 +5,11 @@ import { type } from "arktype";
 
 import { formatCaughtError, log } from "../log.ts";
 import { resolveAccessTags, type ShareSugar } from "../grant-tags.ts";
+import { AddRequest } from "../http-bodies.ts";
 
 import { MemoryError } from "../memory.ts";
 import type { RouteDeps } from "./deps.ts";
 import { caller, grantGuard, requirePrincipal } from "./deps.ts";
-
-const ShareBody = type({
-  "tenant?": "boolean",
-  "principals?": "string[]",
-  "tags?": "string[]",
-});
-
-const AddRequest = type({
-  title: "string >= 1",
-  text: "string >= 1",
-  /** Explicit resource tags (grant-pattern space). */
-  "access_tags?": "string[]",
-  /** Share sugar — mints tags only. */
-  "share?": ShareBody,
-});
 
 const AddResponse = type({
   documentId: "string",

@@ -1,67 +1,27 @@
 import {
-  createToolRunner,
-  defineTool,
-  stringTool,
-  type BaseEnv,
-} from "@intx/agent";
-
-import {
-  createMemoryHttpClient,
-  MEMORY_TOOL_ENV_KEYS,
-  readMemoryToolEnv,
-  type MemorySearchBody,
-  type MemoryToolEnv,
-} from "./client.ts";
-
-type SearchEnv = BaseEnv & MemoryToolEnv;
-
-function asString(v: unknown, field: string): string {
-  if (typeof v !== "string" || v.length === 0) {
-    throw new Error(`${field} must be a non-empty string`);
-  }
-  return v;
-}
-
-function asOptionalStringArray(
-  v: unknown,
-  field: string,
-): string[] | undefined {
-  if (v === undefined) return undefined;
-  if (!Array.isArray(v) || !v.every((x) => typeof x === "string")) {
-    throw new Error(`${field} must be an array of strings`);
-  }
-  return v;
-}
-
-function asOptionalLimit(v: unknown): number | undefined {
-  if (v === undefined) return undefined;
-  if (typeof v !== "number" || !Number.isInteger(v) || v < 1 || v > 50) {
-    throw new Error("limit must be an integer from 1 to 50");
-  }
-  return v;
-}
+  coerceOptionalLimitArg,
+  parseWithArk,
+  SearchRequest,
+} from "../http-bodies.ts";
+import { SEARCH_LIMIT_MAX, SEARCH_LIMIT_MIN } from "../limits.ts";
+import type { MemorySearchBody } from "./client.ts";
+import { defineMemoryHttpTool } from "./install.ts";
 
 function parseSearchArgs(args: Record<string, unknown>): MemorySearchBody {
-  const query = asString(args["query"], "query");
-  const limit = asOptionalLimit(args["limit"]);
-  const kinds = asOptionalStringArray(args["kinds"], "kinds");
-  const entity_ids = asOptionalStringArray(args["entity_ids"], "entity_ids");
-  const sources = asOptionalStringArray(args["sources"], "sources");
-  const includeEvidence = args["includeEvidence"];
-  if (includeEvidence !== undefined && typeof includeEvidence !== "boolean") {
-    throw new Error("includeEvidence must be a boolean");
+  const parsed = parseWithArk(
+    SearchRequest,
+    coerceOptionalLimitArg(args),
+    "memory_search",
+  );
+  const body: MemorySearchBody = { query: parsed.query };
+  if (parsed.limit !== undefined) body.limit = parsed.limit;
+  if (parsed.kinds !== undefined) body.kinds = parsed.kinds;
+  if (parsed.entity_ids !== undefined) body.entity_ids = parsed.entity_ids;
+  if (parsed.sources !== undefined) body.sources = parsed.sources;
+  if (parsed.includeEvidence !== undefined) {
+    body.includeEvidence = parsed.includeEvidence;
   }
-
-  return {
-    query,
-    ...(limit !== undefined ? { limit } : {}),
-    ...(kinds !== undefined ? { kinds } : {}),
-    ...(entity_ids !== undefined ? { entity_ids } : {}),
-    ...(sources !== undefined ? { sources } : {}),
-    ...(typeof includeEvidence === "boolean"
-      ? { includeEvidence }
-      : {}),
-  };
+  return body;
 }
 
 /**
@@ -69,68 +29,54 @@ function parseSearchArgs(args: Record<string, unknown>): MemorySearchBody {
  *
  * Tenant and auth come from env; model args never carry identity.
  */
-export const memorySearch = defineTool<SearchEnv>({
+export const memorySearch = defineMemoryHttpTool({
   id: "@corbits/memory/search",
-  requires: MEMORY_TOOL_ENV_KEYS,
-  factory(env) {
-    const client = createMemoryHttpClient(readMemoryToolEnv(env));
-    const runner = createToolRunner([
-      stringTool({
-        definition: {
-          name: "memory_search",
-          description:
-            "Hybrid semantic + keyword search over tenant memory. " +
-            "Returns ranked items (and optional evidence). Identity is " +
-            "the authenticated principal on the hub.",
-          inputSchema: {
-            type: "object",
-            properties: {
-              query: {
-                type: "string",
-                description: "Search query text",
-              },
-              limit: {
-                type: "integer",
-                minimum: 1,
-                maximum: 50,
-                description: "Max hits to return (1–50)",
-              },
-              kinds: {
-                type: "array",
-                items: { type: "string" },
-                description: "Optional document kind filter",
-              },
-              entity_ids: {
-                type: "array",
-                items: { type: "string" },
-                description: "Optional entity-id filter",
-              },
-              sources: {
-                type: "array",
-                items: { type: "string" },
-                description:
-                  'Optional channel filter (e.g. "local" and/or live source ids)',
-              },
-              includeEvidence: {
-                type: "boolean",
-                description:
-                  "Include evidence strength on the response (hub default true)",
-              },
-            },
-            required: ["query"],
-            additionalProperties: false,
-          },
-        },
-        handler: async (args, signal) => {
-          const body = parseSearchArgs(args);
-          const result = await client.search(body, signal);
-          return JSON.stringify(result);
-        },
-      }),
-    ]);
-    return {
-      definitions: runner.definitions,
-      run: (call, signal) => runner.run(call, signal),
-    };
+  name: "memory_search",
+  description:
+    "Hybrid semantic + keyword search over tenant memory. " +
+    "Returns ranked items (and optional evidence). Identity is " +
+    "the authenticated principal on the hub.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      query: {
+        type: "string",
+        description: "Search query text",
+      },
+      limit: {
+        type: "integer",
+        minimum: SEARCH_LIMIT_MIN,
+        maximum: SEARCH_LIMIT_MAX,
+        description: `Max hits to return (${SEARCH_LIMIT_MIN}–${SEARCH_LIMIT_MAX})`,
+      },
+      kinds: {
+        type: "array",
+        items: { type: "string" },
+        description: "Optional document kind filter",
+      },
+      entity_ids: {
+        type: "array",
+        items: { type: "string" },
+        description: "Optional entity-id filter",
+      },
+      sources: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          'Optional channel filter (e.g. "local" and/or live source ids)',
+      },
+      includeEvidence: {
+        type: "boolean",
+        description:
+          "Include evidence strength on the response (hub default true)",
+      },
+    },
+    required: ["query"],
+    additionalProperties: false,
+  },
+  async handle(client, args, signal) {
+    const body = parseSearchArgs(args);
+    const result = await client.search(body, signal);
+    return JSON.stringify(result);
   },
 });

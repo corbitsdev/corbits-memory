@@ -4,6 +4,7 @@ import { describeRoute, resolver, validator } from "hono-openapi";
 import { type } from "arktype";
 
 import { formatCaughtError, log } from "../log.ts";
+import { SearchRequest } from "../http-bodies.ts";
 import { MemoryError } from "../memory.ts";
 import type { RouteDeps } from "./deps.ts";
 import { caller, grantGuard, requirePrincipal } from "./deps.ts";
@@ -15,14 +16,6 @@ import { caller, grantGuard, requirePrincipal } from "./deps.ts";
 // An empty array on either field is equivalent to omitting it — "no filter"
 // — not "match nothing", and does not satisfy the requirement that an empty
 // `query` be paired with a non-empty structured filter.
-const SearchRequest = type({
-  query: "string >= 1",
-  "limit?": "1 <= number.integer <= 50",
-  "kinds?": "string[]",
-  "entity_ids?": "string[]",
-  "sources?": "string[]",
-  "includeEvidence?": "boolean",
-});
 
 const SearchResponse = type({
   items: type({

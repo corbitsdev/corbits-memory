@@ -38,14 +38,18 @@ export type MemoryHttpClient = {
   list(limit?: number, signal?: AbortSignal): Promise<unknown>;
 };
 
-function stripTrailingSlash(url: string): string {
-  return url.endsWith("/") ? url.slice(0, -1) : url;
+function stripTrailingSlashes(url: string): string {
+  let out = url;
+  while (out.endsWith("/")) {
+    out = out.slice(0, -1);
+  }
+  return out;
 }
 
 export function createMemoryHttpClient(
   config: MemoryHttpConfig,
 ): MemoryHttpClient {
-  const base = stripTrailingSlash(config.baseUrl);
+  const base = stripTrailingSlashes(config.baseUrl);
   const root = `${base}/api/tenants/${encodeURIComponent(config.tenantId)}/memory`;
   const doFetch = config.fetch ?? globalThis.fetch.bind(globalThis);
 
@@ -84,7 +88,18 @@ export function createMemoryHttpClient(
       throw new Error(`memory HTTP ${res.status}: ${detail}`);
     }
 
-    return res.json();
+    const text = await res.text().catch(() => "");
+    if (!text.trim()) {
+      return {};
+    }
+    try {
+      return JSON.parse(text) as unknown;
+    } catch (cause) {
+      throw new Error(
+        `memory HTTP ${res.status}: invalid JSON response`,
+        { cause },
+      );
+    }
   }
 
   return {
@@ -128,6 +143,10 @@ export type MemoryToolEnv = {
   memoryBaseUrl: string;
   memoryTenantId: string;
   memoryAuthToken: string;
+  /**
+   * Optional host/test inject. Not part of `requires` — agents never set this.
+   */
+  memoryFetch?: typeof globalThis.fetch;
 };
 
 export function readMemoryToolEnv(env: MemoryToolEnv): MemoryHttpConfig {
@@ -143,5 +162,10 @@ export function readMemoryToolEnv(env: MemoryToolEnv): MemoryHttpConfig {
   if (typeof authToken !== "string" || authToken.length === 0) {
     throw new Error("memoryAuthToken must be a non-empty string");
   }
-  return { baseUrl, tenantId, authToken };
+  return {
+    baseUrl,
+    tenantId,
+    authToken,
+    ...(env.memoryFetch !== undefined ? { fetch: env.memoryFetch } : {}),
+  };
 }

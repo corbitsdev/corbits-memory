@@ -1,25 +1,18 @@
 import {
-  createToolRunner,
-  defineTool,
-  stringTool,
-  type BaseEnv,
-} from "@intx/agent";
+  coerceOptionalLimitArg,
+  ListArgs,
+  parseWithArk,
+} from "../http-bodies.ts";
+import { LIST_LIMIT_MAX, LIST_LIMIT_MIN } from "../limits.ts";
+import { defineMemoryHttpTool } from "./install.ts";
 
-import {
-  createMemoryHttpClient,
-  MEMORY_TOOL_ENV_KEYS,
-  readMemoryToolEnv,
-  type MemoryToolEnv,
-} from "./client.ts";
-
-type ListEnv = BaseEnv & MemoryToolEnv;
-
-function asOptionalLimit(v: unknown): number | undefined {
-  if (v === undefined) return undefined;
-  if (typeof v !== "number" || !Number.isInteger(v) || v < 1 || v > 100) {
-    throw new Error("limit must be an integer from 1 to 100");
-  }
-  return v;
+function parseListLimit(args: Record<string, unknown>): number | undefined {
+  const parsed = parseWithArk(
+    ListArgs,
+    coerceOptionalLimitArg(args),
+    "memory_list",
+  );
+  return parsed.limit;
 }
 
 /**
@@ -27,41 +20,27 @@ function asOptionalLimit(v: unknown): number | undefined {
  *
  * Tenant and auth come from env; model args never carry identity.
  */
-export const memoryList = defineTool<ListEnv>({
+export const memoryList = defineMemoryHttpTool({
   id: "@corbits/memory/list",
-  requires: MEMORY_TOOL_ENV_KEYS,
-  factory(env) {
-    const client = createMemoryHttpClient(readMemoryToolEnv(env));
-    const runner = createToolRunner([
-      stringTool({
-        definition: {
-          name: "memory_list",
-          description:
-            "List recent documents visible to the authenticated principal " +
-            "in this tenant's memory.",
-          inputSchema: {
-            type: "object",
-            properties: {
-              limit: {
-                type: "integer",
-                minimum: 1,
-                maximum: 100,
-                description: "Max events to return (1–100)",
-              },
-            },
-            additionalProperties: false,
-          },
-        },
-        handler: async (args, signal) => {
-          const limit = asOptionalLimit(args["limit"]);
-          const result = await client.list(limit, signal);
-          return JSON.stringify(result);
-        },
-      }),
-    ]);
-    return {
-      definitions: runner.definitions,
-      run: (call, signal) => runner.run(call, signal),
-    };
+  name: "memory_list",
+  description:
+    "List recent documents visible to the authenticated principal " +
+    "in this tenant's memory.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      limit: {
+        type: "integer",
+        minimum: LIST_LIMIT_MIN,
+        maximum: LIST_LIMIT_MAX,
+        description: `Max events to return (${LIST_LIMIT_MIN}–${LIST_LIMIT_MAX})`,
+      },
+    },
+    additionalProperties: false,
+  },
+  async handle(client, args, signal) {
+    const limit = parseListLimit(args);
+    const result = await client.list(limit, signal);
+    return JSON.stringify(result);
   },
 });
