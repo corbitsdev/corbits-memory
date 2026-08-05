@@ -3,9 +3,9 @@
  *
  * Spec: docs/AUTHZ-DOCUMENT-ACCESS.md
  *
- * - Capability checks (add/find on `memory`) live on the HTTP mount.
+ * - Capability checks (add/search on `memory`) live on the HTTP mount.
  * - Document access: creator always sees own docs; otherwise any `accessTag`
- *   that `authorize(…, tag, "find")` allows.
+ *   that `authorize(…, tag, "search")` allows.
  * - Share sugars only mint tags — they never write grants.
  */
 import { authorize } from "@intx/authz";
@@ -83,7 +83,7 @@ export type CanAccessDocumentParams = {
 /**
  * True when the principal may see this document under grant-tag rules.
  * Creator is always allowed (implicit owner). Everyone else needs an allow
- * on at least one accessTag for action "find".
+ * on at least one accessTag for action "search".
  */
 export async function canAccessDocument(
   params: CanAccessDocumentParams,
@@ -103,7 +103,7 @@ export async function canAccessDocument(
       params.principalId,
       params.tenantId,
       tag,
-      "find",
+      "search",
       params.conditionRegistry,
     );
     if (decision.effect === "allow") return true;

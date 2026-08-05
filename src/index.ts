@@ -1,10 +1,13 @@
 /**
- * @corbits/memory — add / find / ask / recent for Interchange hubs.
+ * @corbits/memory — add / search / list for Interchange hubs.
  *
  * One entry: `createMemory(options)`. Pass `app` to register HTTP routes on
  * a Hono host. Identity is `c.get("principal")` on HTTP, or `principalId` +
  * `tenantId` in-process. Authz is the host grant store — this package
  * authenticates nothing itself.
+ *
+ * Inference is host-owned and ephemeral (call your model, then add/search).
+ * Core does not mount an ingest agent or bake LLM into the write path.
  */
 import type { Hono } from "hono";
 import { createRequireGrant, type TenantEnv } from "@intx/hub-api";
@@ -29,52 +32,45 @@ export { RerankConfigError } from "./core/rerank-client.ts";
 // Memory plane — types from memory.ts; createMemory is defined below so it
 // can optionally register HTTP routes when `app` is passed.
 export type {
-  AskCitation,
-  AskResult,
-  ChatMessage,
-  FindItem,
-  FindResult,
-  Generate,
   HybridSearchResult,
   MemoryAddParams,
   MemoryAddResult,
-  MemoryAskParams,
-  MemoryFindParams,
+  MemorySearchParams,
   MemoryIdentity,
   Memory,
   MemoryOptions,
-  MemoryRecentParams,
-  MemoryRecallItem,
-  MemoryRecallParams,
-  MemoryRememberParams,
+  MemoryListParams,
   MemoryShare,
   SearchHit,
+  SearchItem,
+  SearchResult,
   TextExtractor,
   TimelineEvent,
 } from "./memory.ts";
 export {
   MemoryError,
-  MemoryNotPermittedError,
   resolveGrantConfig,
+  SEARCH_LIMIT_MIN,
+  SEARCH_LIMIT_MAX,
+  LIST_LIMIT_MIN,
+  LIST_LIMIT_MAX,
 } from "./memory.ts";
 
-// Ports — pluggable storage, live sources, and optional memory
+// Ports — pluggable storage and live sources
 export type {
   DocumentStore,
   DocumentStoreAddParams,
-  DocumentStoreFindItem,
-  DocumentStoreFindParams,
-  DocumentStoreFindResult,
-  DocumentStoreRecentEvent,
-  DocumentStoreRecentParams,
+  DocumentStoreSearchItem,
+  DocumentStoreSearchParams,
+  DocumentStoreSearchResult,
+  DocumentStoreListEvent,
+  DocumentStoreListParams,
   LiveSearchItem,
-  MemoryProvider,
   SourceProvider,
 } from "./ports/types.ts";
 
 export {
   createFakeDocumentStore,
-  createFakeMemoryProvider,
   createFakeSourceProvider,
 } from "./ports/fakes.ts";
 
@@ -119,36 +115,48 @@ export type CreateMemoryOptions = MemoryOptions & {
  *   grantStore,
  *   conditionRegistry,
  * });
- * await memory.add({ tenantId, principalId, content: { title, text } });
+ * await memory.add({ principalId, tenantId, content: { title, text } });
+ * const { items } = await memory.search({ principalId, tenantId, query });
  * ```
  *
- * @example With HTTP
+ * @example HTTP on a Hono host
  * ```ts
- * const memory = createMemory({
+ * createMemory({
  *   app,
+ *   documentStore: createFakeDocumentStore(),
  *   grantStore,
  *   conditionRegistry,
- *   config: loadMemoryConfig(),
- *   generate,
  * });
+ * // POST /api/memory/add | search · GET /api/memory/list
  * ```
  */
-export function createMemory(options: CreateMemoryOptions = {}): Memory {
-  const { app, ...planeOptions } = options;
-  const memory = createMemoryPlane(planeOptions);
+export function createMemory(options: CreateMemoryOptions): Memory {
+  const { app, grantStore, conditionRegistry, ...planeOpts } = options;
+  const grants = resolveGrantConfig({
+    ...(grantStore !== undefined ? { grantStore } : {}),
+    ...(conditionRegistry !== undefined ? { conditionRegistry } : {}),
+  });
+  const memory = createMemoryPlane({
+    ...planeOpts,
+    ...(grantStore !== undefined ? { grantStore } : {}),
+    ...(conditionRegistry !== undefined ? { conditionRegistry } : {}),
+  });
+
   if (app) {
-    const grants = resolveGrantConfig(options);
     if (!grants) {
       throw new Error(
-        "createMemory({ app }): grantStore is required to register HTTP routes",
+        "createMemory({ app }): grantStore is required when registering HTTP routes " +
+          "(pass grantStore; conditionRegistry is optional)",
       );
     }
+    const requireGrant = createRequireGrant(grants);
     const deps: RouteDeps = {
       memory,
+      requireGrant,
       grants,
-      requireGrant: createRequireGrant(grants),
     };
     registerMemoryRoutes(app, deps);
   }
+
   return memory;
 }

@@ -1,12 +1,10 @@
 /**
- * Plane construction, grant-tag ACL wiring, and ask() coverage for memory.ts.
+ * Plane construction, grant-tag ACL wiring, and surface coverage for memory.ts.
  *
  * - Construction: rerank maxDocChars validation runs in createMemory.
- * - Find wiring: grant-tag post-filter (creator-only without grants).
- * - ask(): grant check, missing generate (501 before find), allow path,
- *   synthesizeAnswer grounding.
+ * - Search wiring: grant-tag post-filter (creator-only without grants).
  * - add(): documentId return, content/file XOR, share → access tags.
- * - find/recent: limit bounds, evidence default omit.
+ * - search/list: limit bounds, evidence default omit.
  */
 import {
   afterAll,
@@ -24,11 +22,8 @@ import type { SearchHit } from "./core/schemas/search.ts";
 import {
   createMemory,
   MemoryError,
-  MemoryNotPermittedError,
-  synthesizeAnswer,
-  type ChatMessage,
-  type FindItem,
   type MemoryAddParams,
+  type SearchItem,
   type TextExtractor,
 } from "./memory.ts";
 import type { MemoryConfig } from "./mount-config.ts";
@@ -108,17 +103,6 @@ function hit(overrides: Partial<SearchHit> | string = {}): SearchHit {
   };
 }
 
-function findItemFromHit(h: SearchHit): FindItem {
-  return {
-    documentId: h.document_id,
-    title: h.title,
-    snippet: h.snippet,
-    score: h.score,
-    kind: h.kind,
-    citation: h.citation,
-  };
-}
-
 const wiringConfig: MemoryConfig = {
   memory: {
     databaseUrl: "postgres://localhost:5432/nonexistent-test-db",
@@ -138,8 +122,6 @@ const wiringConfig: MemoryConfig = {
     },
   },
 };
-
-const askConfig: MemoryConfig = wiringConfig;
 
 function ftsUnsafe(sqlText: string): Promise<Array<Record<string, unknown>>> {
   if (sqlText.includes("pg_ts_config")) {
@@ -262,7 +244,7 @@ describe("createMemory.find — grant-tag post-filter wiring", () => {
     );
     const plane = makePlane({ config: wiringConfig });
 
-    const result = await plane.find({
+    const result = await plane.search({
       tenantId: TENANT,
       principalId: PRINCIPAL,
       query: "q",
@@ -270,7 +252,7 @@ describe("createMemory.find — grant-tag post-filter wiring", () => {
     });
 
     expect(hybridSearch).toHaveBeenCalled();
-    expect(result.items.map((i: FindItem) => i.documentId)).toEqual([
+    expect(result.items.map((i: SearchItem) => i.documentId)).toEqual([
       "d-mine",
     ]);
     expect(result.evidence).toBe("strong");
@@ -293,7 +275,7 @@ describe("createMemory.find — grant-tag post-filter wiring", () => {
     );
     const plane = makePlane({ config: wiringConfig });
 
-    await plane.find({
+    await plane.search({
       tenantId: TENANT,
       principalId: PRINCIPAL,
       query: "q",
@@ -328,7 +310,7 @@ describe("createMemory.find — grant-tag post-filter wiring", () => {
     );
     const plane = makePlane({ config: wiringConfig });
 
-    const result = await plane.find({
+    const result = await plane.search({
       tenantId: TENANT,
       principalId: PRINCIPAL,
       query: "q",
@@ -367,7 +349,7 @@ describe("createMemory.find — grant-tag post-filter wiring", () => {
     const plane = makePlane({ config: wiringConfig });
 
 
-    const without = await plane.find({
+    const without = await plane.search({
       tenantId: TENANT,
       principalId: PRINCIPAL,
       query: "q",
@@ -376,7 +358,7 @@ describe("createMemory.find — grant-tag post-filter wiring", () => {
     expect(without.evidence).toBeUndefined();
     expect(without.degraded).toBeUndefined();
 
-    const withEv = await plane.find({
+    const withEv = await plane.search({
       tenantId: TENANT,
       principalId: PRINCIPAL,
       query: "q",
@@ -395,7 +377,7 @@ describe("find/recent — limit bounds", () => {
   it("find rejects limit below 1", async () => {
     const plane = createMemory({ config: wiringConfig });
     try {
-      await plane.find({
+      await plane.search({
         tenantId: TENANT,
         principalId: PRINCIPAL,
         query: "q",
@@ -412,7 +394,7 @@ describe("find/recent — limit bounds", () => {
   it("find rejects limit above 50", async () => {
     const plane = createMemory({ config: wiringConfig });
     try {
-      await plane.find({
+      await plane.search({
         tenantId: TENANT,
         principalId: PRINCIPAL,
         query: "q",
@@ -428,7 +410,7 @@ describe("find/recent — limit bounds", () => {
   it("recent rejects limit above 100", async () => {
     const plane = createMemory({ config: wiringConfig });
     try {
-      await plane.recent({
+      await plane.list({
         tenantId: TENANT,
         principalId: PRINCIPAL,
         limit: 101,
@@ -443,7 +425,7 @@ describe("find/recent — limit bounds", () => {
   it("recent rejects limit below 1", async () => {
     const plane = createMemory({ config: wiringConfig });
     try {
-      await plane.recent({
+      await plane.list({
         tenantId: TENANT,
         principalId: PRINCIPAL,
         limit: 0,
@@ -729,201 +711,5 @@ async function freshPlane(opts?: {
       `memory.owner:${PRINCIPAL}`,
     ]);
     await plane.close();
-  });
-});
-
-describe("ask() — grant check", () => {
-  it("denies with MemoryNotPermittedError when no grant matches (effect: null)", async () => {
-    const grantStore = createInMemoryGrantStore([]);
-    const plane = createMemory({
-      config: askConfig,
-      grantStore,
-      conditionRegistry: {},
-    });
-    await expect(
-      plane.ask({ tenantId: TENANT, principalId: PRINCIPAL, query: "q" }),
-    ).rejects.toBeInstanceOf(MemoryNotPermittedError);
-  });
-
-  it("denies when the only matching grant is an explicit deny", async () => {
-    const denyGrant: GrantRule = { ...grant("find"), effect: "deny" };
-    const plane = createMemory({
-      config: askConfig,
-      grantStore: createInMemoryGrantStore([denyGrant]),
-      conditionRegistry: {},
-    });
-    await expect(
-      plane.ask({ tenantId: TENANT, principalId: PRINCIPAL, query: "q" }),
-    ).rejects.toBeInstanceOf(MemoryNotPermittedError);
-  });
-});
-
-describe("ask() — missing generate", () => {
-  it("throws MemoryError 501 before find when generate is not wired", async () => {
-    // Pointed at a nonexistent DB: if find ran first this would surface a
-    // connection/driver error instead of the promised 501.
-    const plane = createMemory({
-      config: askConfig,
-      grantStore: createInMemoryGrantStore([grant("find")]),
-      conditionRegistry: {},
-    });
-    try {
-      await plane.ask({ tenantId: TENANT, principalId: PRINCIPAL, query: "q" });
-      throw new Error("expected ask() to reject");
-    } catch (err) {
-      expect(err).toBeInstanceOf(MemoryError);
-      expect((err as MemoryError).status).toBe(501);
-      expect((err as MemoryError).message).toContain("generate");
-    }
-  });
-});
-
-describe("ask() — allow path", () => {
-  it("finds as the principal and synthesizes when grant allows and generate is wired", async () => {
-    const generate = mock((messages: readonly ChatMessage[]) => {
-      expect(messages[0]?.role).toBe("system");
-      expect(messages[1]?.content).toContain("what is the answer?");
-      expect(messages[1]?.content).toContain("[1] Doc One");
-      expect(messages[1]?.content).toContain("the relevant snippet");
-      return Promise.resolve("Answer from context [1].");
-    });
-    const plane = createMemory({
-      config: askConfig,
-      grantStore: createInMemoryGrantStore([grant("find")]),
-      conditionRegistry: {},
-      generate,
-    });
-    // Stub find so this unit test never needs a live Postgres. ask() looks
-    // up plane.find at call time, so reassignment is the wiring under test.
-    plane.find = mock(() =>
-      Promise.resolve({
-        items: [findItemFromHit(hit())],
-        evidence: "strong" as const,
-      }),
-    );
-
-    const result = await plane.ask({
-      tenantId: TENANT,
-      principalId: PRINCIPAL,
-      query: "what is the answer?",
-    });
-
-    expect(plane.find).toHaveBeenCalledWith({
-      tenantId: TENANT,
-      principalId: PRINCIPAL,
-      query: "what is the answer?",
-      includeEvidence: true,
-    });
-    expect(generate).toHaveBeenCalledTimes(1);
-    expect(result.text).toBe("Answer from context [1].");
-    expect(result.evidence).toBe("strong");
-    expect(result.citations).toEqual([
-      {
-        index: 1,
-        documentId: "doc-1",
-        title: "Doc One",
-        citation: hit().citation,
-      },
-    ]);
-  });
-});
-
-describe("synthesizeAnswer", () => {
-  const neverCalled = mock(() =>
-    Promise.reject(new Error("generate must not be called")),
-  );
-
-  it("refuses with no citations when there are no hits", async () => {
-    const result = await synthesizeAnswer(
-      "q",
-      { hits: [], evidence: "none" },
-      neverCalled,
-    );
-    expect(result.citations).toEqual([]);
-    expect(result.evidence).toBe("none");
-    expect(neverCalled).not.toHaveBeenCalled();
-  });
-
-  it("refuses with no citations when hits have no readable snippet text", async () => {
-    const result = await synthesizeAnswer(
-      "q",
-      { hits: [hit({ snippet: "   " })], evidence: "weak" },
-      neverCalled,
-    );
-    expect(result.text).toContain("couldn't read any text");
-    expect(result.citations).toEqual([]);
-    expect(neverCalled).not.toHaveBeenCalled();
-  });
-
-  it("grounds the prompt in the retrieved snippets and returns their citations", async () => {
-    const generate = mock((messages: readonly ChatMessage[]) => {
-      // The grounding contract: the model sees the numbered context, and only
-      // the numbered context, for the hits that fit the budget.
-      expect(messages[1]?.content).toContain("[1] Doc One");
-      expect(messages[1]?.content).toContain("the relevant snippet");
-      return Promise.resolve("Grounded answer [1].");
-    });
-
-    const result = await synthesizeAnswer(
-      "what is the answer?",
-      { hits: [hit()], evidence: "strong" },
-      generate,
-    );
-
-    expect(result.text).toBe("Grounded answer [1].");
-    expect(result.evidence).toBe("strong");
-    expect(result.citations).toEqual([
-      {
-        index: 1,
-        documentId: "doc-1",
-        title: "Doc One",
-        citation: hit().citation,
-      },
-    ]);
-  });
-
-  it("numbers citations sequentially among included entries, skipping empty snippets", async () => {
-    const generate = mock((messages: readonly ChatMessage[]) => {
-      const content = messages[1]?.content ?? "";
-      // First hit is empty → skipped; second becomes [1], not [2].
-      expect(content).toContain("[1] Real Doc");
-      expect(content).toContain("actual content");
-      expect(content).not.toContain("[2]");
-      expect(content).not.toContain("Empty Doc");
-      return Promise.resolve("From [1].");
-    });
-
-    const result = await synthesizeAnswer(
-      "q",
-      {
-        hits: [
-          hit({ title: "Empty Doc", snippet: "   " }),
-          hit({
-            title: "Real Doc",
-            snippet: "actual content",
-            document_id: "doc-2",
-            chunk_id: "chunk-2",
-          }),
-        ],
-        evidence: "weak",
-      },
-      generate,
-    );
-
-    expect(result.citations).toEqual([
-      {
-        index: 1,
-        documentId: "doc-2",
-        title: "Real Doc",
-        citation: hit().citation,
-      },
-    ]);
-  });
-
-  it("propagates a generate failure rather than inventing an answer", async () => {
-    const generate = mock(() => Promise.reject(new Error("model unreachable")));
-    await expect(
-      synthesizeAnswer("q", { hits: [hit()], evidence: "weak" }, generate),
-    ).rejects.toThrow("model unreachable");
   });
 });

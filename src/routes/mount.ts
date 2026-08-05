@@ -8,19 +8,17 @@ import type { TenantEnv } from "@intx/hub-api";
 
 import type { RouteDeps } from "./deps.ts";
 import { mountAddRoute } from "./add.ts";
-import { mountFindRoute } from "./find.ts";
-import { mountAskRoute } from "./ask.ts";
-import { mountRecentRoute } from "./recent.ts";
+import { mountSearchRoute } from "./search.ts";
+import { mountListRoute } from "./list.ts";
 
 export type { GrantConfig, RouteDeps } from "./deps.ts";
 
-/** HTTP JSON routes: add, find, ask, recent. */
+/** HTTP JSON routes: add, search, list. */
 export function registerMemoryRoutes(
   app: Hono<TenantEnv>,
   deps: RouteDeps,
 ): void {
   mountAddRoute(app, deps);
-  mountFindRoute(app, deps);
-  mountAskRoute(app, deps);
-  mountRecentRoute(app, deps);
+  mountSearchRoute(app, deps);
+  mountListRoute(app, deps);
 }

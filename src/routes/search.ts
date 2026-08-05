@@ -9,13 +9,13 @@ import type { RouteDeps } from "./deps.ts";
 import { caller, grantGuard, requirePrincipal } from "./deps.ts";
 
 // `kinds`/`entity_ids` scope every retrieval channel — see the
-// `kinds`/`entityIds` doc comments on MemoryFindParams (memory.ts)
+// `kinds`/`entityIds` doc comments on MemorySearchParams (memory.ts)
 // for the full explanation.
 //
 // An empty array on either field is equivalent to omitting it — "no filter"
 // — not "match nothing", and does not satisfy the requirement that an empty
 // `query` be paired with a non-empty structured filter.
-const FindRequest = type({
+const SearchRequest = type({
   query: "string >= 1",
   "limit?": "1 <= number.integer <= 50",
   "kinds?": "string[]",
@@ -24,7 +24,7 @@ const FindRequest = type({
   "includeEvidence?": "boolean",
 });
 
-const FindResponse = type({
+const SearchResponse = type({
   items: type({
     documentId: "string",
     title: "string",
@@ -37,12 +37,12 @@ const FindResponse = type({
   "degraded?": "string[]",
 });
 
-export function mountFindRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
+export function mountSearchRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
   app.post(
-    "/api/memory/find",
+    "/api/memory/search",
     describeRoute({
       tags: ["memory"],
-      summary: "Hybrid semantic + keyword find",
+      summary: "Hybrid semantic + keyword search",
       description:
         "`kinds`/`entity_ids` scope every retrieval channel (lexical and " +
         "dense) before results are fused, so every hit matches the " +
@@ -52,24 +52,24 @@ export function mountFindRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
         200: {
           description: "Ranked items with evidence",
           content: {
-            "application/json": { schema: resolver(FindResponse) },
+            "application/json": { schema: resolver(SearchResponse) },
           },
         },
         400: { description: "Invalid query" },
         401: { description: "No principal on the request context" },
-        403: { description: "Missing the memory:find grant" },
-        502: { description: "find failed" },
+        403: { description: "Missing the memory:search grant" },
+        502: { description: "search failed" },
       },
     }),
     requirePrincipal(),
-    grantGuard(deps, "find"),
-    validator("json", FindRequest),
+    grantGuard(deps, "search"),
+    validator("json", SearchRequest),
     async (c) => {
       const { query, limit, kinds, entity_ids, sources, includeEvidence } =
         c.req.valid("json");
       const { scopeId, subjectId } = caller(c);
       try {
-        const result = await deps.memory.find({
+        const result = await deps.memory.search({
           query,
           tenantId: scopeId,
           principalId: subjectId,
@@ -84,11 +84,11 @@ export function mountFindRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
         return c.json(result);
       } catch (err) {
         const errMessage = formatCaughtError(err);
-        log.error(`memory find failed: ${errMessage}`, { err });
+        log.error(`memory search failed: ${errMessage}`, { err });
         if (err instanceof MemoryError) {
           return c.json({ error: err.message }, err.status as 400);
         }
-        return c.json({ error: "find failed" }, 502);
+        return c.json({ error: "search failed" }, 502);
       }
     },
   );

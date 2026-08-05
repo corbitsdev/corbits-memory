@@ -6,17 +6,17 @@ import { type } from "arktype";
 import { formatCaughtError, log } from "../log.ts";
 import {
   MemoryError,
-  RECENT_LIMIT_MAX,
-  RECENT_LIMIT_MIN,
+  LIST_LIMIT_MAX,
+  LIST_LIMIT_MIN,
 } from "../memory.ts";
 import type { RouteDeps } from "./deps.ts";
 import { caller, grantGuard, requirePrincipal } from "./deps.ts";
 
-const RecentQuery = type({
+const ListQuery = type({
   "limit?": "string",
 });
 
-const RecentResponse = type({
+const ListResponse = type({
   events: type({
     at: "string",
     title: "string",
@@ -31,36 +31,36 @@ function parseLimit(raw: string | undefined): number | undefined {
   const n = Number(raw);
   if (
     !Number.isInteger(n) ||
-    n < RECENT_LIMIT_MIN ||
-    n > RECENT_LIMIT_MAX
+    n < LIST_LIMIT_MIN ||
+    n > LIST_LIMIT_MAX
   ) {
     return undefined;
   }
   return n;
 }
 
-export function mountRecentRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
+export function mountListRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
   app.get(
-    "/api/memory/recent",
+    "/api/memory/list",
     describeRoute({
       tags: ["memory"],
-      summary: "Recent documents for the caller's scope",
+      summary: "List recent documents for the caller's scope",
       responses: {
         200: {
-          description: "Recent events visible to the caller",
+          description: "Events visible to the caller",
           content: {
-            "application/json": { schema: resolver(RecentResponse) },
+            "application/json": { schema: resolver(ListResponse) },
           },
         },
         400: { description: "Invalid limit query param" },
         401: { description: "No principal on the request context" },
-        403: { description: "Missing the memory:find grant" },
-        502: { description: "Recent query failed" },
+        403: { description: "Missing the memory:search grant" },
+        502: { description: "List query failed" },
       },
     }),
     requirePrincipal(),
-    grantGuard(deps, "find"),
-    validator("query", RecentQuery),
+    grantGuard(deps, "search"),
+    validator("query", ListQuery),
     async (c) => {
       const { scopeId, subjectId } = caller(c);
       const rawLimit = c.req.valid("query").limit;
@@ -71,14 +71,14 @@ export function mountRecentRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
       ) {
         return c.json(
           {
-            error: `limit must be an integer from ${RECENT_LIMIT_MIN} to ${RECENT_LIMIT_MAX}`,
+            error: `limit must be an integer from ${LIST_LIMIT_MIN} to ${LIST_LIMIT_MAX}`,
           },
           400,
         );
       }
       const limit = parseLimit(rawLimit);
       try {
-        const events = await deps.memory.recent({
+        const events = await deps.memory.list({
           tenantId: scopeId,
           principalId: subjectId,
           ...(limit !== undefined ? { limit } : {}),
@@ -89,10 +89,10 @@ export function mountRecentRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
           return c.json({ error: err.message }, err.status as 400);
         }
         const errMessage = formatCaughtError(err);
-        log.error(`memory recent failed: ${errMessage}`, {
+        log.error(`memory list failed: ${errMessage}`, {
           error: errMessage,
         });
-        return c.json({ error: "recent failed" }, 502);
+        return c.json({ error: "list failed" }, 502);
       }
     },
   );

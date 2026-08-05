@@ -1,14 +1,17 @@
 /**
- * Port contracts for pluggable storage, live sources, and optional personal memory.
+ * Port contracts for pluggable storage and live sources.
  *
- * DocumentStore is the durable backend for add/find/recent (default: local
+ * DocumentStore is the durable backend for add/search/list (default: local
  * pgvector). Hosts replace it with any DocumentStore implementation or fakes —
  * no dual store. SourceProvider is tools-shaped live connectors (e.g. Linear),
- * not a store. MemoryProvider is an optional ask side-channel (includeMemory);
- * not how you swap backends.
+ * not a store.
  *
  * Document access uses Interchange grant tags (accessTags), not a mini-ACL.
  * See docs/AUTHZ-DOCUMENT-ACCESS.md.
+ *
+ * Inference (extract-on-add, synthesize answers) is host-owned and ephemeral —
+ * call your own model, then `add` / `search`. Core does not mount an agent or
+ * bake LLM into the write path.
  */
 import type { GrantStore, ConditionRegistry } from "@intx/authz";
 import type {
@@ -34,7 +37,7 @@ export type DocumentStoreAddParams = {
   kind?: string;
 };
 
-export type DocumentStoreFindParams = {
+export type DocumentStoreSearchParams = {
   tenantId: string;
   principalId: string;
   query: string;
@@ -52,7 +55,7 @@ export type DocumentStoreFindParams = {
   conditionRegistry?: ConditionRegistry;
 };
 
-export type DocumentStoreFindItem = {
+export type DocumentStoreSearchItem = {
   documentId: string;
   title: string;
   snippet: string;
@@ -65,13 +68,13 @@ export type DocumentStoreFindItem = {
   updatedAt?: string;
 };
 
-export type DocumentStoreFindResult = {
-  items: DocumentStoreFindItem[];
+export type DocumentStoreSearchResult = {
+  items: DocumentStoreSearchItem[];
   evidence?: SearchEvidence;
   degraded?: DegradeFlag[];
 };
 
-export type DocumentStoreRecentParams = {
+export type DocumentStoreListParams = {
   tenantId: string;
   principalId: string;
   limit?: number;
@@ -79,7 +82,7 @@ export type DocumentStoreRecentParams = {
   conditionRegistry?: ConditionRegistry;
 };
 
-export type DocumentStoreRecentEvent = {
+export type DocumentStoreListEvent = {
   at: string;
   title: string;
   source: string;
@@ -95,10 +98,8 @@ export type DocumentStoreRecentEvent = {
  */
 export type DocumentStore = {
   add(params: DocumentStoreAddParams): Promise<{ documentId: string }>;
-  find(params: DocumentStoreFindParams): Promise<DocumentStoreFindResult>;
-  recent(
-    params: DocumentStoreRecentParams,
-  ): Promise<DocumentStoreRecentEvent[]>;
+  search(params: DocumentStoreSearchParams): Promise<DocumentStoreSearchResult>;
+  list(params: DocumentStoreListParams): Promise<DocumentStoreListEvent[]>;
   close(): Promise<void>;
 };
 
@@ -131,26 +132,6 @@ export type SourceProvider = {
     principalId: string;
     limit?: number;
   }): Promise<LiveSearchItem[]>;
-};
-
-/**
- * Optional personal-memory side channel for ask(includeMemory). Not a
- * DocumentStore replacement — product backends for durable knowledge implement
- * DocumentStore, not this port.
- */
-export type MemoryProvider = {
-  remember(params: {
-    tenantId: string;
-    principalId: string;
-    text: string;
-    metadata?: Record<string, string>;
-  }): Promise<void>;
-  recall(params: {
-    tenantId: string;
-    principalId: string;
-    query: string;
-    limit?: number;
-  }): Promise<Array<{ text: string; score?: number }>>;
 };
 
 export type { SearchHit };

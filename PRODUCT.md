@@ -1,8 +1,9 @@
 # Corbits Memory — Product shape
 
 A **mountable memory plane** for Interchange hubs: durable documents, hybrid
-search, grounded ask, and optional live sources / personal memory side-channel.
-Workbench and coding agents are clients — not owners of ingestion or auth.
+search, and recent list. Workbench and coding agents are clients — not owners
+of ingestion or auth. Inference is **host-owned and ephemeral** (call your
+model, then `add` / `search`); core does not ship `ask` or an ingest agent.
 
 ## Shape (locked)
 
@@ -22,14 +23,14 @@ SDK never creates one; it mounts onto yours.
 | Method | Meaning |
 | --- | --- |
 | `add` | Capture a document (`content` **xor** `file` + TextExtractor) |
-| `find` | Hybrid retrieval (+ optional live sources) |
-| `ask` | Grounded answer from find (+ optional memory) |
-| `recent` | Recent documents for the principal |
+| `search` | Hybrid retrieval (+ optional live sources) |
+| `list` | Recent documents for the principal |
 
-Hard cutover: there is no `capture` / `search` / `timeline` export. HTTP paths
-and grants match the verbs: `POST /api/memory/add|find|ask`,
-`GET /api/memory/recent`; grants `memory:add` and `memory:find`
-(ask/recent share `find`).
+Hard cutover from older names: `find` → `search`, `recent` → `list`.
+**Removed from product:** `ask`, `remember`, `recall`, and any
+`MemoryProvider` side-channel. HTTP paths and grants match the verbs:
+`POST /api/memory/add|search`, `GET /api/memory/list`; grants `memory:add` and
+`memory:search` (`list` shares `search`).
 
 Identity on the plane is always **`principalId` + `tenantId`** (never
 `scopeId` / `subjectId`). HTTP routes never take body identity — they read
@@ -39,12 +40,11 @@ Identity on the plane is always **`principalId` + `tenantId`** (never
 
 | Port | Purpose |
 | --- | --- |
-| `DocumentStore` | **The** durable backend for add/find/recent (default: engine pgvector, wrapped as a DocumentStore). Replace with any host `DocumentStore` or in-package fakes — no Postgres required when overridden. The plane is always store-backed; there is no second engine-only path. |
+| `DocumentStore` | **The** durable backend for add/search/list (default: engine pgvector, wrapped as a DocumentStore). Replace with any host `DocumentStore` or in-package fakes — no Postgres required when overridden. The plane is always store-backed; there is no second engine-only path. |
 | `SourceProvider` | Optional **tools-shaped** live search (`searchLive`); merge is fail-soft. Not a store replacement. |
-| `MemoryProvider` | Optional ask side-channel only (`includeMemory`); **not** how you swap backends. |
 
-Mount options accept `documentStore`, `sources[]`, `memoryProvider`, plus in-package
-**fakes** so a host can mount with fakes only and exercise add/find/ask/recent
+Mount options accept `documentStore`, `sources[]`, plus in-package
+**fakes** so a host can mount with fakes only and exercise add/search/list
 without Postgres. Hosts that want a third-party durable backend implement
 `DocumentStore` (or use an optional adapter package) and pass it as
 `documentStore`, omitting `MemoryConfig` when Postgres is not needed.
@@ -53,11 +53,9 @@ without Postgres. Hosts that want a third-party durable backend implement
 per provider (timeout/error → degrade flags, never fail the request), dedupe by
 `adapter:externalRef`, optional `sources` filter (`local` + provider ids).
 
-**Memory side-channel:** `includeMemory` on `ask` defaults **false**. When true
-and a `MemoryProvider` is mounted, recall injects uncited personal context;
-failures degrade with `memory_unavailable` (docs-only). This is unrelated to
-replacing the DocumentStore. Writes via `plane.remember` are host-owned — ask
-never auto-writes.
+**Inference:** host-owned. Extract durable facts with the host model before
+`add`, or answer with `search` + host model. No `generate` option on
+`createMemory`; no auto-write on search.
 
 ### Optional adapter packages
 

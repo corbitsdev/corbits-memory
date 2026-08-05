@@ -1,7 +1,7 @@
 {
   "name": "@corbits/memory",
   "version": "0.1.2",
-  "description": "Mountable memory add/find/ask/recent SDK for Interchange hubs",
+  "description": "Mountable memory add/search/list SDK for Interchange hubs",
   "exports": {
     ".": "./src/index.ts",
     "./migrations": "./src/migrations.ts",

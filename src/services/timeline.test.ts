@@ -53,7 +53,7 @@ describe("filterTimelineRows (grant-tag access)", () => {
         id: "g1",
         principalId: "peer",
         resource: "memory.tenant:t1",
-        action: "find",
+        action: "search",
         effect: "allow",
         origin: "role",
         conditions: null,

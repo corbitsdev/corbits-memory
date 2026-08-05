@@ -1,6 +1,6 @@
 /**
  * Acceptance: a host can createMemory with only fakes and get working
- * add / find / ask / recent — proves the port boundary is real.
+ * add / search / list — proves the port boundary is real.
  */
 import { describe, expect, it } from "bun:test";
 import { Hono } from "hono";
@@ -36,8 +36,6 @@ function grant(action: string): GrantRule {
 function appWithPrincipal() {
   const app = new Hono<TenantEnv>();
   app.use("*", async (c, next) => {
-    // Interchange's tenant middleware puts both principal + tenant on the
-    // context; requireGrant reads tenant.id, our caller() reads principal.
     c.set("principal", {
       id: PRINCIPAL,
       tenantId: TENANT,
@@ -63,7 +61,7 @@ function appWithPrincipal() {
 }
 
 describe("createMemory with fakes only", () => {
-  it("add → find → recent → ask without Postgres or embed config", async () => {
+  it("add → search → list without Postgres or embed config", async () => {
     const store = createFakeDocumentStore();
     const sources = [
       createFakeSourceProvider("linear", [
@@ -89,11 +87,13 @@ describe("createMemory with fakes only", () => {
     const app = appWithPrincipal();
     const memory = createMemory({
       app,
-      grantStore: createInMemoryGrantStore([grant("add"), grant("find")]),
+      grantStore: createInMemoryGrantStore([
+        grant("add"),
+        grant("search"),
+      ]),
       conditionRegistry: {},
       documentStore: store,
       sources,
-      generate: async () => "Answer from local store [1].",
     });
 
     const { documentId } = await memory.add({
@@ -106,7 +106,7 @@ describe("createMemory with fakes only", () => {
     });
     expect(documentId).toMatch(/^fake_doc_/);
 
-    const found = await memory.find({
+    const found = await memory.search({
       tenantId: TENANT,
       principalId: PRINCIPAL,
       query: "DocumentStore override",
@@ -115,21 +115,12 @@ describe("createMemory with fakes only", () => {
     expect(found.items).toHaveLength(1);
     expect(found.items[0]?.documentId).toBe(documentId);
 
-    const recent = await memory.recent({
+    const listed = await memory.list({
       tenantId: TENANT,
       principalId: PRINCIPAL,
     });
-    expect(recent.some((e) => e.title === "ports note")).toBe(true);
+    expect(listed.some((e) => e.title === "ports note")).toBe(true);
 
-    const asked = await memory.ask({
-      tenantId: TENANT,
-      principalId: PRINCIPAL,
-      query: "DocumentStore override",
-    });
-    expect(asked.text).toContain("Answer from local store");
-    expect(asked.citations.length).toBeGreaterThan(0);
-
-    // HTTP surface also works without engine config
     const addRes = await app.request("/api/memory/add", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -137,23 +128,22 @@ describe("createMemory with fakes only", () => {
         title: "via http",
         text: "http path uses the same store",
       }),
-
     });
     expect(addRes.status).toBe(200);
     const addBody = (await addRes.json()) as { documentId: string };
     expect(addBody.documentId).toMatch(/^fake_doc_/);
 
-    const findRes = await app.request("/api/memory/find", {
+    const searchRes = await app.request("/api/memory/search", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ query: "http path" }),
     });
-    expect(findRes.status).toBe(200);
-    const findBody = (await findRes.json()) as {
+    expect(searchRes.status).toBe(200);
+    const searchBody = (await searchRes.json()) as {
       items: Array<{ documentId: string }>;
     };
     expect(
-      findBody.items.some((i) => i.documentId === addBody.documentId),
+      searchBody.items.some((i) => i.documentId === addBody.documentId),
     ).toBe(true);
 
     await memory.close();
