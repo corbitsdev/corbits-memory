@@ -72,14 +72,14 @@ export function createFtsVerification(
 function rebuildColumnRecipe(language: string): string {
   return (
     `  BEGIN;\n` +
-    `  DROP INDEX IF EXISTS knowledge_chunk_text_fts_idx;\n` +
-    `  ALTER TABLE knowledge_chunk DROP COLUMN text_fts;\n` +
-    `  ALTER TABLE knowledge_chunk ADD COLUMN text_fts tsvector\n` +
+    `  DROP INDEX IF EXISTS "knowledge"."chunk_text_fts_idx";\n` +
+    `  ALTER TABLE "knowledge"."chunk" DROP COLUMN text_fts;\n` +
+    `  ALTER TABLE "knowledge"."chunk" ADD COLUMN text_fts tsvector\n` +
     `    GENERATED ALWAYS AS (to_tsvector('${language}', "text")) STORED;\n` +
     `  COMMIT;\n\n` +
     `  -- Separate statement/connection — CANNOT run inside the transaction\n` +
     `  -- above, or any transaction block, ever:\n` +
-    `  CREATE INDEX CONCURRENTLY knowledge_chunk_text_fts_idx ON knowledge_chunk USING gin (text_fts);\n\n` +
+    `  CREATE INDEX CONCURRENTLY "knowledge"."chunk_text_fts_idx" ON "knowledge"."chunk" USING gin (text_fts);\n\n` +
     `Both ALTER TABLE statements take an ACCESS EXCLUSIVE lock and rewrite the table ` +
     `(DROP COLUMN then re-adding a STORED generated column forces a full rewrite) — ` +
     `expect a stall on this table for the duration on a populated database; run during a maintenance window.`
@@ -92,7 +92,7 @@ export interface FtsVerifySqlClient {
 
 /**
  * Enforce the invariant the env var alone cannot: the language baked into
- * knowledge_chunk.text_fts (read back from the catalog — the authoritative
+ * knowledge.chunk.text_fts (read back from the catalog — the authoritative
  * record of what the DDL actually applied) must equal the configured one,
  * and the configured one must be an installed text search config. Throws
  * with a rebuild instruction on mismatch. Run at startup (the migration
@@ -116,12 +116,14 @@ export async function verifyFtsLanguage(
     `SELECT pg_get_expr(d.adbin, d.adrelid) AS expr
      FROM pg_attrdef d
      JOIN pg_attribute a ON a.attrelid = d.adrelid AND a.attnum = d.adnum
-     WHERE d.adrelid = 'knowledge_chunk'::regclass AND a.attname = 'text_fts'`,
+     WHERE d.adrelid = '"knowledge"."chunk"'::regclass AND a.attname = 'text_fts'`,
     [],
   );
   const expr = rows[0]?.["expr"];
   if (typeof expr !== "string") {
-    throw new Error("knowledge_chunk.text_fts has no generation expression — schema not migrated?");
+    throw new Error(
+      'knowledge.chunk.text_fts has no generation expression — schema not migrated?',
+    );
   }
   // Only unqualified `pg_catalog` configs are supported: FTS_LANGUAGE_PATTERN
   // already refuses to configure a schema-qualified name, so a match here
@@ -133,13 +135,13 @@ export async function verifyFtsLanguage(
   const match = APPLIED_REGCONFIG_RE.exec(expr);
   if (match === null) {
     throw new Error(
-      `Could not read the applied FTS language from knowledge_chunk.text_fts: ${expr}`,
+      `Could not read the applied FTS language from knowledge.chunk.text_fts: ${expr}`,
     );
   }
   const [, schema, applied] = match;
   if (schema !== undefined) {
     throw new Error(
-      `knowledge_chunk.text_fts was built with the schema-qualified text search config "${schema}.${applied}", ` +
+      `knowledge.chunk.text_fts was built with the schema-qualified text search config "${schema}.${applied}", ` +
         `but FTS_LANGUAGE only supports unqualified pg_catalog configs. ` +
         `Either drop the schema qualification (move/alias the config into pg_catalog), or rebuild the column ` +
         `under an unqualified config name:\n\n${rebuildColumnRecipe(ftsLanguage)}`,
@@ -147,7 +149,7 @@ export async function verifyFtsLanguage(
   }
   if (applied !== ftsLanguage) {
     throw new Error(
-      `FTS language mismatch: knowledge_chunk.text_fts was built with "${applied}" but the configuration says "${ftsLanguage}". ` +
+      `FTS language mismatch: knowledge.chunk.text_fts was built with "${applied}" but the configuration says "${ftsLanguage}". ` +
         `Search would silently stem queries differently than the index.\n\n` +
         `To rebuild the column under the new language:\n\n${rebuildColumnRecipe(ftsLanguage)}\n\n` +
         `Or, fix FTS_LANGUAGE back to "${applied}" instead.`,

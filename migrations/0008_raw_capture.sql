@@ -4,7 +4,7 @@
 -- later replay can re-derive under a different config without re-fetching
 -- source. Append-only: rows are never updated or deleted by ingestion; dedupe
 -- on (tenant_id, source_hash) reuses the existing row.
-CREATE TABLE IF NOT EXISTS "raw_capture" (
+CREATE TABLE IF NOT EXISTS "knowledge"."raw_capture" (
   "id" text PRIMARY KEY,
   "tenant_id" text NOT NULL,
   "adapter" text NOT NULL,
@@ -18,10 +18,10 @@ CREATE TABLE IF NOT EXISTS "raw_capture" (
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS "raw_capture_tenant_source_hash_uniq"
-  ON "raw_capture" ("tenant_id", "source_hash");
+  ON "knowledge"."raw_capture" ("tenant_id", "source_hash");
 
 CREATE INDEX IF NOT EXISTS "raw_capture_tenant_adapter_external_ref_idx"
-  ON "raw_capture" ("tenant_id", "adapter", "external_ref");
+  ON "knowledge"."raw_capture" ("tenant_id", "adapter", "external_ref");
 
-ALTER TABLE "knowledge_version"
-  ADD COLUMN IF NOT EXISTS "raw_capture_id" text REFERENCES "raw_capture"("id");
+ALTER TABLE "knowledge"."version"
+  ADD COLUMN IF NOT EXISTS "raw_capture_id" text REFERENCES "knowledge"."raw_capture"("id");

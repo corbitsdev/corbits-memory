@@ -3,18 +3,18 @@
 -- the immutable `raw_capture` rows under a NEW `generation` tag, without ever
 -- re-fetching source or touching the 'live' generation's versions.
 
-ALTER TABLE "knowledge_version"
+ALTER TABLE "knowledge"."version"
   ADD COLUMN IF NOT EXISTS "generation" text NOT NULL DEFAULT 'live';
 
 -- Version numbering moves from per-document to per-(document, generation),
 -- so a replay generation can mint its own v1 alongside the live document's
 -- existing versions instead of colliding with them.
-DROP INDEX IF EXISTS "knowledge_version_document_version_uniq";
+DROP INDEX IF EXISTS "knowledge"."version_document_version_uniq";
 
-CREATE UNIQUE INDEX IF NOT EXISTS "knowledge_version_document_generation_version_uniq"
-  ON "knowledge_version" ("document_id", "generation", "version");
+CREATE UNIQUE INDEX IF NOT EXISTS "version_document_generation_version_uniq"
+  ON "knowledge"."version" ("document_id", "generation", "version");
 
-CREATE TABLE IF NOT EXISTS "transform_config" (
+CREATE TABLE IF NOT EXISTS "knowledge"."transform_config" (
   "id" text PRIMARY KEY,
   "tenant_id" text NOT NULL,
   "name" text NOT NULL,
@@ -24,10 +24,10 @@ CREATE TABLE IF NOT EXISTS "transform_config" (
   CONSTRAINT "transform_config_tenant_name_version_uniq" UNIQUE ("tenant_id", "name", "version")
 );
 
-CREATE TABLE IF NOT EXISTS "transform_run" (
+CREATE TABLE IF NOT EXISTS "knowledge"."transform_run" (
   "id" text PRIMARY KEY,
   "tenant_id" text NOT NULL,
-  "config_id" text NOT NULL REFERENCES "transform_config" ("id"),
+  "config_id" text NOT NULL REFERENCES "knowledge"."transform_config" ("id"),
   "scope" jsonb NOT NULL DEFAULT '{}',
   "generation" text NOT NULL,
   "status" text NOT NULL DEFAULT 'running',
@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS "transform_run" (
 -- One run mints exactly one generation; resolving a generation's tuning
 -- config at search time is a lookup on this uniqueness.
 CREATE UNIQUE INDEX IF NOT EXISTS "transform_run_generation_uniq"
-  ON "transform_run" ("generation");
+  ON "knowledge"."transform_run" ("generation");
 
 CREATE INDEX IF NOT EXISTS "transform_run_tenant_config_idx"
-  ON "transform_run" ("tenant_id", "config_id");
+  ON "knowledge"."transform_run" ("tenant_id", "config_id");

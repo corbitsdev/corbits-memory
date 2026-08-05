@@ -31,9 +31,8 @@ export function cosineDistanceExpr(
 }
 
 // Dims are dynamic and discovered, never hard-coded — the dimension travels
-// with exactly one artifact: the knowledge_embed_model.dims column,
-// discovered here at configure time. Never resurrect an EMBED_DIM constant
-// anywhere in this module.
+// with exactly one artifact: knowledge.embed_model.dims, discovered here at
+// configure time. Never resurrect an EMBED_DIM constant anywhere in this module.
 export const MIN_EMBED_DIMS = 64;
 // Upper bound is pgvector's halfvec index cap: above 4000 dims no index type
 // can serve the cosine query, so activation rejects the model outright
@@ -69,19 +68,32 @@ export function computeModelKey(baseUrl: string, modelId: string): string {
     .slice(0, 16);
 }
 
-export const EMBED_TABLE_NAME_PATTERN = /^knowledge_embedding_[a-f0-9]{16}$/;
+/** Bare table identifier (no schema) for indexes/constraints. */
+export const EMBED_TABLE_BARE_PATTERN = /^embedding_[a-f0-9]{16}$/;
+
+/**
+ * Fully schema-qualified embedding table name for raw SQL interpolation.
+ * Tables live under the knowledge schema: "knowledge"."embedding_<key>".
+ */
+export const EMBED_TABLE_NAME_PATTERN =
+  /^"knowledge"\."embedding_[a-f0-9]{16}"$/;
 
 // This is the only place in this module that ever interpolates a computed
 // identifier into raw SQL (see activateEmbedModel below) — a future change
 // must not add a second dynamic-DDL path.
-export function embeddingTableName(modelKey: string): string {
-  const tableName = `knowledge_embedding_${modelKey}`;
-  if (!EMBED_TABLE_NAME_PATTERN.test(tableName)) {
+export function embeddingTableBareName(modelKey: string): string {
+  const bare = `embedding_${modelKey}`;
+  if (!EMBED_TABLE_BARE_PATTERN.test(bare)) {
     throw new Error(
-      `Computed embedding table name "${tableName}" failed identifier validation`,
+      `Computed embedding table name "${bare}" failed identifier validation`,
     );
   }
-  return tableName;
+  return bare;
+}
+
+export function embeddingTableName(modelKey: string): string {
+  const bare = embeddingTableBareName(modelKey);
+  return `"knowledge"."${bare}"`;
 }
 
 // Minimal DB seam — this module takes no dependency on drizzle-orm/postgres
@@ -108,9 +120,10 @@ export async function activateEmbedModel(
   const dims = await discoverModelDims(config, fetchImpl);
   const modelKey = computeModelKey(config.baseUrl, config.modelId);
   const tableName = embeddingTableName(modelKey);
+  const bare = embeddingTableBareName(modelKey);
 
   await client.query(
-    `INSERT INTO knowledge_embed_model (id, tenant_id, model_key, model_id, dims, status, created_at, updated_at)
+    `INSERT INTO "knowledge"."embed_model" (id, tenant_id, model_key, model_id, dims, status, created_at, updated_at)
      VALUES ($1, $2, $3, $4, $5, 'active', now(), now())
      ON CONFLICT (tenant_id, model_key)
      DO UPDATE SET model_id = EXCLUDED.model_id, dims = EXCLUDED.dims, updated_at = now()`,
@@ -128,8 +141,8 @@ export async function activateEmbedModel(
        chunk_id text PRIMARY KEY,
        tenant_id text NOT NULL,
        embedding vector(${dims}),
-       CONSTRAINT ${tableName}_chunk_fk
-         FOREIGN KEY (chunk_id) REFERENCES knowledge_chunk (id) ON DELETE CASCADE
+       CONSTRAINT ${bare}_chunk_fk
+         FOREIGN KEY (chunk_id) REFERENCES "knowledge"."chunk" (id) ON DELETE CASCADE
      )`,
     [],
   );
@@ -138,11 +151,11 @@ export async function activateEmbedModel(
   // selects embedding). Runs on every activation so a pre-FK table still gets
   // the index.
   await client.query(
-    `CREATE INDEX IF NOT EXISTS ${tableName}_tenant_chunk_idx ON ${tableName} (tenant_id, chunk_id)`,
+    `CREATE INDEX IF NOT EXISTS ${bare}_tenant_chunk_idx ON ${tableName} (tenant_id, chunk_id)`,
     [],
   );
 
-  const indexName = `${tableName}_hnsw_idx`;
+  const indexName = `${bare}_hnsw_idx`;
   if (dims <= VECTOR_INDEX_MAX_DIMS) {
     try {
       await client.query(
@@ -190,7 +203,7 @@ export async function resolveActiveEmbedTable(
   tenantId: string,
 ): Promise<ActiveEmbedTable | null> {
   const rows = await client.query(
-    `SELECT model_key, model_id, dims FROM knowledge_embed_model
+    `SELECT model_key, model_id, dims FROM "knowledge"."embed_model"
      WHERE tenant_id = $1 AND status = 'active'
      ORDER BY updated_at DESC
      LIMIT 1`,

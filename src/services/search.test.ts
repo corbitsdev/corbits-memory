@@ -65,6 +65,7 @@ describe("visibilityPredicateSql", () => {
   it("produces the identical predicate shape as the raw-SQL string used by the dense channel, for BOTH the with-principal and null-principal cases", () => {
     function normalize(rawSql: string): string {
       return rawSql
+        .replace(/"knowledge"\."document"\./g, "kd.")
         .replace(/"knowledge_document"\./g, "kd.")
         .replace(/"(\w+)"/g, "$1")
         .replace(/\$\d+/g, "$PARAM")
@@ -295,7 +296,10 @@ describe("fetchDenseCandidates hnsw tuning", () => {
       unsafe: (sqlText: string) => {
         statements.push(sqlText);
         return Promise.resolve(
-          sqlText.includes("FROM knowledge_embed_model") ? [MODEL_ROW] : [],
+          sqlText.includes('FROM "knowledge"."embed_model"') ||
+            sqlText.includes("FROM knowledge_embed_model")
+            ? [MODEL_ROW]
+            : [],
         );
       },
       begin: (cb: (t: FakeTx) => Promise<unknown>) => cb(tx),
