@@ -1,7 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import { createInMemoryGrantStore } from "@intx/authz";
 
-import { ownerTag, tenantTag } from "../acl.ts";
+import { ownerTag, tenantTag } from "../grant-tags.ts";
+
 import {
   createFakeDocumentStore,
   createFakeSourceProvider,
@@ -23,7 +24,7 @@ describe("createFakeDocumentStore", () => {
     });
     expect(documentId).toMatch(/^fake_doc_/);
 
-    const found = await store.find({
+    const found = await store.search({
       tenantId: TENANT,
       principalId: PRINCIPAL,
       query: "ports foundation",
@@ -33,7 +34,7 @@ describe("createFakeDocumentStore", () => {
     expect(found.items[0]?.documentId).toBe(documentId);
     expect(found.evidence).toBe("weak");
 
-    const events = await store.recent({
+    const events = await store.list({
       tenantId: TENANT,
       principalId: PRINCIPAL,
     });
@@ -50,12 +51,12 @@ describe("createFakeDocumentStore", () => {
       text: "classified payload",
       accessTags: [ownerTag(PRINCIPAL)],
     });
-    const asOwner = await store.find({
+    const asOwner = await store.search({
       tenantId: TENANT,
       principalId: PRINCIPAL,
       query: "classified",
     });
-    const asOther = await store.find({
+    const asOther = await store.search({
       tenantId: TENANT,
       principalId: OTHER,
       query: "classified",
@@ -79,7 +80,7 @@ describe("createFakeDocumentStore", () => {
         id: "g1",
         principalId: OTHER,
         resource: ownerTag(OTHER),
-        action: "find",
+        action: "search",
         effect: "allow",
         origin: "role",
         conditions: null,
@@ -87,7 +88,7 @@ describe("createFakeDocumentStore", () => {
         roleId: null,
       },
     ]);
-    const asOther = await store.find({
+    const asOther = await store.search({
       tenantId: TENANT,
       principalId: OTHER,
       query: "visible",

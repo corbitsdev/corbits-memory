@@ -1,6 +1,6 @@
 /**
- * Acceptance: a host can mount with only fakes and get working
- * add / find / ask / recent — proves the port boundary is real.
+ * Acceptance: a host can createMemory with only fakes and get working
+ * add / search / list — proves the port boundary is real.
  */
 import { describe, expect, it } from "bun:test";
 import { Hono } from "hono";
@@ -13,7 +13,7 @@ import {
 import {
   createFakeDocumentStore,
   createFakeSourceProvider,
-  mountKnowledgeEngine,
+  createMemory,
 } from "../index.ts";
 
 const TENANT = "tenant_fake";
@@ -22,7 +22,7 @@ const PRINCIPAL = "principal_fake";
 function grant(action: string): GrantRule {
   return {
     id: `g-${action}`,
-    resource: "knowledge",
+    resource: "memory",
     action,
     effect: "allow",
     origin: "role",
@@ -36,8 +36,6 @@ function grant(action: string): GrantRule {
 function appWithPrincipal() {
   const app = new Hono<TenantEnv>();
   app.use("*", async (c, next) => {
-    // Interchange's tenant middleware puts both principal + tenant on the
-    // context; requireGrant reads tenant.id, our caller() reads principal.
     c.set("principal", {
       id: PRINCIPAL,
       tenantId: TENANT,
@@ -62,8 +60,8 @@ function appWithPrincipal() {
   return app;
 }
 
-describe("mount with fakes only", () => {
-  it("add → find → recent → ask without Postgres or embed config", async () => {
+describe("createMemory with fakes only", () => {
+  it("add → search → list without Postgres or embed config", async () => {
     const store = createFakeDocumentStore();
     const sources = [
       createFakeSourceProvider("linear", [
@@ -87,17 +85,18 @@ describe("mount with fakes only", () => {
       ]),
     ];
     const app = appWithPrincipal();
-    const { knowledge } = mountKnowledgeEngine(app, {
-      grants: {
-        grantStore: createInMemoryGrantStore([grant("add"), grant("find")]),
-        conditionRegistry: {},
-      },
+    const memory = createMemory({
+      app,
+      grantStore: createInMemoryGrantStore([
+        grant("add"),
+        grant("search"),
+      ]),
+      conditionRegistry: {},
       documentStore: store,
       sources,
-      generate: async () => "Answer from local store [1].",
     });
 
-    const { documentId } = await knowledge.add({
+    const { documentId } = await memory.add({
       tenantId: TENANT,
       principalId: PRINCIPAL,
       content: {
@@ -107,7 +106,7 @@ describe("mount with fakes only", () => {
     });
     expect(documentId).toMatch(/^fake_doc_/);
 
-    const found = await knowledge.find({
+    const found = await memory.search({
       tenantId: TENANT,
       principalId: PRINCIPAL,
       query: "DocumentStore override",
@@ -116,22 +115,13 @@ describe("mount with fakes only", () => {
     expect(found.items).toHaveLength(1);
     expect(found.items[0]?.documentId).toBe(documentId);
 
-    const recent = await knowledge.recent({
+    const listed = await memory.list({
       tenantId: TENANT,
       principalId: PRINCIPAL,
     });
-    expect(recent.some((e) => e.title === "ports note")).toBe(true);
+    expect(listed.some((e) => e.title === "ports note")).toBe(true);
 
-    const asked = await knowledge.ask({
-      tenantId: TENANT,
-      principalId: PRINCIPAL,
-      query: "DocumentStore override",
-    });
-    expect(asked.text).toContain("Answer from local store");
-    expect(asked.citations.length).toBeGreaterThan(0);
-
-    // HTTP surface also works without engine config
-    const addRes = await app.request("/api/knowledge/add", {
+    const addRes = await app.request("/api/memory/add", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -143,19 +133,19 @@ describe("mount with fakes only", () => {
     const addBody = (await addRes.json()) as { documentId: string };
     expect(addBody.documentId).toMatch(/^fake_doc_/);
 
-    const findRes = await app.request("/api/knowledge/find", {
+    const searchRes = await app.request("/api/memory/search", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ query: "http path" }),
     });
-    expect(findRes.status).toBe(200);
-    const findBody = (await findRes.json()) as {
+    expect(searchRes.status).toBe(200);
+    const searchBody = (await searchRes.json()) as {
       items: Array<{ documentId: string }>;
     };
     expect(
-      findBody.items.some((i) => i.documentId === addBody.documentId),
+      searchBody.items.some((i) => i.documentId === addBody.documentId),
     ).toBe(true);
 
-    await knowledge.close();
+    await memory.close();
   });
 });

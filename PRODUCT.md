@@ -1,34 +1,36 @@
-# Corbits Knowledge Engine — Product shape
+# Corbits Memory — Product shape
 
-A **mountable knowledge plane** for Interchange hubs: durable documents, hybrid
-search, grounded ask, and optional live sources / personal memory. Workbench and
-coding agents are clients — not owners of ingestion or auth.
+A **mountable memory plane** for Interchange hubs: durable documents, hybrid
+search, and recent list. Workbench and coding agents are clients — not owners
+of ingestion or auth. Inference is **host-owned and ephemeral** (call your
+model, then `add` / `search`); core does not ship `ask` or an ingest agent.
 
 ## Shape (locked)
 
-**`src/` is the `@corbits/knowledge-engine` SDK.** Interchange is the hub — the
+**`src/` is the `@corbits/memory` SDK.** Interchange is the hub — the
 SDK never creates one; it mounts onto yours.
 
 | Surface | Role |
 | --- | --- |
-| `mountKnowledgeEngine(app, opts)` | Plane + HTTP on an Interchange `createApp` |
-| `createKnowledgePlane(config, grants?, options?)` | Same plane without HTTP |
-| `runKnowledgeMigrations(url)` | Apply pgvector schema under Postgres `knowledge` |
-| `loadKnowledgeConfig()` | Mount config from env |
+| `createMemory(opts)` | Plane; pass `app` to register HTTP on an Interchange host |
+| `runMemoryMigrations(url)` | Apply pgvector schema under Postgres `knowledge` |
+| `loadMemoryConfig()` | Config from env |
+| `registerMemoryRoutes` | Optional low-level HTTP registration |
+
 
 ### Green public plane (only these verbs)
 
 | Method | Meaning |
 | --- | --- |
 | `add` | Capture a document (`content` **xor** `file` + TextExtractor) |
-| `find` | Hybrid retrieval (+ optional live sources) |
-| `ask` | Grounded answer from find (+ optional memory) |
-| `recent` | Recent documents for the principal |
+| `search` | Hybrid retrieval (+ optional live sources) |
+| `list` | Recent documents for the principal |
 
-Hard cutover: there is no `capture` / `search` / `timeline` export. HTTP paths
-and grants match the verbs: `POST /api/knowledge/add|find|ask`,
-`GET /api/knowledge/recent`; grants `knowledge:add` and `knowledge:find`
-(ask/recent share `find`).
+Hard cutover from older names: `find` → `search`, `recent` → `list`.
+**Removed from product:** `ask`, `remember`, `recall`, and any
+`MemoryProvider` side-channel. HTTP paths and grants match the verbs:
+`POST /api/memory/add|search`, `GET /api/memory/list`; grants `memory:add` and
+`memory:search` (`list` shares `search`).
 
 Identity on the plane is always **`principalId` + `tenantId`** (never
 `scopeId` / `subjectId`). HTTP routes never take body identity — they read
@@ -38,43 +40,41 @@ Identity on the plane is always **`principalId` + `tenantId`** (never
 
 | Port | Purpose |
 | --- | --- |
-| `DocumentStore` | **The** durable backend for add/find/recent (default: engine pgvector, wrapped as a DocumentStore). Replace with Mem0, Supermemory, or fakes — no Postgres required when overridden. The plane is always store-backed; there is no second engine-only path. |
+| `DocumentStore` | **The** durable backend for add/search/list (default: engine pgvector, wrapped as a DocumentStore). Replace with any host `DocumentStore` or in-package fakes — no Postgres required when overridden. The plane is always store-backed; there is no second engine-only path. |
 | `SourceProvider` | Optional **tools-shaped** live search (`searchLive`); merge is fail-soft. Not a store replacement. |
-| `MemoryProvider` | Optional ask side-channel only (`includeMemory`); **not** how you swap backends. |
 
-Mount options accept `documentStore`, `sources[]`, `memory`, plus in-package
-**fakes** so a host can mount with fakes only and exercise add/find/ask/recent
-without Postgres. Hosts that want Mem0 or Supermemory as the sole durable store
-pass that adapter as `documentStore` and omit `KnowledgeConfig`.
+Mount options accept `documentStore`, `sources[]`, plus in-package
+**fakes** so a host can mount with fakes only and exercise add/search/list
+without Postgres. Hosts that want a third-party durable backend implement
+`DocumentStore` (or use an optional adapter package) and pass it as
+`documentStore`, omitting `MemoryConfig` when Postgres is not needed.
 
 **MergeLocalLiveV1** merges local DocumentStore + live SourceProviders: fail-soft
 per provider (timeout/error → degrade flags, never fail the request), dedupe by
 `adapter:externalRef`, optional `sources` filter (`local` + provider ids).
 
-**Memory side-channel:** `includeMemory` on `ask` defaults **false**. When true
-and a `MemoryProvider` is mounted, recall injects uncited personal context;
-failures degrade with `memory_unavailable` (docs-only). This is unrelated to
-using Mem0/Supermemory as the DocumentStore. Writes via `plane.remember` are
-host-owned — ask never auto-writes.
+**Inference:** host-owned. Extract durable facts with the host model before
+`add`, or answer with `search` + host model. No `generate` option on
+`createMemory`; no auto-write on search.
 
-### Adapter packages (same monorepo tree)
+### Optional adapter packages
 
-| Package | Role |
-| --- | --- |
-| `@corbits/knowledge-adapter-mem0` | **DocumentStore** via Mem0 Platform HTTP; tenant key `mapUser` length-prefixed |
-| `@corbits/knowledge-adapter-supermemory` | **DocumentStore** via Supermemory HTTP; tenant key `containerTag` length-prefixed |
+Optional `DocumentStore` implementations and tools live as **sibling packages**
+(not in this tree), same pattern as `@corbits/granola`:
 
-Linear tools live in a **sibling repo** ([`@corbits/linear`](https://github.com/corbitsdev/corbits-linear)) — same tools shape as Granola, not a DocumentStore.
+- [`@corbits/mem0-memory-adapter`](https://github.com/corbitsdev/corbits-mem0-memory-adapter) — Mem0 backend
+- [`@corbits/supermemory-memory-adapter`](https://github.com/corbitsdev/corbits-supermemory-memory-adapter) — Supermemory backend
+- [`@corbits/linear-tools`](https://github.com/corbitsdev/corbits-linear-tools) — Linear SourceProvider + webhook tools (not a store)
 
-Core never imports vendor SDKs. Adapters are pure-fetch; tenant-safe keys only.
-`MemoryProvider` factories in the mem0/supermemory packages are back-compat only.
+Core never imports vendor SDKs. Hosts that need a store beyond default pgvector
+mount their own `documentStore`.
 
-**Vendor store honesty:** Mem0/Supermemory adapters isolate by **principal
-bucket** (one Mem0 `user_id` / Supermemory `containerTag` per tenant+principal).
-They do **not** implement the multi-principal / tenant visibility ladder or
-block lists — those need the default pgvector store (or a store that enforces
-them). `recent` is empty on both adapters. Never mount them as
-`options.memory`.
+Not every `DocumentStore` evaluates host grant tags the same way. Some isolate by
+**principal bucket** only (one private namespace per tenant+principal) and do not
+multi-share via `accessTags` + host `GrantStore`. For full grant-tag ACL, use the
+default pgvector store (or a store that implements
+`docs/AUTHZ-DOCUMENT-ACCESS.md`). Adapter packages document their isolation model
+in their own README. Never mount a durable store as `options.memoryProvider`.
 
 ### What is not in scope
 
@@ -95,29 +95,43 @@ Claude Code / Codex / Workbench (clients)
         ▼
 ┌──────────────────────────────────────────────┐
 │  Host Interchange createApp                  │
-│  + mountKnowledgeEngine(app, opts)           │
-│       grants: knowledge:add | knowledge:find │
-│       documentStore: pgvector | Mem0 | SM |  │
-│                      fake                    │
-│       optional: sources, memory,             │
-│                 textExtractor                │
+│  + createMemory({ app, … })         │
+
+│       grants: memory:add | memory:search │
+│       documentStore: pgvector | host store │
+│                      | fake                │
+│       optional: sources, textExtractor     │
 │         │  in-process                        │
 │         ▼                                    │
-│  Knowledge plane: add / find / ask / recent  │
+│  Memory plane: add / search / list           │
 │  → DocumentStore (sole durable backend)      │
 └──────────────────────────────────────────────┘
 ```
 
-## Identity and ACL ladder (honest)
+## Identity and access (Interchange authz — one system)
 
-1. **Capability** — host grant store: may this principal `knowledge:add` or
-   `knowledge:find` at all?
-2. **Document visibility** — modes `private` | `principals` | `tenant`
-   (optional block list). Self-contained on the document row.
-3. **Share sugars on add** — map to existing visibility; no new ACL system.
+Memory does **not** ship a second ACL. Document access uses the host’s
+`@intx/authz` grant store — the same grants/roles as the rest of Interchange.
 
-There is **no** dual grant path and **no** second secret ACL. If a connector
-cannot prove a principal set, it must not write `tenant` visibility.
+1. **Capability** — may this principal use memory at all?
+   `authorize(…, resource: "memory", action: "add" | "search")`.
+2. **Document access** — each document carries **`accessTags`** (resource strings
+   in grant-pattern space). A principal sees a document if they are the creator
+   **or** `authorize(…, resource: <tag>, action: "search")` allows for any tag on
+   the document. Patterns (`memory.space:*`) work via `@intx/authz`.
+3. **Share sugars on add** — only mint tags (owner / tenant / peer owner tags /
+   explicit tags). They do **not** invent visibility modes or block lists.
+   **Host contract:** peers named in `share.principals` only see the doc if the
+   host has granted them `search` on their owner tag (or matching pattern) —
+   typically bootstrap every principal with `search` on `memory.owner:<self>`.
+   Tag minting is not grant minting. See `docs/AUTHZ-DOCUMENT-ACCESS.md`.
+
+Default add is **owner-only** (`memory.owner:<principalId>` + creator rule).
+Deny is absence of allow (or a more specific host deny grant) — not a document
+block list. Full design: `docs/AUTHZ-DOCUMENT-ACCESS.md`.
+
+Third-party DocumentStores may be **principal-bucket** only and not evaluate
+host grants; that limit belongs in the adapter's own docs, not hidden here.
 
 ### On the wire
 
@@ -125,31 +139,26 @@ HTTP bodies are a thin subset of the in-process plane (identity always comes
 from the host principal context, never the body):
 
 ```http
-POST /api/knowledge/add      { "title", "text", "acl"? }
-POST /api/knowledge/find     { "query", "limit?", "kinds?", "entity_ids?", "sources?", "includeEvidence?" }
-POST /api/knowledge/ask      { "query", "limit?", "sources?", "includeMemory?" }
-GET  /api/knowledge/recent   ?limit=
+POST /api/memory/add      { "title", "text", "access_tags"?, "share"? }
+POST /api/memory/search   { "query", "limit?", "kinds?", "entity_ids?", "sources?", "includeEvidence?" }
+GET  /api/memory/list     ?limit=
 ```
 
-`kinds` / `entity_ids` on find narrow both lexical and dense channels before
+`kinds` / `entity_ids` on search narrow both lexical and dense channels before
 fusion (unset or `[]` = no filter).
 
-Plane-only shapes (`content`/`file` XOR, `share` sugars, full `visibility`)
-are available via `createKnowledgePlane` / `plane.add`. HTTP `acl` maps to the
-document visibility ladder; `share` is plane sugar only.
+### Live sources (trust)
 
-### Live sources and memory (trust)
-
-- **Local documents** are the durable ACL plane (visibility + block). Engine
-  path enforces this; a host-supplied `DocumentStore` **owns** ACL for that
-  mount — the engine does not re-filter store results.
-- **Live `SourceProvider` hits** merge into find/ask without document-row ACL.
-  Auth is the host token / connector scope, not Interchange principal
-  visibility. Treat live as enrichment; fail-soft on timeout/error.
-- **Memory** is opt-in recall (`includeMemory`, default false). Adapters must
-  key by injective tenant+principal encodings; ask never auto-writes memory.
+- **Local documents** are grant-tagged; default engine evaluates tags via the
+  host `GrantStore`. An injected `DocumentStore` owns enforcement for that mount.
+- **Live `SourceProvider` hits** merge into search without grant tags. Auth is
+  the host token / connector scope. Treat live as enrichment; fail-soft.
+- **Inference is host-owned.** Core does not ship `ask` / `remember` / `recall`
+  or a `MemoryProvider` product path. Hosts call their model, then `add` /
+  `search`.
 
 ## Out of scope forever here
 
-Auth, OAuth for Linear, Mem0/Supermemory account management, embedding models
+Auth, OAuth for Linear, third-party memory/account management, embedding models
 in-process, and any standalone process entrypoint.
+

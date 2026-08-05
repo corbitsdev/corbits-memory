@@ -4,8 +4,9 @@ import { describeRoute, resolver, validator } from "hono-openapi";
 import { type } from "arktype";
 
 import { formatCaughtError, log } from "../log.ts";
-import { resolveAccessTags, type ShareSugar } from "../acl.ts";
-import { KnowledgeError } from "../knowledge.ts";
+import { resolveAccessTags, type ShareSugar } from "../grant-tags.ts";
+
+import { MemoryError } from "../memory.ts";
 import type { RouteDeps } from "./deps.ts";
 import { caller, grantGuard, requirePrincipal } from "./deps.ts";
 
@@ -30,10 +31,10 @@ const AddResponse = type({
 
 export function mountAddRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
   app.post(
-    "/api/knowledge/add",
+    "/api/memory/add",
     describeRoute({
-      tags: ["knowledge"],
-      summary: "Add a note into the knowledge base",
+      tags: ["memory"],
+      summary: "Add a note into memory",
       responses: {
         200: {
           description: "Added",
@@ -43,7 +44,7 @@ export function mountAddRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
         },
         400: { description: "Invalid request or access tags" },
         401: { description: "No principal on the request context" },
-        403: { description: "Missing the knowledge:add grant" },
+        403: { description: "Missing the memory:add grant" },
         502: { description: "add failed" },
       },
     }),
@@ -69,7 +70,7 @@ export function mountAddRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
       }
 
       try {
-        const { documentId } = await deps.knowledge.add({
+        const { documentId } = await deps.memory.add({
           content: { title, text },
           tenantId: scopeId,
           principalId: subjectId,
@@ -78,14 +79,14 @@ export function mountAddRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
         });
         return c.json({ documentId });
       } catch (err) {
-        if (err instanceof KnowledgeError) {
+        if (err instanceof MemoryError) {
           return c.json(
             { error: err.message },
             err.status as 400 | 501,
           );
         }
         const errMessage = formatCaughtError(err);
-        log.error(`knowledge add failed: ${errMessage}`, { error: errMessage });
+        log.error(`memory add failed: ${errMessage}`, { error: errMessage });
         return c.json({ error: "add failed" }, 502);
       }
     },

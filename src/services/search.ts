@@ -98,11 +98,11 @@ const AUTHORITY_STRONG_FLOOR = 0.3;
 // equally valid "strong" signal alongside the lexical one.
 const RERANK_STRONG_FLOOR = 0.6;
 
-export class KnowledgeSearchInputError extends Error {
+export class MemorySearchInputError extends Error {
   readonly status = 400 as const;
   constructor(message: string) {
     super(message);
-    this.name = "KnowledgeSearchInputError";
+    this.name = "MemorySearchInputError";
   }
 }
 
@@ -356,7 +356,7 @@ export async function fetchLexicalCandidates(
   if (query !== "") {
     // Bound as a parameter and cast to regconfig — never spliced — and
     // required to match the language the generated column was built with
-    // (verified against the catalog by runKnowledgeMigrations).
+    // (verified against the catalog by runMemoryMigrations).
     rankExpr = sql<number>`ts_rank("knowledge"."chunk"."text_fts", plainto_tsquery(${ftsLanguage}::regconfig, ${query}))`;
     conditions.push(
       sql`"knowledge"."chunk"."text_fts" @@ plainto_tsquery(${ftsLanguage}::regconfig, ${query})`,
@@ -767,7 +767,7 @@ export async function hybridSearch(
   const hasStructuredFilter =
     (kinds && kinds.length > 0) || (entityIds && entityIds.length > 0);
   if (query === "" && !hasStructuredFilter) {
-    throw new KnowledgeSearchInputError(
+    throw new MemorySearchInputError(
       "query must be non-empty unless kinds or entityIds is provided",
     );
   }
@@ -881,7 +881,7 @@ export async function hybridSearch(
     try {
       // A replay's transform_config can supply its own rerank endpoint/model
       // (resolvedTuning?.rerank, above) that never passes through
-      // mountKnowledgeEngine's startup validation — validate it here, on the
+      // createMemory's startup validation — validate it here, on the
       // same terms as the mounted config, so a replay-authored mismatch
       // degrades to fused ranking (caught below) instead of silently
       // 413-ing every rerank call for that generation.

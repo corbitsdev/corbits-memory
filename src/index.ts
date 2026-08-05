@@ -1,93 +1,82 @@
 /**
- * @corbits/knowledge-engine — a knowledge add / find / ask / recent engine you
- * mount onto an Interchange hub.
+ * @corbits/memory — add / search / list for Interchange hubs.
  *
- * The host owns auth, tenancy, grants, and the process. This SDK reads the
- * request principal off the Interchange context and (optionally) taps the
- * host's grant middleware; it authenticates nothing itself.
+ * One entry: `createMemory(options)`. Pass `app` to register HTTP routes on
+ * a Hono host. Identity is `c.get("principal")` on HTTP, or `principalId` +
+ * `tenantId` in-process. Authz is the host grant store — this package
+ * authenticates nothing itself.
+ *
+ * Inference is host-owned and ephemeral (call your model, then add/search).
+ * Core does not mount an ingest agent or bake LLM into the write path.
  */
 import type { Hono } from "hono";
 import { createRequireGrant, type TenantEnv } from "@intx/hub-api";
 
-import type { KnowledgeConfig } from "./mount-config.ts";
 import {
-  createKnowledgePlane,
-  type Generate,
-  type KnowledgePlane,
-  type KnowledgePlaneOptions,
-  type TextExtractor,
-} from "./knowledge.ts";
-import type {
-  DocumentStore,
-  MemoryProvider,
-  SourceProvider,
-} from "./ports/types.ts";
+  createMemory as createMemoryPlane,
+  resolveGrantConfig,
+  type Memory,
+  type MemoryOptions,
+} from "./memory.ts";
 import {
-  mountKnowledgeRoutes,
-  type GrantConfig,
+  registerMemoryRoutes,
   type RouteDeps,
 } from "./routes/mount.ts";
 
 // Config
-export type { KnowledgeConfig } from "./mount-config.ts";
-export { loadKnowledgeConfig } from "./mount-config.ts";
+export type { MemoryConfig } from "./mount-config.ts";
+export { loadMemoryConfig } from "./mount-config.ts";
 export type { EngineConfig } from "./config.ts";
 export { RerankConfigError } from "./core/rerank-client.ts";
-// Knowledge plane
-//
-// `createKnowledgePlane` is exported so a host can add or find outside a
-// request — a CLI seeder, a batch ingester, or a test — without standing up a
-// Hono app just to get a plane. Callers acting on behalf of a user are
-// responsible for the capability check `requireGrant` would have performed; see
-// the README. Rerank config is validated at construction (same as mount).
-// Pass `grants` + optional `generate` when the host will call `ask()`.
-export { createKnowledgePlane } from "./knowledge.ts";
+
+// Memory plane — types from memory.ts; createMemory is defined below so it
+// can optionally register HTTP routes when `app` is passed.
 export type {
-  AskCitation,
-  AskResult,
-  ChatMessage,
-  FindItem,
-  FindResult,
-  Generate,
   HybridSearchResult,
-  KnowledgeAddParams,
-  KnowledgeAddResult,
-  KnowledgeAskParams,
-  KnowledgeFindParams,
-  KnowledgeIdentity,
-  KnowledgePlane,
-  KnowledgePlaneOptions,
-  KnowledgeRecentParams,
-  KnowledgeRecallItem,
-  KnowledgeRecallParams,
-  KnowledgeRememberParams,
-  KnowledgeShare,
+  MemoryAddParams,
+  MemoryAddResult,
+  MemorySearchParams,
+  MemoryIdentity,
+  Memory,
+  MemoryOptions,
+  MemoryListParams,
+  MemoryShare,
   SearchHit,
+  SearchItem,
+  SearchResult,
   TextExtractor,
   TimelineEvent,
-} from "./knowledge.ts";
-export { KnowledgeError, KnowledgeNotPermittedError } from "./knowledge.ts";
-// Ports — pluggable storage, live sources, and optional memory
+} from "./memory.ts";
+export {
+  MemoryError,
+  resolveGrantConfig,
+  SEARCH_LIMIT_MIN,
+  SEARCH_LIMIT_MAX,
+  LIST_LIMIT_MIN,
+  LIST_LIMIT_MAX,
+} from "./memory.ts";
+
+// Ports — pluggable storage and live sources
 export type {
   DocumentStore,
   DocumentStoreAddParams,
-  DocumentStoreFindItem,
-  DocumentStoreFindParams,
-  DocumentStoreFindResult,
-  DocumentStoreRecentEvent,
-  DocumentStoreRecentParams,
+  DocumentStoreSearchItem,
+  DocumentStoreSearchParams,
+  DocumentStoreSearchResult,
+  DocumentStoreListEvent,
+  DocumentStoreListParams,
   LiveSearchItem,
-  MemoryProvider,
   SourceProvider,
 } from "./ports/types.ts";
 
 export {
   createFakeDocumentStore,
-  createFakeMemoryProvider,
   createFakeSourceProvider,
 } from "./ports/fakes.ts";
+
 // Migrations
-export { runKnowledgeMigrations } from "./migrations.ts";
+export { runMemoryMigrations } from "./migrations.ts";
+
 // Degrade metrics — no metrics dependency exists in this package (see
 // core/degrade-metrics.ts); a host with its own metrics backend polls this
 // snapshot and forwards it, rather than the engine owning a /metrics port.
@@ -104,73 +93,70 @@ export {
   parseFtsLanguage,
   verifyFtsLanguage,
 } from "./core/fts-language.ts";
-// Granular mount (compose your own)
-export { mountKnowledgeRoutes, type GrantConfig } from "./routes/mount.ts";
 
-export type MountKnowledgeEngineOptions = {
+// Granular HTTP composition (most hosts use createMemory({ app, … }) instead)
+export { registerMemoryRoutes, type GrantConfig } from "./routes/mount.ts";
+
+export type CreateMemoryOptions = MemoryOptions & {
   /**
-   * Engine config (DB + model endpoints). Optional when `documentStore` is
-   * provided — a host can mount with fakes only.
+   * When set, register `/api/memory/*` on this Hono app. Requires `grantStore`
+   * (routes are guarded with `requireGrant("memory", …)`).
    */
-  config?: KnowledgeConfig;
-  /**
-   * The host's grant store + condition registry — the same pair it passes to
-   * `createApp`/`createRequireGrant`. Required: HTTP routes are guarded with
-   * `requireGrant("knowledge", <action>)`. The SDK never leaves a route
-   * unguarded. Also required for in-process `ask()`.
-   */
-  grants: GrantConfig;
-  /**
-   * How `ask()` reaches a model. Omit if this host only adds and finds;
-   * `ask()` then fails with a 501 naming what is missing.
-   *
-   * The engine owns no generation client on purpose — Interchange's
-   * `@intx/inference` already has provider adapters, tenant-scoped credentials,
-   * retry, audit and authz gates. Wire this to that rather than to a bare fetch.
-   */
-  generate?: Generate;
-  /** Required for `add({ file })` via HTTP or plane. */
-  textExtractor?: TextExtractor;
-  /** Override durable storage (default: engine pgvector store). */
-  documentStore?: DocumentStore;
-  /** Live source connectors merged into find/ask (fail-soft). */
-  sources?: SourceProvider[];
-  /**
-   * Optional ask side-channel only (`includeMemory`). Not a DocumentStore
-   * replacement — vendor backends mount as `documentStore`.
-   */
-  memory?: MemoryProvider;
+  app?: Hono<TenantEnv>;
 };
 
-export type MountedKnowledgeEngine = {
-  knowledge: KnowledgePlane;
-};
+/**
+ * Build a memory plane. Optionally register HTTP routes when `app` is set.
+ *
+ * @example In-process only
+ * ```ts
+ * const memory = createMemory({
+ *   documentStore: createFakeDocumentStore(),
+ *   grantStore,
+ *   conditionRegistry,
+ * });
+ * await memory.add({ principalId, tenantId, content: { title, text } });
+ * const { items } = await memory.search({ principalId, tenantId, query });
+ * ```
+ *
+ * @example HTTP on a Hono host
+ * ```ts
+ * createMemory({
+ *   app,
+ *   documentStore: createFakeDocumentStore(),
+ *   grantStore,
+ *   conditionRegistry,
+ * });
+ * // POST /api/memory/add | search · GET /api/memory/list
+ * ```
+ */
+export function createMemory(options: CreateMemoryOptions): Memory {
+  const { app, grantStore, conditionRegistry, ...planeOpts } = options;
+  const grants = resolveGrantConfig({
+    ...(grantStore !== undefined ? { grantStore } : {}),
+    ...(conditionRegistry !== undefined ? { conditionRegistry } : {}),
+  });
+  const memory = createMemoryPlane({
+    ...planeOpts,
+    ...(grantStore !== undefined ? { grantStore } : {}),
+    ...(conditionRegistry !== undefined ? { conditionRegistry } : {}),
+  });
 
-/** Mount the knowledge HTTP routes over one knowledge plane. */
-export function mountKnowledgeEngine(
-  app: Hono<TenantEnv>,
-  options: MountKnowledgeEngineOptions,
-): MountedKnowledgeEngine {
-  // Rerank config validation runs inside createKnowledgePlane so standalone
-  // construction and the mount path share one check. Pass grants + generate so
-  // the returned plane's ask() is grant-checked and can synthesize answers.
-  const planeOptions: KnowledgePlaneOptions = {
-    ...(options.generate ? { generate: options.generate } : {}),
-    ...(options.textExtractor ? { textExtractor: options.textExtractor } : {}),
-    ...(options.documentStore ? { documentStore: options.documentStore } : {}),
-    ...(options.sources ? { sources: options.sources } : {}),
-    ...(options.memory ? { memory: options.memory } : {}),
-  };
-  const knowledge = createKnowledgePlane(
-    options.config,
-    options.grants,
-    planeOptions,
-  );
-  const deps: RouteDeps = {
-    knowledge,
-    grants: options.grants,
-    requireGrant: createRequireGrant(options.grants),
-  };
-  mountKnowledgeRoutes(app, deps);
-  return { knowledge };
+  if (app) {
+    if (!grants) {
+      throw new Error(
+        "createMemory({ app }): grantStore is required when registering HTTP routes " +
+          "(pass grantStore; conditionRegistry is optional)",
+      );
+    }
+    const requireGrant = createRequireGrant(grants);
+    const deps: RouteDeps = {
+      memory,
+      requireGrant,
+      grants,
+    };
+    registerMemoryRoutes(app, deps);
+  }
+
+  return memory;
 }

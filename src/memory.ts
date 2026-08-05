@@ -5,7 +5,8 @@ import {
   resolveAccessTags,
   ownerTag,
   type ShareSugar,
-} from "./acl.ts";
+} from "./grant-tags.ts";
+
 import type { EngineConfig } from "./config.ts";
 import { log } from "./log.ts";
 import { createDb, type Db, type RawSql } from "./db/client.ts";
@@ -16,7 +17,7 @@ import { validateRerankConfig } from "./core/rerank-client.ts";
 import { captureDocument } from "./services/capture.ts";
 import {
   hybridSearch,
-  KnowledgeSearchInputError,
+  MemorySearchInputError,
   toRerankClientConfig,
   type HybridSearchResult,
   DEFAULT_HYBRID_TOP_K,
@@ -33,12 +34,11 @@ import {
   type MergeDegradeFlag,
 } from "./core/merge-local-live.ts";
 import type { DegradeFlag } from "./core/hybrid-search.ts";
-import type { KnowledgeConfig } from "./mount-config.ts";
+import type { MemoryConfig } from "./mount-config.ts";
 import type { GrantConfig } from "./routes/deps.ts";
 import type {
   DocumentStore,
-  DocumentStoreFindParams,
-  MemoryProvider,
+  DocumentStoreSearchParams,
   SourceProvider,
 } from "./ports/types.ts";
 // (drizzle select was used briefly for grant-tag load; raw sql keeps unit-test
@@ -51,7 +51,6 @@ export type {
   DocumentStore,
   DocumentStoreAddParams,
   LiveSearchItem,
-  MemoryProvider,
   SourceProvider,
 } from "./ports/types.ts";
 export {
@@ -60,26 +59,7 @@ export {
   tenantTag,
   canAccessDocument,
   type ShareSugar,
-} from "./acl.ts";
-
-export type ChatMessage = {
-  role: "system" | "user" | "assistant";
-  content: string;
-};
-
-/**
- * How `ask()` reaches a model. Supplied by the host, not owned here.
- *
- * The engine deliberately has no generation client. Interchange already has an
- * inference layer (`@intx/inference`) with provider adapters, tenant-scoped
- * credentials, retry policy, audit and authz gates — hand-rolling a `fetch` here
- * would bypass all of it and take an API key from a raw env var. Hosts wire
- * this to that layer; tests pass a stub.
- *
- * Same posture the engine already takes on embedding: never in-process, always
- * an endpoint the owner plugs in.
- */
-export type Generate = (messages: readonly ChatMessage[]) => Promise<string>;
+} from "./grant-tags.ts";
 
 /**
  * Optional host-supplied extractor for `add({ file })`. The engine never
@@ -93,20 +73,20 @@ export type TextExtractor = {
   }): Promise<{ text: string; title?: string }>;
 };
 
-export type KnowledgeIdentity = {
+export type MemoryIdentity = {
   principalId: string;
   tenantId: string;
 };
 
 /** Green find limit bounds (stricter than hybridSearch's internal MAX_K). */
-export const FIND_LIMIT_MIN = 1;
-export const FIND_LIMIT_MAX = 50;
+export const SEARCH_LIMIT_MIN = 1;
+export const SEARCH_LIMIT_MAX = 50;
 
 /** Green recent limit bounds (matches timeline service default/cap). */
-export const RECENT_LIMIT_MIN = 1;
-export const RECENT_LIMIT_MAX = 100;
+export const LIST_LIMIT_MIN = 1;
+export const LIST_LIMIT_MAX = 100;
 
-export type KnowledgeFindParams = KnowledgeIdentity & {
+export type MemorySearchParams = MemoryIdentity & {
   query: string;
   /** Max items to return (1–50). Default 8. */
   limit?: number;
@@ -131,46 +111,9 @@ export type KnowledgeFindParams = KnowledgeIdentity & {
   sources?: string[];
 };
 
-export type KnowledgeAskParams = KnowledgeIdentity & {
-  query: string;
-  limit?: number;
-  /** Same channel filter as find (passed through). */
-  sources?: string[];
-  /**
-   * When true and a MemoryProvider is mounted, recall personal memory into
-   * the ask context. Default false — memory is opt-in per call.
-   */
-  includeMemory?: boolean;
-};
+export type MemoryShare = ShareSugar;
 
-/** One source cited in an `ask()` answer, matched to its bracket in the text. */
-export type AskCitation = {
-  /** The `[N]` marker the grounding prompt asked the model to cite. */
-  index: number;
-  documentId: string;
-  title: string;
-  citation: SearchHit["citation"];
-};
-
-export type AskResult = {
-  text: string;
-  citations: AskCitation[];
-  evidence: HybridSearchResult["evidence"];
-  /** Present when memory/live stages degraded (ask still answered). */
-  degraded?: HybridSearchResult["degraded"];
-};
-
-/** Thrown when the asking principal lacks the knowledge:find capability. */
-export class KnowledgeNotPermittedError extends Error {
-  constructor() {
-    super("principal lacks the knowledge:find grant");
-    this.name = "KnowledgeNotPermittedError";
-  }
-}
-
-export type KnowledgeShare = ShareSugar;
-
-export type KnowledgeAddParams = KnowledgeIdentity & {
+export type MemoryAddParams = MemoryIdentity & {
   /** Exactly one of `content` or `file` is required. */
   content?: { title: string; text: string };
   file?: {
@@ -194,9 +137,9 @@ export type KnowledgeAddParams = KnowledgeIdentity & {
   attributes?: Record<string, string | number | boolean | null>;
 };
 
-export type KnowledgeAddResult = { documentId: string };
+export type MemoryAddResult = { documentId: string };
 
-export type FindItem = {
+export type SearchItem = {
   documentId: string;
   title: string;
   snippet: string;
@@ -207,173 +150,50 @@ export type FindItem = {
   updatedAt?: string;
 };
 
-export type FindResult = {
-  items: FindItem[];
+export type SearchResult = {
+  items: SearchItem[];
   /** Only present when includeEvidence: true */
   evidence?: "strong" | "weak" | "none";
   degraded?: HybridSearchResult["degraded"];
 };
 
-export type KnowledgeRecentParams = KnowledgeIdentity & {
+export type MemoryListParams = MemoryIdentity & {
   limit?: number;
 };
 
-export class KnowledgeError extends Error {
+export class MemoryError extends Error {
   constructor(
     public readonly status: number,
     message: string,
   ) {
     super(message);
-    this.name = "KnowledgeError";
+    this.name = "MemoryError";
   }
 }
 
-export type KnowledgePlane = {
-  find(params: KnowledgeFindParams): Promise<FindResult>;
-  ask(params: KnowledgeAskParams): Promise<AskResult>;
-  add(params: KnowledgeAddParams): Promise<KnowledgeAddResult>;
-  recent(params: KnowledgeRecentParams): Promise<TimelineEvent[]>;
-  /**
-   * Write a memory fact for a principal. Requires a mounted MemoryProvider;
-   * throws 501 when memory is not configured. Never called implicitly by ask.
-   */
-  remember(params: KnowledgeRememberParams): Promise<void>;
-  /**
-   * Recall memory facts for a principal. Empty array when memory is not
-   * configured or nothing matches.
-   */
-  recall(params: KnowledgeRecallParams): Promise<KnowledgeRecallItem[]>;
+export type Memory = {
+  search(params: MemorySearchParams): Promise<SearchResult>;
+  add(params: MemoryAddParams): Promise<MemoryAddResult>;
+  list(params: MemoryListParams): Promise<TimelineEvent[]>;
   close(): Promise<void>;
-};
-
-export type KnowledgeRememberParams = KnowledgeIdentity & {
-  text: string;
-  metadata?: Record<string, string>;
-};
-
-export type KnowledgeRecallParams = KnowledgeIdentity & {
-  query: string;
-  limit?: number;
-};
-
-export type KnowledgeRecallItem = {
-  text: string;
-  score?: number;
 };
 
 export type { TimelineEvent };
 
-// Character budget for the grounded context block handed to the generation
-// endpoint. Deliberately conservative: it bounds prompt size regardless of
-// how many/large the retrieved hits are.
-const MAX_CONTEXT_CHARS = 8_000;
-
-const SYSTEM_PROMPT = [
-  "You are a knowledge assistant answering questions from retrieved context.",
-  "",
-  "Answer ONLY from the numbered context provided. The context has already",
-  "been filtered to what this specific principal is permitted to read, so",
-  "never speculate beyond it or fill gaps from your own knowledge.",
-  "",
-  "If the context does not contain the answer, say so plainly in one sentence",
-  "and stop — do not guess.",
-  "",
-  "Cite the sources you used as bracketed numbers, e.g. [1] or [2]. Be",
-  "concise: a few sentences.",
-].join("\n");
-
-/** Build the grounded context block, truncated to a sane prompt budget. */
-function buildContext(hits: readonly SearchHit[]): {
-  block: string;
-  citations: AskCitation[];
-} {
-  const citations: AskCitation[] = [];
-  const parts: string[] = [];
-  let budget = MAX_CONTEXT_CHARS;
-
-  // Number only among entries that actually land in the prompt. Skipping an
-  // empty snippet (or stopping on budget) must not leave gaps in [N] markers.
-  let nextIndex = 1;
-  for (const hit of hits) {
-    const text = hit.snippet.trim();
-    if (!text) continue;
-    const index = nextIndex;
-    const entry = `[${index}] ${hit.title}\n${text}`;
-    if (entry.length > budget) break;
-    budget -= entry.length;
-    parts.push(entry);
-    citations.push({
-      index,
-      documentId: hit.document_id,
-      title: hit.title,
-      citation: hit.citation,
-    });
-    nextIndex += 1;
-  }
-
-  return { block: parts.join("\n\n"), citations };
-}
-
-/**
- * Turn a search result into an answer: assemble grounded context, call the
- * configured generation endpoint, and return the citations actually used.
- * Factored out of `ask()` so it is unit-testable against a mocked generation
- * endpoint without a real search result / database.
- *
- * Optional `memoryTexts` are prepended as uncited personal context when the
- * host opted into includeMemory. They never produce citations.
- */
-export async function synthesizeAnswer(
-  query: string,
-  result: Pick<HybridSearchResult, "hits" | "evidence">,
-  generate: Generate,
-  memoryTexts: readonly string[] = [],
-): Promise<AskResult> {
-  if (result.hits.length === 0 && memoryTexts.length === 0) {
-    return {
-      text: "I couldn't find anything you have access to that answers that.",
-      citations: [],
-      evidence: "none",
-    };
-  }
-
-  const { block, citations } = buildContext(result.hits);
-  const memoryBlock =
-    memoryTexts.length > 0
-      ? "Personal memory:\n" +
-        memoryTexts.map((t, i) => `- (m${i + 1}) ${t}`).join("\n")
-      : "";
-
-  if (!block && !memoryBlock) {
-    return {
-      text: "I found matching documents but couldn't read any text out of them.",
-      citations: [],
-      evidence: "none",
-    };
-  }
-
-  const contextParts = [memoryBlock, block].filter(Boolean);
-  const text = await generate([
-    { role: "system", content: SYSTEM_PROMPT },
-    {
-      role: "user",
-      content: `Question: ${query}\n\nContext:\n${contextParts.join("\n\n")}`,
-    },
-  ]);
-
-  return {
-    text,
-    citations,
-    evidence:
-      result.hits.length === 0
-        ? "weak"
-        : result.evidence,
-  };
-}
-
-export type KnowledgePlaneOptions = {
-  /** Required for `ask()`; omit if the host only adds and finds. */
-  generate?: Generate;
+export type MemoryOptions = {
+  /** Engine config (DB + model endpoints). Required when `documentStore` is omitted. */
+  config?: MemoryConfig;
+  /**
+   * Host Interchange `GrantStore`. Used for document access filtering on
+   * search/list. Standalone add-only callers may omit it.
+   */
+  grantStore?: GrantConfig["grantStore"];
+  /**
+   * Host Interchange condition evaluators keyed by name. Optional — default
+   * `{}` when `grantStore` is set. Same object the hub passes to
+   * `createRequireGrant` / `createApp`.
+   */
+  conditionRegistry?: GrantConfig["conditionRegistry"];
   /** Required for `add({ file })`; omit if the host only adds text content. */
   textExtractor?: TextExtractor;
   /**
@@ -383,50 +203,56 @@ export type KnowledgePlaneOptions = {
    */
   documentStore?: DocumentStore;
   /**
-   * Live source connectors (tools-shaped). Merged into find/ask via
+   * Live source connectors (tools-shaped). Merged into search via
    * MergeLocalLiveV1; not a DocumentStore replacement.
    */
   sources?: SourceProvider[];
-  /**
-   * Optional personal-memory side channel for ask(includeMemory).
-   * Not how you swap durable backends — use documentStore for that.
-   */
-  memory?: MemoryProvider;
 };
 
-function resolveFindLimit(limit: number | undefined): number {
+/** Bundle host authz pieces for route guards and document access. */
+export function resolveGrantConfig(
+  options: Pick<MemoryOptions, "grantStore" | "conditionRegistry">,
+): GrantConfig | undefined {
+  if (!options.grantStore) return undefined;
+  return {
+    grantStore: options.grantStore,
+    conditionRegistry: options.conditionRegistry ?? {},
+  };
+}
+
+function resolveSearchLimit(limit: number | undefined): number {
   if (limit === undefined) return DEFAULT_HYBRID_TOP_K;
   if (
     typeof limit !== "number" ||
     !Number.isInteger(limit) ||
-    limit < FIND_LIMIT_MIN ||
-    limit > FIND_LIMIT_MAX
+    limit < SEARCH_LIMIT_MIN ||
+    limit > SEARCH_LIMIT_MAX
   ) {
-    throw new KnowledgeError(
+    throw new MemoryError(
       400,
-      `limit must be an integer between ${FIND_LIMIT_MIN} and ${FIND_LIMIT_MAX}`,
+      `limit must be an integer between ${SEARCH_LIMIT_MIN} and ${SEARCH_LIMIT_MAX}`,
     );
   }
   return limit;
 }
 
-function resolveRecentLimit(limit: number | undefined): number | undefined {
+function resolveListLimit(limit: number | undefined): number | undefined {
   if (limit === undefined) return undefined;
   if (
     typeof limit !== "number" ||
     !Number.isInteger(limit) ||
-    limit < RECENT_LIMIT_MIN ||
-    limit > RECENT_LIMIT_MAX
+    limit < LIST_LIMIT_MIN ||
+    limit > LIST_LIMIT_MAX
   ) {
-    throw new KnowledgeError(
+    throw new MemoryError(
       400,
-      `limit must be an integer between ${RECENT_LIMIT_MIN} and ${RECENT_LIMIT_MAX}`,
+      `limit must be an integer between ${LIST_LIMIT_MIN} and ${LIST_LIMIT_MAX}`,
     );
   }
   return limit;
 }
 
-function hitsToFindItems(hits: readonly SearchHit[]): FindItem[] {
+function hitsToSearchItems(hits: readonly SearchHit[]): SearchItem[] {
   return hits.map((h) => ({
     documentId: h.document_id,
     title: h.title,
@@ -437,29 +263,10 @@ function hitsToFindItems(hits: readonly SearchHit[]): FindItem[] {
   }));
 }
 
-/** Map FindItems back to the minimal SearchHit shape synthesizeAnswer needs. */
-function findItemsToHits(items: readonly FindItem[]): SearchHit[] {
-  return items.map((item) => ({
-    chunk_id: "",
-    document_id: item.documentId,
-    version: 0,
-    version_id: "",
-    status: "active" as const,
-    score: item.score,
-    title: item.title,
-    snippet: item.snippet,
-    kind: item.kind,
-    created_by_kind: "human" as const,
-    citation: item.citation,
-    entity_ids: [],
-    channels_matched: [],
-  }));
-}
-
 /**
  * Resolve access tags for add — share sugar + explicit tags only.
  */
-function resolveAddAccessTags(params: KnowledgeAddParams): string[] {
+function resolveAddAccessTags(params: MemoryAddParams): string[] {
   return resolveAccessTags({
     principalId: params.principalId,
     tenantId: params.tenantId,
@@ -469,36 +276,70 @@ function resolveAddAccessTags(params: KnowledgeAddParams): string[] {
 }
 
 /**
- * Build a knowledge plane.
+ * Build a memory plane.
  *
  * One product path: every plane is store-backed. When `options.documentStore`
  * is omitted, the default pgvector engine is wrapped as that store. Hosts
  * inject a DocumentStore or fakes the same way — no second plane implementation.
  *
- * - `grants` is required for `ask()` (in-process capability check). Standalone
- *   add/find callers may omit it.
+ * - Pass `options.grantStore` for document access filtering on search/list.
+ *   `conditionRegistry` is optional (defaults to `{}`).
  * - Rerank config is validated at construction when using the default store.
- * - Pass `options.sources` for live SourceProviders; find/ask merge via
+ * - Pass `options.sources` for live SourceProviders; search merges via
  *   MergeLocalLiveV1 (fail-soft, 800ms timeout, prefer-local dedupe).
  * - Document access uses grant tags via the host GrantStore (not mini-ACL).
+ * - Inference is host-owned and ephemeral: call your model, then `add` /
+ *   `search`. Core does not run an ingest agent or bake LLM into writes.
+ *
+ * @example With default pgvector store
+ * ```ts
+ * const memory = createMemory({
+ *   config: loadMemoryConfig(),
+ *   grantStore,
+ *   conditionRegistry,
+ * });
+ * ```
+ *
+ * @example With a host DocumentStore (no Postgres)
+ * ```ts
+ * const memory = createMemory({
+ *   documentStore: myStore,
+ *   grantStore,
+ * });
+ * ```
  */
-export function createKnowledgePlane(
-  config: KnowledgeConfig | undefined,
-  grants?: GrantConfig,
-  options: KnowledgePlaneOptions = {},
-): KnowledgePlane {
+export function createMemory(options: MemoryOptions = {}): Memory {
+  const {
+    config,
+    grantStore,
+    conditionRegistry,
+    documentStore,
+    textExtractor,
+    sources,
+  } = options;
+  const grants = resolveGrantConfig({
+    ...(grantStore !== undefined ? { grantStore } : {}),
+    ...(conditionRegistry !== undefined ? { conditionRegistry } : {}),
+  });
   const store =
-    options.documentStore ??
+    documentStore ??
     (() => {
       if (!config) {
-        throw new KnowledgeError(
+        throw new MemoryError(
           500,
-          "KnowledgeConfig is required when documentStore is not provided",
+          "config is required when documentStore is not provided",
         );
       }
       return createEngineDocumentStore(config);
     })();
-  return createPlaneFromStore(store, grants, options);
+  return createPlaneFromStore(
+    store,
+    grants,
+    {
+      ...(textExtractor ? { textExtractor } : {}),
+      ...(sources ? { sources } : {}),
+    },
+  );
 }
 
 function wantsLocalChannel(sources: string[] | undefined): boolean {
@@ -506,7 +347,7 @@ function wantsLocalChannel(sources: string[] | undefined): boolean {
 }
 
 function findItemsToMergeChannel(
-  items: FindItem[],
+  items: SearchItem[],
   channel: "local" | "live",
 ): MergeChannelItem[] {
   return items.map((item) => ({
@@ -587,8 +428,8 @@ async function collectLiveItems(params: {
   return { items, degraded };
 }
 
-function mergeToFindResult(params: {
-  localItems: FindItem[];
+function mergeToSearchResult(params: {
+  localItems: SearchItem[];
   localDegraded?: DegradeFlag[];
   /** Hybrid evidence from the local channel when no live items were active. */
   localEvidence?: HybridSearchResult["evidence"];
@@ -597,7 +438,7 @@ function mergeToFindResult(params: {
   limit: number;
   sources?: string[];
   includeEvidence?: boolean;
-}): FindResult {
+}): SearchResult {
   const merged = mergeLocalLiveV1({
     local: findItemsToMergeChannel(params.localItems, "local"),
     live: params.liveItems,
@@ -605,7 +446,7 @@ function mergeToFindResult(params: {
     ...(params.sources !== undefined ? { sources: params.sources } : {}),
   });
 
-  const items: FindItem[] = merged.items.map((it) => ({
+  const items: SearchItem[] = merged.items.map((it) => ({
     documentId: it.documentId,
     title: it.title,
     snippet: it.snippet,
@@ -651,87 +492,26 @@ function mergeToFindResult(params: {
 }
 
 /**
- * Optional memory recall for ask. Never throws — failures become
- * memory_unavailable degrade. Does not call remember (host-owned writes only).
+ * Optional personal-memory path removed from product surface.
+ * Hosts that need LLM extract-on-add call their own model, then `add`.
  */
-async function recallForAsk(params: {
-  memory: MemoryProvider | undefined;
-  includeMemory: boolean | undefined;
-  tenantId: string;
-  principalId: string;
-  query: string;
-}): Promise<{ texts: string[]; degraded: DegradeFlag[] }> {
-  if (!params.includeMemory || !params.memory) {
-    return { texts: [], degraded: [] };
-  }
-  try {
-    const items = await params.memory.recall({
-      tenantId: params.tenantId,
-      principalId: params.principalId,
-      query: params.query,
-    });
-    return {
-      texts: items.map((i) => i.text).filter((t) => t.trim().length > 0),
-      degraded: [],
-    };
-  } catch (err) {
-    log.warn("ask: memory recall failed; continuing docs-only", {
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return { texts: [], degraded: ["memory_unavailable"] };
-  }
-}
-
-function makeRememberRecall(options: KnowledgePlaneOptions): {
-  remember: KnowledgePlane["remember"];
-  recall: KnowledgePlane["recall"];
-} {
-  return {
-    async remember(params) {
-      if (!options.memory) {
-        throw new KnowledgeError(
-          501,
-          "remember() requires a MemoryProvider. Pass memory to " +
-            "createKnowledgePlane/mountKnowledgeEngine.",
-        );
-      }
-      await options.memory.remember({
-        tenantId: params.tenantId,
-        principalId: params.principalId,
-        text: params.text,
-        ...(params.metadata !== undefined ? { metadata: params.metadata } : {}),
-      });
-    },
-    async recall(params) {
-      if (!options.memory) return [];
-      return options.memory.recall({
-        tenantId: params.tenantId,
-        principalId: params.principalId,
-        query: params.query,
-        ...(params.limit !== undefined ? { limit: params.limit } : {}),
-      });
-    },
-  };
-}
 
 /** Plane backed by a DocumentStore. Store owns tenancy and document ACL. */
 function createPlaneFromStore(
   store: DocumentStore,
   grants: GrantConfig | undefined,
-  options: KnowledgePlaneOptions,
-): KnowledgePlane {
-  const memoryApi = makeRememberRecall(options);
-
-  async function findMerged(
-    params: KnowledgeFindParams,
-  ): Promise<FindResult> {
-    const limit = resolveFindLimit(params.limit);
-    let localItems: FindItem[] = [];
+  options: MemoryOptions,
+): Memory {
+  async function searchMerged(
+    params: MemorySearchParams,
+  ): Promise<SearchResult> {
+    const limit = resolveSearchLimit(params.limit);
+    let localItems: SearchItem[] = [];
     let localDegraded: DegradeFlag[] | undefined;
     let localEvidence: HybridSearchResult["evidence"] | undefined;
 
     if (wantsLocalChannel(params.sources)) {
-      const local = await store.find({
+      const local = await store.search({
         tenantId: params.tenantId,
         principalId: params.principalId,
         query: params.query,
@@ -784,7 +564,7 @@ function createPlaneFromStore(
       return { items: localItems };
     }
 
-    return mergeToFindResult({
+    return mergeToSearchResult({
       localItems,
       ...(localDegraded !== undefined ? { localDegraded } : {}),
       ...(localEvidence !== undefined ? { localEvidence } : {}),
@@ -798,95 +578,16 @@ function createPlaneFromStore(
     });
   }
 
-  const plane: KnowledgePlane = {
-    async find(params) {
-      return findMerged(params);
-    },
-
-    async ask(params) {
-      // Capability layer. Callers reaching the plane in-process bypass the
-      // HTTP surface's `requireGrant("knowledge", ...)` route guard, so the
-      // check has to live here — AUTH.md is explicit that the capability and
-      // data layers are independent and BOTH must allow. Per-document
-      // grant-tag access (enforced inside the store) is not a substitute for "may
-      // this principal search at all".
-      if (!grants) {
-        throw new KnowledgeError(
-          501,
-          "ask() requires a GrantConfig. Pass grants to " +
-            "createKnowledgePlane/mountKnowledgeEngine.",
-        );
-      }
-      const decision = await authorize(
-        grants.grantStore,
-        params.principalId,
-        params.tenantId,
-        "knowledge",
-        "find",
-        grants.conditionRegistry,
-      );
-      // `effect: null` means no grant matched at all — deny by default, same
-      // as an explicit deny. Only an explicit allow proceeds.
-      if (decision.effect !== "allow") {
-        const effect = decision.effect ?? "no-matching-grant";
-        log.info(
-          `ask: denied knowledge:find for ${params.principalId} (effect=${effect})`,
-          {
-            principalId: params.principalId,
-            effect,
-          },
-        );
-        throw new KnowledgeNotPermittedError();
-      }
-      // Fail closed on missing generate *before* retrieval so a misconfigured
-      // host gets the promised 501 instead of paying for search.
-      if (!options.generate) {
-        throw new KnowledgeError(
-          501,
-          "ask() requires a `generate` function. Pass one to " +
-            "createKnowledgePlane/mountKnowledgeEngine, wired to your " +
-            "inference layer.",
-        );
-      }
-      const findResult = await plane.find({
-        tenantId: params.tenantId,
-        principalId: params.principalId,
-        query: params.query,
-        includeEvidence: true,
-        ...(params.limit !== undefined ? { limit: params.limit } : {}),
-        ...(params.sources !== undefined ? { sources: params.sources } : {}),
-      });
-      const mem = await recallForAsk({
-        memory: options.memory,
-        includeMemory: params.includeMemory,
-        tenantId: params.tenantId,
-        principalId: params.principalId,
-        query: params.query,
-      });
-      const answer = await synthesizeAnswer(
-        params.query,
-        {
-          hits: findItemsToHits(findResult.items),
-          evidence: findResult.evidence ?? "none",
-        },
-        options.generate,
-        mem.texts,
-      );
-      const degraded: DegradeFlag[] = [
-        ...(findResult.degraded ?? []),
-        ...mem.degraded,
-      ];
-      return {
-        ...answer,
-        ...(degraded.length > 0 ? { degraded } : {}),
-      };
+  const plane: Memory = {
+    async search(params) {
+      return searchMerged(params);
     },
 
     async add(params) {
       const hasContent = params.content !== undefined;
       const hasFile = params.file !== undefined;
       if (hasContent === hasFile) {
-        throw new KnowledgeError(
+        throw new MemoryError(
           400,
           "provide exactly one of content or file",
         );
@@ -900,7 +601,7 @@ function createPlaneFromStore(
       } else {
         const file = params.file!;
         if (!options.textExtractor) {
-          throw new KnowledgeError(
+          throw new MemoryError(
             400,
             "file requires a textExtractor on the knowledge plane",
           );
@@ -919,7 +620,7 @@ function createPlaneFromStore(
 
       const externalRef =
         params.externalRef ??
-        `knowledge:${params.tenantId}:${crypto.randomUUID()}`;
+        `memory:${params.tenantId}:${crypto.randomUUID()}`;
 
       return store.add({
         tenantId: params.tenantId,
@@ -936,9 +637,9 @@ function createPlaneFromStore(
       });
     },
 
-    async recent(params) {
-      const limit = resolveRecentLimit(params.limit);
-      return store.recent({
+    async list(params) {
+      const limit = resolveListLimit(params.limit);
+      return store.list({
         tenantId: params.tenantId,
         principalId: params.principalId,
         ...(limit !== undefined ? { limit } : {}),
@@ -948,10 +649,6 @@ function createPlaneFromStore(
           : {}),
       });
     },
-
-    remember: memoryApi.remember,
-    recall: memoryApi.recall,
-
 
     async close() {
       await store.close();
@@ -966,7 +663,7 @@ function createPlaneFromStore(
  * Owns construction-time rerank validation, FTS verification, and grant-tag
  * post-filter for document access. The plane never opens Postgres itself.
  */
-function createEngineDocumentStore(config: KnowledgeConfig): DocumentStore {
+function createEngineDocumentStore(config: MemoryConfig): DocumentStore {
   // Catch a chunk-size / reranker-limit mismatch at construction time, rather
   // than silently on every find once the reranker starts rejecting batches.
   // Throws instead of warning: a mismatch means every rerank call for this
@@ -976,18 +673,18 @@ function createEngineDocumentStore(config: KnowledgeConfig): DocumentStore {
   // (`defaultMaxDocCharsForModel`) is self-consistent by construction —
   // validation can only fire on an operator's own `maxDocChars` override,
   // never spuriously on an unmodified config.
-  // Lives here (not only in mountKnowledgeEngine) so standalone construction
+  // Lives here (not only in createMemory with app) so standalone construction
   // cannot silently degrade on a bad override.
-  const rerankConfig = toRerankClientConfig(config.knowledge.rerank);
+  const rerankConfig = toRerankClientConfig(config.memory.rerank);
   if (rerankConfig) validateRerankConfig(rerankConfig);
 
   // Resolve once here so EngineConfig.ftsLanguage is concrete for every
-  // service — loadKnowledgeConfig already runs parseFtsLanguage, but a
+  // service — loadMemoryConfig already runs parseFtsLanguage, but a
   // hand-built EngineConfig may still carry an empty/absent value; this is
   // the single defaulting site services rely on.
   const engineConfig: EngineConfig = {
-    ...config.knowledge,
-    ftsLanguage: parseFtsLanguage(config.knowledge.ftsLanguage),
+    ...config.memory,
+    ftsLanguage: parseFtsLanguage(config.memory.ftsLanguage),
   };
   const { db, sql }: { db: Db; sql: RawSql } = createDb(engineConfig);
   const deps = { db, sql, config: engineConfig };
@@ -998,7 +695,7 @@ function createEngineDocumentStore(config: KnowledgeConfig): DocumentStore {
   // awaited by the first query. Read-only; migration stays a deploy step.
   // NOTE this is a lazy check, not a boot-time one: nothing forces it to run
   // until the first real find()/add() call, so a host that neither
-  // runs runKnowledgeMigrations itself nor wires a readiness probe will not
+  // runs runMemoryMigrations itself nor wires a readiness probe will not
   // learn about a language mismatch until that first call fails. A host
   // that wants a real boot-time guarantee MUST call the exported
   // verifyFtsLanguage from its own readiness probe — this memo then
@@ -1019,8 +716,8 @@ function createEngineDocumentStore(config: KnowledgeConfig): DocumentStore {
     k?: number;
     kinds?: string[];
     entityIds?: string[];
-    grants?: DocumentStoreFindParams["grants"];
-    conditionRegistry?: DocumentStoreFindParams["conditionRegistry"];
+    grants?: DocumentStoreSearchParams["grants"];
+    conditionRegistry?: DocumentStoreSearchParams["conditionRegistry"];
   }): Promise<HybridSearchResult> {
     try {
       await ensureVerified();
@@ -1101,8 +798,8 @@ function createEngineDocumentStore(config: KnowledgeConfig): DocumentStore {
         evidence: hits.length === 0 ? "none" : result.evidence,
       };
     } catch (err) {
-      if (err instanceof KnowledgeSearchInputError) {
-        throw new KnowledgeError(400, err.message);
+      if (err instanceof MemorySearchInputError) {
+        throw new MemoryError(400, err.message);
       }
       throw err;
     }
@@ -1115,7 +812,7 @@ function createEngineDocumentStore(config: KnowledgeConfig): DocumentStore {
       const adapter = params.adapter ?? "http";
       const externalRef =
         params.externalRef ??
-        `knowledge:${params.tenantId}:${crypto.randomUUID()}`;
+        `memory:${params.tenantId}:${crypto.randomUUID()}`;
       const accessTags = params.accessTags ?? [ownerTag(params.principalId)];
 
       const captureResult = await captureDocument(deps, {
@@ -1139,7 +836,7 @@ function createEngineDocumentStore(config: KnowledgeConfig): DocumentStore {
       return { documentId: captureResult.documentId };
     },
 
-    async find(params) {
+    async search(params) {
       const result = await retrieve({
         tenantId: params.tenantId,
         principalId: params.principalId,
@@ -1154,7 +851,7 @@ function createEngineDocumentStore(config: KnowledgeConfig): DocumentStore {
           ? { conditionRegistry: params.conditionRegistry }
           : {}),
       });
-      const items = hitsToFindItems(result.hits);
+      const items = hitsToSearchItems(result.hits);
       if (params.includeEvidence) {
         return {
           items,
@@ -1168,7 +865,7 @@ function createEngineDocumentStore(config: KnowledgeConfig): DocumentStore {
       };
     },
 
-    async recent(params) {
+    async list(params) {
       return listTimelineEvents({
         db,
         tenantId: params.tenantId,

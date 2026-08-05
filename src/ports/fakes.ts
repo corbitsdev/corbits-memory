@@ -3,19 +3,19 @@
  * Enough for hosts/tests to mount without Postgres or embed endpoints.
  *
  * Document access: creator always sees own docs; otherwise any accessTag that
- * authorize(grants, …, tag, "find") allows when grants are provided. Without
+ * authorize(grants, …, tag, "search") allows when grants are provided. Without
  * grants, only creator access (safe default for unit tests).
  */
-import { canAccessDocument } from "../acl.ts";
+import { canAccessDocument } from "../grant-tags.ts";
+
 import type {
   DocumentStore,
   DocumentStoreAddParams,
-  DocumentStoreFindParams,
-  DocumentStoreFindResult,
-  DocumentStoreRecentEvent,
-  DocumentStoreRecentParams,
+  DocumentStoreSearchParams,
+  DocumentStoreSearchResult,
+  DocumentStoreListEvent,
+  DocumentStoreListParams,
   LiveSearchItem,
-  MemoryProvider,
   SourceProvider,
 } from "./types.ts";
 
@@ -35,8 +35,8 @@ async function visibleTo(
   params: {
     principalId: string;
     tenantId: string;
-    grants?: DocumentStoreFindParams["grants"];
-    conditionRegistry?: DocumentStoreFindParams["conditionRegistry"];
+    grants?: DocumentStoreSearchParams["grants"];
+    conditionRegistry?: DocumentStoreSearchParams["conditionRegistry"];
   },
 ): Promise<boolean> {
   if (!params.grants) {
@@ -89,9 +89,9 @@ export function createFakeDocumentStore(): DocumentStore {
       return { documentId };
     },
 
-    async find(
-      params: DocumentStoreFindParams,
-    ): Promise<DocumentStoreFindResult> {
+    async search(
+      params: DocumentStoreSearchParams,
+    ): Promise<DocumentStoreSearchResult> {
       const limit = params.limit ?? 8;
       const scored: { d: StoredDoc; score: number }[] = [];
       for (const d of docs) {
@@ -130,11 +130,11 @@ export function createFakeDocumentStore(): DocumentStore {
       return { items };
     },
 
-    async recent(
-      params: DocumentStoreRecentParams,
-    ): Promise<DocumentStoreRecentEvent[]> {
+    async list(
+      params: DocumentStoreListParams,
+    ): Promise<DocumentStoreListEvent[]> {
       const limit = params.limit ?? 50;
-      const out: DocumentStoreRecentEvent[] = [];
+      const out: DocumentStoreListEvent[] = [];
       const sorted = [...docs]
         .filter((d) => d.tenantId === params.tenantId)
         .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
@@ -179,32 +179,6 @@ export function createFakeSourceProvider(
             item.snippet.toLowerCase().includes(q),
         )
         .slice(0, limit);
-    },
-  };
-}
-
-/**
- * In-memory MemoryProvider for tests.
- */
-export function createFakeMemoryProvider(): MemoryProvider {
-  const byKey = new Map<string, string[]>();
-  const key = (tenantId: string, principalId: string) =>
-    `${tenantId}::${principalId}`;
-  return {
-    async remember(params) {
-      const k = key(params.tenantId, params.principalId);
-      const list = byKey.get(k) ?? [];
-      list.push(params.text);
-      byKey.set(k, list);
-    },
-    async recall(params) {
-      const list = byKey.get(key(params.tenantId, params.principalId)) ?? [];
-      const q = params.query.toLowerCase();
-      const limit = params.limit ?? 5;
-      return list
-        .filter((t) => !q || t.toLowerCase().includes(q))
-        .slice(0, limit)
-        .map((text) => ({ text, score: 1 }));
     },
   };
 }

@@ -1,4 +1,4 @@
-# Knowledge Engine — Implementation Reference
+# Corbits Memory — Implementation Reference
 
 This is the detailed implementation reference: concrete files, tables, functions,
 and wire shapes. For the "why standalone" / boundaries story, read
@@ -8,37 +8,42 @@ and wire shapes. For the "why standalone" / boundaries story, read
 
 ```
 src/
-  index.ts                # mountKnowledgeEngine / mountKnowledgeRoutes
-  mount-config.ts         # KnowledgeConfig + loadKnowledgeConfig() — the mount config
+  index.ts                # createMemory / registerMemoryRoutes
+
+  mount-config.ts         # MemoryConfig + loadMemoryConfig() — the mount config
   config.ts               # EngineConfig — the core vector-plane config (db + embed + rerank)
-  knowledge.ts            # createKnowledgePlane — add/find/ask/recent against store or pgvector
-  acl.ts                  # parseAcl + shared acl_block read-path helpers
-  log.ts                  # getLogger(["knowledge-engine"]) from @intx/log
-  migrations.ts           # runKnowledgeMigrations(url)
-  ports/                  # DocumentStore / SourceProvider / MemoryProvider + fakes
+  memory.ts               # createMemory — add/search/list against store or pgvector
+  grant-tags.ts           # resolveAccessTags + canAccessDocument (host grants)
+
+  log.ts                  # getLogger(["memory"]) from @intx/log
+  migrations.ts           # runMemoryMigrations(url)
+  ports/                  # DocumentStore / SourceProvider + fakes
   routes/                 # the mounted routes
-    mount.ts              # mountKnowledgeRoutes (HTTP)
+    mount.ts              # registerMemoryRoutes (HTTP)
+
     deps.ts               # RouteDeps, caller(c) (context identity), grantGuard
-    add.ts, find.ts, ask.ts, recent.ts
+    add.ts, search.ts, list.ts
   db/
     schema.ts             # Drizzle table defs (knowledge.* schema)
     client.ts             # createDb(config) -> { db (drizzle), sql (raw postgres-js) }
   services/
     capture.ts            # captureDocument, deriveFromRawCapture — the write path
     search.ts             # hybridSearch and every retrieval-candidate query
-    timeline.ts           # listTimelineEvents — durable recent docs + ACL filter
+    timeline.ts           # listTimelineEvents — durable recent docs + grant-tag filter
     transform.ts          # transform_config CRUD + runTransform (replay)
   core/                   # framework-agnostic (chunking, embed/rerank, merge, schemas)
-packages/
-  knowledge-adapter-mem0/       # DocumentStore backend (Mem0)
-  knowledge-adapter-supermemory/ # DocumentStore backend (Supermemory)
+# DocumentStore adapters / tools live as sibling packages (not in this tree):
+#   @corbits/mem0-memory-adapter         → github.com/corbitsdev/corbits-mem0-memory-adapter
+#   @corbits/supermemory-memory-adapter  → github.com/corbitsdev/corbits-supermemory-memory-adapter
+#   @corbits/linear-tools                → github.com/corbitsdev/corbits-linear-tools
 migrations/               # pgvector schema, applied in filename order by scripts/db-setup.ts
 scripts/db-setup.ts       # idempotent migration runner, tracked in `_migrations`
 compose.yml               # pgvector + Ollama + reranker for local dev
 ```
 
 
-The SDK has no server and no process entrypoint. `mountKnowledgeEngine` takes
+The SDK has no server and no process entrypoint. `createMemory` takes
+
 the host's `Hono<TenantEnv>` app plus `{ config, grants? }` and mounts the
 routes; each reads identity from the context (`caller(c)`) and guards via
 `grantGuard`. Services take `{ db, sql, config }` explicitly (no module-level
@@ -47,7 +52,7 @@ tests exercise the routes and services directly without a listening server.
 
 Mounting does **not** verify the FTS language against the database at boot —
 see the `knowledge_chunk` section below. A host is expected to either run
-`runKnowledgeMigrations` itself (which verifies) or wire its own readiness
+`runMemoryMigrations` itself (which verifies) or wire its own readiness
 probe to call `verifyFtsLanguage`; without one of those, a language mismatch
 surfaces as a runtime failure on the plane's first query, not at mount time.
 
@@ -58,12 +63,13 @@ There are two config types, both in the SDK:
 - **`EngineConfig`** (`src/config.ts`) — the core vector-plane config the DB
   client and capture/search/transform services consume: `databaseUrl`,
   `dbPoolMax`, `embed`, `rerank`.
-- **`KnowledgeConfig`** (`src/mount-config.ts`) — what `mountKnowledgeEngine`
-  takes: just `{ knowledge: EngineConfig }`. `loadKnowledgeConfig()` builds one
+- **`MemoryConfig`** (`src/mount-config.ts`) — what `createMemory`
+
+  takes: just `{ memory: EngineConfig }`. `loadMemoryConfig()` builds one
   from the environment; hosts may also construct it programmatically. Auth,
   tenancy, and grants are the host's — none of that is config here.
 
-`loadKnowledgeConfig()` uses the same fail-loud helpers: `requireEnv(name)`
+`loadMemoryConfig()` uses the same fail-loud helpers: `requireEnv(name)`
 throws if unset/empty, `optionalEnv(name)` returns `undefined`, `intEnv(name,
 fallback)` parses a positive integer or throws.
 
@@ -71,7 +77,7 @@ fallback)` parses a positive integer or throws.
 |---|---|---|---|
 |  `KNOWLEDGE_DATABASE_URL` | **yes** | — | the engine's own pgvector Postgres |
 | `DB_POOL_MAX` | no | `8` | postgres-js pool size |
-| `FTS_LANGUAGE` | no | `english` | text search config for the lexical channel; fixed into the generated column at migration time — changing it later requires rebuilding the column (recipe below), and `runKnowledgeMigrations` fails loudly if config and column disagree. Unqualified `pg_catalog` config names only — a schema-qualified config (`myschema.mycfg`) is rejected explicitly, both when configuring and when read back from an already-migrated column. |
+| `FTS_LANGUAGE` | no | `english` | text search config for the lexical channel; fixed into the generated column at migration time — changing it later requires rebuilding the column (recipe below), and `runMemoryMigrations` fails loudly if config and column disagree. Unqualified `pg_catalog` config names only — a schema-qualified config (`myschema.mycfg`) is rejected explicitly, both when configuring and when read back from an already-migrated column. |
 | `EMBED_BASE_URL` | **yes** | — | embed endpoint root, no path suffix |
 | `EMBED_MODEL` | **yes** | — | model id/name passed to the embed endpoint |
 | `EMBED_API_STYLE` | no | `"openai"` | `"openai" \| "tei" \| "ollama"` |
@@ -110,17 +116,16 @@ control-plane table — `tenant_id`/`principal_id`/source refs are plain `text`.
 ### `knowledge_document`
 The stable logical row for a captured source. Unique on
 `(tenant_id, adapter, external_ref)` — this triple is the dedupe/identity key
-every capture upserts against. Visibility/ACL lives directly on the row:
-`visibility_mode` (`'tenant'|'principals'|'source_acl'|'private'`),
-`visibility_principal_ids` (jsonb array), `visibility_source_acl` (jsonb
-array). `attributes` is a flat jsonb bag of scalars. `last_seen_at` bumps on
-every re-capture, even a content-hash NOOP.
+every capture upserts against. Document access is **grant tags**:
+`access_tags text[]` (resource strings in grant-pattern space; see
+`docs/AUTHZ-DOCUMENT-ACCESS.md`). `attributes` is a flat jsonb bag of scalars.
+`last_seen_at` bumps on every re-capture, even a content-hash NOOP.
 
 ### `knowledge_version`
 The versioned body of a document. `version` is a monotonic integer scoped to
 `(document_id, generation)` — **not** globally per-document — per the
-`knowledge_version_document_generation_version_uniq` unique index (migration
-0009). `status` tracks `'active'|'superseded'|'deprecated'|'archived'|'tombstoned'`;
+`knowledge_version_document_generation_version_uniq` unique index (baseline
+schema). `status` tracks `'active'|'superseded'|'deprecated'|'archived'|'tombstoned'`;
 only one `active` row exists per `(document_id, generation)` at a time (the
 capture path enforces this by flipping the prior active row to `superseded`
 before inserting a new one). `content_hash` is the NOOP-check key. Attribution
@@ -129,8 +134,8 @@ columns: `created_by_principal_id`, `created_by_kind`
 columns (`authority`, `actor_count`, `has_social_signal`, `source_class`) are
 a **snapshot computed once at capture time** (`computeAuthority`, never
 recomputed retroactively). `raw_capture_id` points at the immutable source row
-this version was derived from. `generation` (added by migration 0009,
-default `'live'`) is the replay-generation tag: the normal add path always writes
+this version was derived from. `generation` (default `'live'`) is the
+replay-generation tag: the normal add path always writes
 `'live'`; a replay (`runTransform`) writes its own `transform_run.id` instead,
 so a replayed corpus's versions never collide with, or even become visible
 alongside, the live ones unless a caller explicitly searches that generation.
@@ -142,14 +147,14 @@ that powers the lexical search channel — this is the only place FTS is
 computed; no separate FTS table exists. Its language comes from
 `FTS_LANGUAGE` at migration time; the query side binds the same configured
 language as a `regconfig` parameter. The invariant is verified twice, both
-read-only against the catalog: `runKnowledgeMigrations` checks after
-applying (the deploy step), and the knowledge plane runs the same check
+read-only against the catalog: `runMemoryMigrations` checks after
+applying (the deploy step), and the memory plane runs the same check
 once, memoized, before its first query (the serving path) — so a mismatch
 or unmigrated schema fails loudly on first use regardless of who ran the
 migrations. **The serving-path check only runs when something actually
 calls it** — `search()`/`capture()` invoke it lazily and memoize the result,
 but nothing forces that first call to happen at boot. A host that mounts the
-engine without running `runKnowledgeMigrations` itself and without wiring a
+engine without running `runMemoryMigrations` itself and without wiring a
 readiness probe will not learn about a language mismatch until the first
 real query or capture fails — not at startup. Hosts that want a boot-time
 guarantee **must** call the exported `verifyFtsLanguage` from their own
@@ -160,7 +165,7 @@ fresh full insert of its own chunks.
 
 **Changing `FTS_LANGUAGE` on an already-migrated database** (the mismatch
 `verifyFtsLanguage` throws on) requires rebuilding the generated column —
-`runKnowledgeMigrations` only applies new files and will not retroactively
+`runMemoryMigrations` only applies new files and will not retroactively
 alter an existing one. One-time recipe (verified against a live
 `postgres:16` instance):
 
@@ -306,7 +311,7 @@ returns the run summary either way.
    - Existing document, content changed → flip the prior active version to
      `status: "superseded"`, insert a new version at `version + 1` with
      `supersedesVersionId` pointing at it, update the document's mutable
-     fields (`title`, `visibility*`, `attributes`, `last_seen_at`).
+     fields (`title`, `access_tags`, `attributes`, `last_seen_at`).
 4. **`insertChunksAndGraph`**: inserts every plan chunk fresh (chunks are
    never reused across versions), then best-effort upserts entity hints
    (`upsertEntity`) and edge hints (`upsertEdge`) — these are independent of
@@ -324,7 +329,7 @@ returns the run summary either way.
    this repo; chunks left unembedded simply never populate the dense
    channel for the query — they're still found by lexical/FTS). Any of these
    failure modes sets `degraded: true` on the `CaptureResult`, surfaced by
-   `POST /api/knowledge/add` as a `degraded` field in its response — the add
+   `POST /api/memory/add` as a `degraded` field in its response — the add
    still succeeded (chunks are durable and lexically searchable), only the
    dense/vector channel for those chunks is incomplete.
 
@@ -349,7 +354,7 @@ the same core function called directly by a replay with an **existing**
 Entry point, one query in, one ranked/citable hit list out. `k` is clamped to
 `[1, MAX_K=100]`, default `DEFAULT_HYBRID_TOP_K = 8`. An empty `query` string
 is only accepted if `kinds` or `entityIds` is provided (structured-filter-only
-search); otherwise it throws `KnowledgeSearchInputError` (400).
+search); otherwise it throws `MemorySearchInputError` (400).
 
 1. **Generation resolution** — `generation` defaults to `LIVE_GENERATION`.
    For any non-live generation, `resolveGenerationSearchParams` (transform.ts)
@@ -362,7 +367,8 @@ search); otherwise it throws `KnowledgeSearchInputError` (400).
    bound as a `regconfig` parameter, over
    `knowledge_chunk.text_fts`), joined to `knowledge_version` (filtered to
    `status = 'active'` and the resolved `generation`) and `knowledge_document`
-   (filtered by `visibilityPredicateSql`), optionally further filtered by
+   (tenant-scoped only — document access is grant-tag post-filter in the plane),
+   optionally further filtered by
    `kinds` and/or `entityIds` (via a sub-select against `knowledge_edge`).
    Overfetches up to `overfetchLimit` rows, non-deduped, per-chunk.
 3. **Dense channel** — `fetchDenseCandidates`: embeds the query
@@ -374,9 +380,8 @@ search); otherwise it throws `KnowledgeSearchInputError` (400).
    so the halfvec HNSW index is used)
    against that table joined back to
    `knowledge_chunk`/`knowledge_version`/`knowledge_document` with the
-   **exact same visibility predicate**, hand-mirrored as
-   `VISIBILITY_PREDICATE_RAW_SQL` (there is no third ACL implementation
-   anywhere). Returns `null` (not an error) when there's no active embed
+   **same tenant-only scope** as the lexical channel (no mini-ACL in SQL).
+   Returns `null` (not an error) when there's no active embed
    model yet or the query is empty; a thrown error from the embed call or
    the SQL itself is caught by the caller and also folds into `null`/degraded
    — the dense channel never fails the whole search.
@@ -424,7 +429,7 @@ search); otherwise it throws `KnowledgeSearchInputError` (400).
     AUTHORITY_STRONG_FLOOR (0.3)`; else `"weak"`.
 
 Tenant isolation is unconditional and first in every query (`tenant_id`
-filtered before any visibility logic); every table/channel is scoped that
+filtered before grant-tag / creator document access); every table/channel is scoped that
 way, with no exception.
 
 ## Raw + replay (the replay pipeline — `services/transform.ts`)
@@ -471,21 +476,23 @@ so knowing it will flip the tenant's live dense channel too.
 
 ## Mounted routes
 
-`mountKnowledgeEngine` mounts these onto the host app. Identity is the request
+`createMemory({ app })` registers these onto the host app. Identity is the request
+
 principal read off the Interchange context (`caller(c)` →
 `{ scopeId: principal.tenantId, subjectId: principal.id }`); clients never send
-`tenant_id`/`principal_id` — the handlers only read title/text/query/limit/acl.
+`tenant_id`/`principal_id` — the handlers only read title/text/query/limit/access_tags/share.
 Each route is guarded with `grantGuard(deps, action)`, which applies the host's
-`requireGrant("knowledge", action)` when provided (else a pass-through).
+`requireGrant("memory", action)` when provided (else a pass-through).
 
 | Method + path | Grant action | Request body | Response |
 |---|---|---|---|
-| `POST /api/knowledge/add` | `add` | `{ title, text, acl? }` | `200 { documentId }`; `400` on validation |
-| `POST /api/knowledge/find` | `find` | `{ query, limit?, kinds?, entity_ids? }` (limit 1–50; `kinds`/`entity_ids` narrow every retrieval channel — lexical and dense — to a document `kind` or linked entity id before fusion; unset or `[]` = unfiltered) | `200 { items[], evidence?, degraded? }`; `400` on bad input |
-| `POST /api/knowledge/ask` | `find` | `{ query, limit? }` (1–50) | `200 { text, citations[], evidence }`; `403` / `501` as plane errors |
-| `GET /api/knowledge/recent` | `find` | — | `200 { events: [{ at, title, source, tenantId, principalId }] }` — durable recent documents for the caller's scope (`last_seen_at` DESC), filtered with the same visibility SQL + `acl_block` post-filter as find. One event per document (active live version). |
+| `POST /api/memory/add` | `add` | `{ title, text, access_tags?, share? }` | `200 { documentId }`; `400` on validation |
+| `POST /api/memory/search` | `search` | `{ query, limit?, kinds?, entity_ids? }` (limit 1–50; `kinds`/`entity_ids` narrow every retrieval channel — lexical and dense — to a document `kind` or linked entity id before fusion; unset or `[]` = unfiltered) | `200 { items[], evidence?, degraded? }`; `400` on bad input |
+| `GET /api/memory/list` | `search` | — | `200 { events: [{ at, title, source, tenantId, principalId }] }` — durable recent documents for the caller's scope, filtered with grant-tag access (`canAccessDocument`). One event per document (active live version). |
 
-`mountKnowledgeRoutes` and `mountKnowledgeEngine` mount the four HTTP routes. MCP is a separate package (`@corbitsdev/hono-openapi-mcp`).
+`registerMemoryRoutes` and `createMemory({ app })` register the three HTTP routes. MCP is a separate package (`@corbitsdev/hono-openapi-mcp`).
+There is no product `ask` / `remember` / `recall` HTTP or plane surface.
+
 
 ### Timeline wire fields (vs the old CaptureLog ring)
 
@@ -501,17 +508,22 @@ timeline maps different columns:
 | `tenantId` | `knowledge_document.tenant_id` |
 | `principalId` | `knowledge_version.created_by_principal_id` of the active live version (empty string when null) — the capturing actor stored on the version, not the request principal of a later timeline read |
 
-### ACL validators
+### Document access (grant tags)
 
-The document ACL (`acl` on capture) is validated by `parseAcl` — mode
-`scope|tenant|private|allowlist`, `subjects` only (groups/grants rejected until
-membership lands). `parseAcl` is the single write-path ACL validator.
+Document access is Interchange authz — **not** a mini-ACL.
 
-Read-path block lists use one gate: **`readBlockList`** (search via
-`blockedDocumentIds`, timeline via `timelineRowBlock` /
-`filterTimelineRowsForPrincipal`). Both paths share fail-closed semantics —
-native jsonb arrays, JSON strings, unreadable shapes, and missing search rows
-are withheld. There is no second, weaker interpreter of membership.
+- Write path: `resolveAccessTags` always writes `memory.owner:<caller>` and
+  merges optional `accessTags` / share sugar (`tenant`, peer `principals`,
+  explicit `tags`). Stored on `knowledge.document.access_tags`.
+- Read path (find + recent): `canAccessDocument` — creator always allowed;
+  otherwise `authorize(grantStore, principal, tenant, tag, "find")` for any
+  tag on the document.
+- SQL retrieval is **tenant-scoped only**. Document access is grant-tag
+  post-filter in the plane (`canAccessDocument`); there is no SQL mini-ACL.
+- HTTP `POST /add` accepts `access_tags` and/or `share` — not product `acl`
+  modes or block lists.
+
+See `docs/AUTHZ-DOCUMENT-ACCESS.md`.
 
 
 ## Observability

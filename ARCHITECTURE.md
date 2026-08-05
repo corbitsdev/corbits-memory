@@ -1,24 +1,25 @@
-# Knowledge Engine — Architecture
+# Corbits Memory — Architecture
 
-A knowledge add / find / ask / recent SDK that mounts onto an Interchange hub. The
-host owns auth, tenancy, and the process; this library owns the knowledge /
+A memory add / find / ask / recent SDK that mounts onto an Interchange hub. The
+host owns auth, tenancy, and the process; this library owns the memory /
 vector plane and the routes that read and write it.
 
 ## Why an SDK, not a service
 
-The knowledge store was originally built inside a larger backend. It turned out
+The memory store was originally built inside a larger backend. It turned out
 to be cleanly detachable, and then cleanly *mountable*:
 
-- No knowledge table has a foreign key into any control-plane table — every
+- No memory table has a foreign key into any control-plane table — every
   cross-reference (`tenant_id`, `principal_id`, source refs) is plain `text`.
 - Embedding and reranking go out as plain HTTP to configured model endpoints,
   not through any agent runtime.
 - The ACL rule is a self-contained scope stored on the row, not a join against
   a grant engine.
 
-So the engine needs nothing but a pgvector Postgres and an embed/rerank
-endpoint. It ships as `mountKnowledgeEngine(app, opts)`: the host passes its
-Hono app and its grant store; the engine mounts its routes, reads identity from
+So the library needs nothing but a pgvector Postgres and an embed/rerank
+endpoint. It ships as `createMemory(opts)` — pass `app` to register HTTP. The host passes its
+
+Hono app and its grant store; the library mounts its routes, reads identity from
 the request context, and talks to its own vector store. No second server, no
 HTTP hop.
 
@@ -43,15 +44,15 @@ HTTP hop.
 
 1. **Who is calling** is the request principal, read off the Interchange
    context. Clients never send `tenant_id`/`principal_id` — the handlers read
-   only content fields (title/text/query/k/acl) and take identity from context.
+   only content fields (title/text/query/limit/access_tags/share) and take identity from context.
 2. **What is stored** is opaque data on every record: `tenant_id`,
    `principal_id`, `created_by_kind` (human/agent/system), `source_class`, and
-   relations (the edge graph). Every query is scoped by `tenant_id` first, then
-   the document ACL is matched against the caller's subject.
+   relations (the edge graph). Every query is scoped by `tenant_id` first; then
+   document access uses Interchange grant tags (`accessTags` + creator).
 
 Cross-tenant isolation is enforced at query time by `tenant_id`; document-level
-visibility (allow/block) is enforced on top. This is the trust
-model.
+access is grant tags via `@intx/authz` (creator always allowed). This is the
+trust model.
 
 ## Layers
 
@@ -64,22 +65,19 @@ model.
 
 ## Mounted surface
 
-`mountKnowledgeEngine` adds, under the host app:
+`createMemory({ app })` adds, under the host app:
 
-- `POST /api/knowledge/add` — ingest a note (raw + derive).
-- `POST /api/knowledge/find` — hybrid retrieval: FTS + dense (pgvector) → RRF
+- `POST /api/memory/add` — ingest a note (raw + derive).
+- `POST /api/memory/search` — hybrid retrieval: FTS + dense (pgvector) → RRF
   fusion → cross-encoder rerank → bounded authority/recency boosts → MMR;
   optional live `SourceProvider` merge (fail-soft).
-- `POST /api/knowledge/ask` — grant-checked as `knowledge:find`; retrieves as
-  the principal, grounds a prompt from hit snippets, calls host-injected
-  `generate`. Optional memory recall when `includeMemory` is true.
-- `GET /api/knowledge/recent` — recent documents for the caller's scope,
-  filtered with the same document ACL as local find (visibility + block list).
+- `GET /api/memory/list` — recent documents for the caller's scope,
+  filtered with the same grant-tag access as local search (`canAccessDocument`).
 
-It also returns an in-process `KnowledgePlane` (`add`, `find`, `ask`,
-`recent`, optional `remember` / `recall`). `ask()` is grant-checked in-process
-(callers bypass the HTTP `requireGrant` guard). The engine owns no generation
-client; hosts wire `generate` to their inference layer.
+It also returns an in-process `Memory` (`add`, `search`, `list`, `close`).
+There is no product `ask` / `remember` / `recall` and no host-injected
+`generate` on the plane — inference is host-owned and ephemeral (call your
+model, then `add` / `search`).
 
 MCP is not part of this package — mount `@corbitsdev/hono-openapi-mcp` to expose
 these routes as MCP tools.
@@ -88,7 +86,8 @@ External ingestion (Linear, GitHub, …) is not a route here — the host
 authenticates the forwarder to Interchange and calls `plane.add` / a
 `SourceProvider` mapper, or mounts HTTP add after its own auth.
 
-Legacy paths `/capture`, `/search`, `/timeline` are not mounted (hard cutover).
+Legacy paths `/capture`, `/search` (old knowledge), `/timeline`, `/find`,
+`/ask`, `/recent` are not mounted (hard cutover).
 
 ## Provenance
 

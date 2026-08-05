@@ -1,31 +1,29 @@
 /**
- * Document access via Interchange authz grant tags — not a mini-ACL.
+ * Grant-tag helpers for document access (Interchange `@intx/authz`).
  *
  * Spec: docs/AUTHZ-DOCUMENT-ACCESS.md
  *
- * - Capability (knowledge:add / knowledge:find) is checked elsewhere.
- * - Document access: creator always sees own docs; otherwise any accessTag
- *   that authorize(…, tag, "find") allows.
- * - Share sugars only mint tags.
- *
- * Hard cutover: no visibility modes, no block lists, no dual-read ACL path.
+ * - Capability checks (add/search on `memory`) live on the HTTP mount.
+ * - Document access: creator always sees own docs; otherwise any `accessTag`
+ *   that `authorize(…, tag, "search")` allows.
+ * - Share sugars only mint tags — they never write grants.
  */
 import { authorize } from "@intx/authz";
 import type { ConditionRegistry, GrantStore } from "@intx/authz";
 
 export function ownerTag(principalId: string): string {
-  return `knowledge.owner:${principalId}`;
+  return `memory.owner:${principalId}`;
 }
 
 export function tenantTag(tenantId: string): string {
-  return `knowledge.tenant:${tenantId}`;
+  return `memory.tenant:${tenantId}`;
 }
 
 /** Share sugar — maps only to tags (no visibility modes / block lists). */
 export type ShareSugar = {
-  /** Include knowledge.tenant:<tenantId> */
+  /** Include memory.tenant:<tenantId> */
   tenant?: boolean;
-  /** Include knowledge.owner:<id> for each peer */
+  /** Include memory.owner:<id> for each peer */
   principals?: string[];
   /** Explicit resource tags (host grant space) */
   tags?: string[];
@@ -41,7 +39,7 @@ export type ResolveAccessTagsParams = {
 
 /**
  * Resolve the tag set written on add.
- * Always includes knowledge.owner:<caller>. Never invents visibility modes.
+ * Always includes memory.owner:<caller>. Never invents visibility modes.
  */
 export function resolveAccessTags(params: ResolveAccessTagsParams): string[] {
   const tags = new Set<string>();
@@ -85,7 +83,7 @@ export type CanAccessDocumentParams = {
 /**
  * True when the principal may see this document under grant-tag rules.
  * Creator is always allowed (implicit owner). Everyone else needs an allow
- * on at least one accessTag for action "find".
+ * on at least one accessTag for action "search".
  */
 export async function canAccessDocument(
   params: CanAccessDocumentParams,
@@ -105,7 +103,7 @@ export async function canAccessDocument(
       params.principalId,
       params.tenantId,
       tag,
-      "find",
+      "search",
       params.conditionRegistry,
     );
     if (decision.effect === "allow") return true;

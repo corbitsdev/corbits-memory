@@ -1,15 +1,16 @@
 /**
  * Timeline / recent — tenant-scoped document history.
  *
- * Document access is Interchange grant tags (same as find): creator always
- * sees own docs; otherwise any accessTag that authorize(..., tag, "find")
+ * Document access is Interchange grant tags (same as search): creator always
+ * sees own docs; otherwise any accessTag that authorize(..., tag, "search")
  * allows. No visibility SQL, no acl_block post-filter.
  *
  * See docs/AUTHZ-DOCUMENT-ACCESS.md.
  */
 import { and, desc, eq, sql } from "drizzle-orm";
 import type { ConditionRegistry, GrantStore } from "@intx/authz";
-import { canAccessDocument } from "../acl.ts";
+import { canAccessDocument } from "../grant-tags.ts";
+
 import type { Db } from "../db/client.ts";
 import { knowledgeDocument, knowledgeVersion } from "../db/schema.ts";
 import { log } from "../log.ts";

@@ -2,34 +2,16 @@
  * Plane-level merge: live fail-soft, source filter, prefer-local via store path.
  */
 import { describe, expect, it } from "bun:test";
-import {
-  createInMemoryGrantStore,
-  type GrantRule,
-} from "@intx/authz";
 
 import {
   createFakeDocumentStore,
   createFakeSourceProvider,
-  createKnowledgePlane,
+  createMemory,
 } from "../index.ts";
 import type { LiveSearchItem } from "./types.ts";
 
 const TENANT = "t_merge";
 const PRINCIPAL = "p_merge";
-
-function grant(action: string): GrantRule {
-  return {
-    id: `g-${action}`,
-    resource: "knowledge",
-    action,
-    effect: "allow",
-    origin: "role",
-    conditions: null,
-    expiresAt: null,
-    roleId: null,
-    principalId: PRINCIPAL,
-  };
-}
 
 function liveHit(
   ref: string,
@@ -54,7 +36,7 @@ function liveHit(
 describe("plane merge (MergeLocalLiveV1)", () => {
   it("merges local store hits with live source hits", async () => {
     const store = createFakeDocumentStore();
-    const plane = createKnowledgePlane(undefined, undefined, {
+    const plane = createMemory({
       documentStore: store,
       sources: [
         createFakeSourceProvider("linear", [
@@ -69,7 +51,7 @@ describe("plane merge (MergeLocalLiveV1)", () => {
       content: { title: "local note", text: "ports and merge together" },
     });
 
-    const result = await plane.find({
+    const result = await plane.search({
       tenantId: TENANT,
       principalId: PRINCIPAL,
       query: "ports",
@@ -83,7 +65,7 @@ describe("plane merge (MergeLocalLiveV1)", () => {
 
   it("includes live-only hits when query matches catalog", async () => {
     const store = createFakeDocumentStore();
-    const plane = createKnowledgePlane(undefined, undefined, {
+    const plane = createMemory({
       documentStore: store,
       sources: [
         createFakeSourceProvider("linear", [
@@ -92,7 +74,7 @@ describe("plane merge (MergeLocalLiveV1)", () => {
       ],
     });
 
-    const result = await plane.find({
+    const result = await plane.search({
       tenantId: TENANT,
       principalId: PRINCIPAL,
       query: "ports foundation",
@@ -105,7 +87,7 @@ describe("plane merge (MergeLocalLiveV1)", () => {
 
   it("source filter local-only excludes live hits", async () => {
     const store = createFakeDocumentStore();
-    const plane = createKnowledgePlane(undefined, undefined, {
+    const plane = createMemory({
       documentStore: store,
       sources: [
         createFakeSourceProvider("linear", [
@@ -119,7 +101,7 @@ describe("plane merge (MergeLocalLiveV1)", () => {
       content: { title: "local ports", text: "ports foundation local" },
     });
 
-    const result = await plane.find({
+    const result = await plane.search({
       tenantId: TENANT,
       principalId: PRINCIPAL,
       query: "ports foundation",
@@ -152,7 +134,7 @@ describe("plane merge (MergeLocalLiveV1)", () => {
       },
     };
 
-    const plane = createKnowledgePlane(undefined, undefined, {
+    const plane = createMemory({
       documentStore: store,
       sources: [brokenSource, slowSource],
     });
@@ -162,7 +144,7 @@ describe("plane merge (MergeLocalLiveV1)", () => {
       content: { title: "stable local", text: "always available body" },
     });
 
-    const result = await plane.find({
+    const result = await plane.search({
       tenantId: TENANT,
       principalId: PRINCIPAL,
       query: "always available",
@@ -181,13 +163,13 @@ describe("plane merge (MergeLocalLiveV1)", () => {
       principalId: PRINCIPAL,
       title: "local CL-7 body",
       text: "collision payload local",
-      accessTags: [`knowledge.owner:${PRINCIPAL}`],
+      accessTags: [`memory.owner:${PRINCIPAL}`],
       externalRef: "CL-7",
     });
     // Fake store citation uses adapter "fake" not linear — force collision by
     // using a custom store find isn't possible; instead use live adapter
     // "fake" so keys match fake store's citation adapter.
-    const plane = createKnowledgePlane(undefined, undefined, {
+    const plane = createMemory({
       documentStore: store,
       sources: [
         {
@@ -213,7 +195,7 @@ describe("plane merge (MergeLocalLiveV1)", () => {
 
     // Re-add via plane so local is searchable with text match
     // (store already has the doc; find via store path uses substring)
-    const result = await plane.find({
+    const result = await plane.search({
       tenantId: TENANT,
       principalId: PRINCIPAL,
       query: "collision payload",
@@ -226,41 +208,6 @@ describe("plane merge (MergeLocalLiveV1)", () => {
     );
     expect(hit).toBeDefined();
     expect(hit?.snippet).toContain("local");
-    await plane.close();
-  });
-
-  it("ask still works when live source errors", async () => {
-    const store = createFakeDocumentStore();
-    const plane = createKnowledgePlane(
-      undefined,
-      {
-        grantStore: createInMemoryGrantStore([grant("find")]),
-        conditionRegistry: {},
-      },
-      {
-        documentStore: store,
-        sources: [
-          {
-            id: "broken",
-            searchLive: async () => {
-              throw new Error("boom");
-            },
-          },
-        ],
-        generate: async () => "ok [1]",
-      },
-    );
-    await plane.add({
-      tenantId: TENANT,
-      principalId: PRINCIPAL,
-      content: { title: "q", text: "answer material" },
-    });
-    const ans = await plane.ask({
-      tenantId: TENANT,
-      principalId: PRINCIPAL,
-      query: "answer material",
-    });
-    expect(ans.text).toContain("ok");
     await plane.close();
   });
 });

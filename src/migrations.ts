@@ -1,5 +1,5 @@
 /**
- * Knowledge-plane (pgvector) schema migrations, callable by host apps.
+ * Memory-plane (pgvector) schema migrations, callable by host apps.
  * Applies every migrations/*.sql in filename order, each in its own
  * transaction, tracked in knowledge._migrations so re-runs are idempotent
  * and the ledger never collides with a host's public migration bookkeeping.
@@ -17,12 +17,12 @@ import { KNOWLEDGE_SCHEMA } from "./db/schema.ts";
 
 const MIGRATIONS_DIR = join(import.meta.dir, "..", "migrations");
 
-export async function runKnowledgeMigrations(
+export async function runMemoryMigrations(
   databaseUrl: string,
   opts: { log?: (line: string) => void; ftsLanguage?: string } = {},
 ): Promise<void> {
   const log = opts.log ?? (() => {});
-  // This runner is an env-driven boundary like loadKnowledgeConfig: when the
+  // This runner is an env-driven boundary like loadMemoryConfig: when the
   // caller does not pass a language it reads the same FTS_LANGUAGE the query
   // side will, so the two cannot diverge by defaulting differently.
   const ftsLanguage = parseFtsLanguage(

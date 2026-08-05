@@ -2,7 +2,7 @@ import type { Context, MiddlewareHandler } from "hono";
 import type { RequireGrant, TenantEnv } from "@intx/hub-api";
 import type { ConditionRegistry, GrantStore } from "@intx/authz";
 
-import type { KnowledgePlane } from "../knowledge.ts";
+import type { Memory } from "../memory.ts";
 
 /**
  * The host's grant store + condition registry — the same pair it feeds
@@ -14,7 +14,7 @@ export type GrantConfig = {
 };
 
 export type RouteDeps = {
-  knowledge: KnowledgePlane;
+  memory: Memory;
   /** Route-guard middleware factory (Interchange `createRequireGrant`). */
   requireGrant: RequireGrant;
   /** The grant store, kept for callers that need imperative checks. */
@@ -29,7 +29,7 @@ export function caller(c: Context<TenantEnv>): {
   const principal = c.get("principal");
   if (!principal) {
     throw new Error(
-      "knowledge-engine: no principal on the request context. Mount below the " +
+      "memory: no principal on the request context. Mount below the " +
         "host's auth + tenant middleware (the routes require TenantEnv).",
     );
   }
@@ -46,10 +46,10 @@ export function caller(c: Context<TenantEnv>): {
  * rather than as the host missing middleware. `caller()` below has a perfectly
  * good error message for exactly this case, but it never gets to run.
  *
- * These routes mount at `/api/knowledge/*`, outside the
+ * These routes mount at `/api/memory/*`, outside the
  * `/api/tenants/:tenantId/*` prefix that Interchange's `createResolveTenant`
  * covers, so an unresolved context is the DEFAULT for a host that just calls
- * `mountKnowledgeEngine`. See the README for the middleware the host supplies.
+ * `createMemory({ app })`. See the README for the middleware the host supplies.
  */
 export function requirePrincipal(): MiddlewareHandler<TenantEnv> {
   return async (c, next) => {
@@ -59,11 +59,11 @@ export function requirePrincipal(): MiddlewareHandler<TenantEnv> {
           error: {
             code: "principal_required",
             message:
-              "No principal on the request context. The knowledge routes mount " +
-              "at /api/knowledge/*, which is outside Interchange's " +
+              "No principal on the request context. The memory routes mount " +
+              "at /api/memory/*, which is outside Interchange's " +
               "/api/tenants/:tenantId/* tenant middleware — the host must " +
               "resolve tenant + principal for this prefix. See the " +
-              "@corbits/knowledge-engine README.",
+              "@corbits/memory README.",
           },
         },
         401,
@@ -73,10 +73,10 @@ export function requirePrincipal(): MiddlewareHandler<TenantEnv> {
   };
 }
 
-/** Route-guard middleware for a knowledge action (Interchange `requireGrant`). */
+/** Route-guard middleware for a memory action (Interchange `requireGrant`). */
 export function grantGuard(
   deps: RouteDeps,
   action: string,
 ): MiddlewareHandler<TenantEnv> {
-  return deps.requireGrant("knowledge", action);
+  return deps.requireGrant("memory", action);
 }

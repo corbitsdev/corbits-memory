@@ -2,15 +2,15 @@ import type { EngineConfig } from "./config.ts";
 import { parseFtsLanguage } from "./core/fts-language.ts";
 
 /**
- * SDK mount config — what `mountKnowledgeEngine` consumes.
+ * SDK config — what `createMemory` consumes.
  *
  * The host Interchange app owns auth, tenancy, grants, and the process. This
- * config carries only what the knowledge engine itself needs: its vector DB +
+ * config carries only what the memory engine itself needs: its vector DB +
  * model endpoints.
  */
-export type KnowledgeConfig = {
-  /** Knowledge / vector plane (the engine's own DB + model endpoints). */
-  knowledge: EngineConfig;
+export type MemoryConfig = {
+  /** Memory / vector plane (the engine's own DB + model endpoints). */
+  memory: EngineConfig;
 };
 
 function requireEnv(name: string): string {
@@ -49,11 +49,11 @@ function optionalIntEnv(name: string): number | undefined {
 
 /**
  * Build a config from environment variables — a convenience for env-driven
- * deploys. Hosts may also construct `KnowledgeConfig` programmatically.
+ * deploys. Hosts may also construct `MemoryConfig` programmatically.
  */
-export function loadKnowledgeConfig(): KnowledgeConfig {
+export function loadMemoryConfig(): MemoryConfig {
   return {
-    knowledge: {
+    memory: {
       // Deliberately no DATABASE_URL fallback: the host app's own database
       // must never be mistaken for the engine's vector plane.
       databaseUrl: requireEnv("KNOWLEDGE_DATABASE_URL"),

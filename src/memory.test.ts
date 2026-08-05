@@ -1,12 +1,10 @@
 /**
- * Plane construction, grant-tag ACL wiring, and ask() coverage for knowledge.ts.
+ * Plane construction, grant-tag ACL wiring, and surface coverage for memory.ts.
  *
- * - Construction: rerank maxDocChars validation runs in createKnowledgePlane.
- * - Find wiring: grant-tag post-filter (creator-only without grants).
- * - ask(): grant check, missing generate (501 before find), allow path,
- *   synthesizeAnswer grounding.
+ * - Construction: rerank maxDocChars validation runs in createMemory.
+ * - Search wiring: grant-tag post-filter (creator-only without grants).
  * - add(): documentId return, content/file XOR, share → access tags.
- * - find/recent: limit bounds, evidence default omit.
+ * - search/list: limit bounds, evidence default omit.
  */
 import {
   afterAll,
@@ -22,16 +20,13 @@ import type { GrantRule } from "@intx/authz";
 import { RerankConfigError } from "./core/rerank-client.ts";
 import type { SearchHit } from "./core/schemas/search.ts";
 import {
-  createKnowledgePlane,
-  KnowledgeError,
-  KnowledgeNotPermittedError,
-  synthesizeAnswer,
-  type ChatMessage,
-  type FindItem,
-  type KnowledgeAddParams,
+  createMemory,
+  MemoryError,
+  type MemoryAddParams,
+  type SearchItem,
   type TextExtractor,
-} from "./knowledge.ts";
-import type { KnowledgeConfig } from "./mount-config.ts";
+} from "./memory.ts";
+import type { MemoryConfig } from "./mount-config.ts";
 import * as realDb from "./db/client.ts";
 import * as realSearch from "./services/search.ts";
 import * as realCapture from "./services/capture.ts";
@@ -52,7 +47,7 @@ const ENGLISH_FTS_EXPR = "to_tsvector('english'::regconfig, text)";
 function grant(action: string): GrantRule {
   return {
     id: `g-${action}`,
-    resource: "knowledge",
+    resource: "memory",
     action,
     effect: "allow",
     origin: "role",
@@ -108,19 +103,8 @@ function hit(overrides: Partial<SearchHit> | string = {}): SearchHit {
   };
 }
 
-function findItemFromHit(h: SearchHit): FindItem {
-  return {
-    documentId: h.document_id,
-    title: h.title,
-    snippet: h.snippet,
-    score: h.score,
-    kind: h.kind,
-    citation: h.citation,
-  };
-}
-
-const wiringConfig: KnowledgeConfig = {
-  knowledge: {
+const wiringConfig: MemoryConfig = {
+  memory: {
     databaseUrl: "postgres://localhost:5432/nonexistent-test-db",
     dbPoolMax: 1,
     ftsLanguage: "english",
@@ -139,8 +123,6 @@ const wiringConfig: KnowledgeConfig = {
   },
 };
 
-const askConfig: KnowledgeConfig = wiringConfig;
-
 function ftsUnsafe(sqlText: string): Promise<Array<Record<string, unknown>>> {
   if (sqlText.includes("pg_ts_config")) {
     return Promise.resolve([{ ok: 1 }]);
@@ -149,10 +131,10 @@ function ftsUnsafe(sqlText: string): Promise<Array<Record<string, unknown>>> {
 }
 
 function baseConfig(
-  rerank: KnowledgeConfig["knowledge"]["rerank"],
-): KnowledgeConfig {
+  rerank: MemoryConfig["memory"]["rerank"],
+): MemoryConfig {
   return {
-    knowledge: {
+    memory: {
       // Validation runs before createDb — a bad URL is fine as long as we throw
       // first and never open a connection.
       databaseUrl: "postgres://localhost:5432/nonexistent-test-db",
@@ -169,25 +151,25 @@ function baseConfig(
   };
 }
 
-describe("createKnowledgePlane — construction validation", () => {
+describe("createMemory — construction validation", () => {
   it("throws RerankConfigError when maxDocChars overflows a known TEI model", () => {
-    // Proves validateRerankConfig runs inside createKnowledgePlane (not only
-    // mountKnowledgeEngine): a standalone plane with a bad override must fail
+    // Proves validateRerankConfig runs inside createMemory (not only
+    // createMemory): a standalone plane with a bad override must fail
     // construction, not silently degrade on every later find.
     expect(() =>
-      createKnowledgePlane(
-        baseConfig({
+      createMemory({
+        config: baseConfig({
           baseUrl: "https://tei.example.com",
           model: "bge-reranker-base",
           apiKey: undefined,
           maxDocChars: 5_000,
         }),
-      ),
+      }),
     ).toThrow(RerankConfigError);
   });
 });
 
-describe("createKnowledgePlane.find — grant-tag post-filter wiring", () => {
+describe("createMemory.find — grant-tag post-filter wiring", () => {
   const hybridSearch = mock((): Promise<HybridSearchResult> =>
     Promise.resolve({
       hits: [hit("d-other"), hit("d-mine")],
@@ -200,12 +182,12 @@ describe("createKnowledgePlane.find — grant-tag post-filter wiring", () => {
       Promise.resolve([
         {
           id: "d-other",
-          access_tags: ["knowledge.owner:other"],
+          access_tags: ["memory.owner:other"],
           created_by: "other",
         },
         {
           id: "d-mine",
-          access_tags: [`knowledge.owner:${PRINCIPAL}`],
+          access_tags: [`memory.owner:${PRINCIPAL}`],
           created_by: PRINCIPAL,
         },
       ]),
@@ -246,22 +228,23 @@ describe("createKnowledgePlane.find — grant-tag post-filter wiring", () => {
       Promise.resolve([
         {
           id: "d-other",
-          access_tags: ["knowledge.owner:other"],
+          access_tags: ["memory.owner:other"],
           created_by: "other",
         },
         {
           id: "d-mine",
-          access_tags: [`knowledge.owner:${PRINCIPAL}`],
+          access_tags: [`memory.owner:${PRINCIPAL}`],
           created_by: PRINCIPAL,
         },
       ]),
     );
 
-    const { createKnowledgePlane: makePlane } = await import(
-      `./knowledge.ts?wiring-blocked=${Date.now()}`
+    const { createMemory: makePlane } = await import(
+      `./memory.ts?wiring-blocked=${Date.now()}`
     );
-    const plane = makePlane(wiringConfig);
-    const result = await plane.find({
+    const plane = makePlane({ config: wiringConfig });
+
+    const result = await plane.search({
       tenantId: TENANT,
       principalId: PRINCIPAL,
       query: "q",
@@ -269,7 +252,7 @@ describe("createKnowledgePlane.find — grant-tag post-filter wiring", () => {
     });
 
     expect(hybridSearch).toHaveBeenCalled();
-    expect(result.items.map((i: FindItem) => i.documentId)).toEqual([
+    expect(result.items.map((i: SearchItem) => i.documentId)).toEqual([
       "d-mine",
     ]);
     expect(result.evidence).toBe("strong");
@@ -287,11 +270,12 @@ describe("createKnowledgePlane.find — grant-tag post-filter wiring", () => {
     );
     sql.mockClear();
 
-    const { createKnowledgePlane: makePlane } = await import(
-      `./knowledge.ts?wiring-kinds=${Date.now()}`
+    const { createMemory: makePlane } = await import(
+      `./memory.ts?wiring-kinds=${Date.now()}`
     );
-    const plane = makePlane(wiringConfig);
-    await plane.find({
+    const plane = makePlane({ config: wiringConfig });
+
+    await plane.search({
       tenantId: TENANT,
       principalId: PRINCIPAL,
       query: "q",
@@ -321,11 +305,12 @@ describe("createKnowledgePlane.find — grant-tag post-filter wiring", () => {
     sql.mockClear();
     sql.mockImplementation(() => Promise.resolve([]));
 
-    const { createKnowledgePlane: makePlane } = await import(
-      `./knowledge.ts?wiring-unreadable=${Date.now()}`
+    const { createMemory: makePlane } = await import(
+      `./memory.ts?wiring-unreadable=${Date.now()}`
     );
-    const plane = makePlane(wiringConfig);
-    const result = await plane.find({
+    const plane = makePlane({ config: wiringConfig });
+
+    const result = await plane.search({
       tenantId: TENANT,
       principalId: PRINCIPAL,
       query: "q",
@@ -352,18 +337,19 @@ describe("createKnowledgePlane.find — grant-tag post-filter wiring", () => {
       Promise.resolve([
         {
           id: "d-open",
-          access_tags: [`knowledge.owner:${PRINCIPAL}`],
+          access_tags: [`memory.owner:${PRINCIPAL}`],
           created_by: PRINCIPAL,
         },
       ]),
     );
 
-    const { createKnowledgePlane: makePlane } = await import(
-      `./knowledge.ts?wiring-evidence=${Date.now()}`
+    const { createMemory: makePlane } = await import(
+      `./memory.ts?wiring-evidence=${Date.now()}`
     );
-    const plane = makePlane(wiringConfig);
+    const plane = makePlane({ config: wiringConfig });
 
-    const without = await plane.find({
+
+    const without = await plane.search({
       tenantId: TENANT,
       principalId: PRINCIPAL,
       query: "q",
@@ -372,7 +358,7 @@ describe("createKnowledgePlane.find — grant-tag post-filter wiring", () => {
     expect(without.evidence).toBeUndefined();
     expect(without.degraded).toBeUndefined();
 
-    const withEv = await plane.find({
+    const withEv = await plane.search({
       tenantId: TENANT,
       principalId: PRINCIPAL,
       query: "q",
@@ -386,12 +372,12 @@ describe("createKnowledgePlane.find — grant-tag post-filter wiring", () => {
   });
 });
 
-describe("find/recent — limit bounds", () => {
+describe("search/list — limit bounds", () => {
   // These throw before any DB work, so a nonexistent URL is fine.
   it("find rejects limit below 1", async () => {
-    const plane = createKnowledgePlane(wiringConfig);
+    const plane = createMemory({ config: wiringConfig });
     try {
-      await plane.find({
+      await plane.search({
         tenantId: TENANT,
         principalId: PRINCIPAL,
         query: "q",
@@ -399,16 +385,16 @@ describe("find/recent — limit bounds", () => {
       });
       throw new Error("expected find() to reject");
     } catch (err) {
-      expect(err).toBeInstanceOf(KnowledgeError);
-      expect((err as KnowledgeError).status).toBe(400);
-      expect((err as KnowledgeError).message).toContain("limit");
+      expect(err).toBeInstanceOf(MemoryError);
+      expect((err as MemoryError).status).toBe(400);
+      expect((err as MemoryError).message).toContain("limit");
     }
   });
 
   it("find rejects limit above 50", async () => {
-    const plane = createKnowledgePlane(wiringConfig);
+    const plane = createMemory({ config: wiringConfig });
     try {
-      await plane.find({
+      await plane.search({
         tenantId: TENANT,
         principalId: PRINCIPAL,
         query: "q",
@@ -416,38 +402,38 @@ describe("find/recent — limit bounds", () => {
       });
       throw new Error("expected find() to reject");
     } catch (err) {
-      expect(err).toBeInstanceOf(KnowledgeError);
-      expect((err as KnowledgeError).status).toBe(400);
+      expect(err).toBeInstanceOf(MemoryError);
+      expect((err as MemoryError).status).toBe(400);
     }
   });
 
   it("recent rejects limit above 100", async () => {
-    const plane = createKnowledgePlane(wiringConfig);
+    const plane = createMemory({ config: wiringConfig });
     try {
-      await plane.recent({
+      await plane.list({
         tenantId: TENANT,
         principalId: PRINCIPAL,
         limit: 101,
       });
       throw new Error("expected recent() to reject");
     } catch (err) {
-      expect(err).toBeInstanceOf(KnowledgeError);
-      expect((err as KnowledgeError).status).toBe(400);
+      expect(err).toBeInstanceOf(MemoryError);
+      expect((err as MemoryError).status).toBe(400);
     }
   });
 
   it("recent rejects limit below 1", async () => {
-    const plane = createKnowledgePlane(wiringConfig);
+    const plane = createMemory({ config: wiringConfig });
     try {
-      await plane.recent({
+      await plane.list({
         tenantId: TENANT,
         principalId: PRINCIPAL,
         limit: 0,
       });
       throw new Error("expected recent() to reject");
     } catch (err) {
-      expect(err).toBeInstanceOf(KnowledgeError);
-      expect((err as KnowledgeError).status).toBe(400);
+      expect(err).toBeInstanceOf(MemoryError);
+      expect((err as MemoryError).status).toBe(400);
     }
   });
 });
@@ -493,16 +479,17 @@ describe("add() — documentId, content/file XOR, share", () => {
 async function freshPlane(opts?: {
     textExtractor?: TextExtractor;
   }) {
-    const { createKnowledgePlane: makePlane } = await import(
-      `./knowledge.ts?add-${Date.now()}-${Math.random()}`
+    const { createMemory: makePlane } = await import(
+      `./memory.ts?add-${Date.now()}-${Math.random()}`
     );
-    return makePlane(wiringConfig, undefined, opts ?? {});
+    return makePlane({ config: wiringConfig, ...(opts ?? {}) });
+
   }
 
-  /** Dynamic re-import yields a distinct KnowledgeError class; match by shape. */
-  function expectKnowledgeError400(err: unknown, messagePart: string) {
+  /** Dynamic re-import yields a distinct MemoryError class; match by shape. */
+  function expectMemoryError400(err: unknown, messagePart: string) {
     expect(err).toBeInstanceOf(Error);
-    expect((err as Error).name).toBe("KnowledgeError");
+    expect((err as Error).name).toBe("MemoryError");
     expect((err as { status: number }).status).toBe(400);
     expect((err as Error).message).toContain(messagePart);
   }
@@ -553,10 +540,10 @@ async function freshPlane(opts?: {
       await plane.add({
         tenantId: TENANT,
         principalId: PRINCIPAL,
-      } as KnowledgeAddParams);
+      } as MemoryAddParams);
       throw new Error("expected add() to reject");
     } catch (err) {
-      expectKnowledgeError400(err, "content or file");
+      expectMemoryError400(err, "content or file");
     }
     await plane.close();
   });
@@ -572,7 +559,7 @@ async function freshPlane(opts?: {
       });
       throw new Error("expected add() to reject");
     } catch (err) {
-      expectKnowledgeError400(err, "content or file");
+      expectMemoryError400(err, "content or file");
     }
     await plane.close();
   });
@@ -587,7 +574,7 @@ async function freshPlane(opts?: {
       });
       throw new Error("expected add() to reject");
     } catch (err) {
-      expectKnowledgeError400(err, "textExtractor");
+      expectMemoryError400(err, "textExtractor");
     }
     await plane.close();
   });
@@ -655,10 +642,10 @@ async function freshPlane(opts?: {
       },
     ];
     expect(call[1].document.accessTags).toContain(
-      `knowledge.owner:${PRINCIPAL}`,
+      `memory.owner:${PRINCIPAL}`,
     );
     expect(call[1].document.accessTags).toContain(
-      `knowledge.tenant:${TENANT}`,
+      `memory.tenant:${TENANT}`,
     );
     await plane.close();
   });
@@ -689,10 +676,10 @@ async function freshPlane(opts?: {
       },
     ];
     expect(call[1].document.accessTags).toContain(
-      `knowledge.owner:${PRINCIPAL}`,
+      `memory.owner:${PRINCIPAL}`,
     );
-    expect(call[1].document.accessTags).toContain("knowledge.owner:alice");
-    expect(call[1].document.accessTags).toContain("knowledge.owner:bob");
+    expect(call[1].document.accessTags).toContain("memory.owner:alice");
+    expect(call[1].document.accessTags).toContain("memory.owner:bob");
     await plane.close();
   });
 
@@ -721,202 +708,8 @@ async function freshPlane(opts?: {
       },
     ];
     expect(call[1].document.accessTags).toEqual([
-      `knowledge.owner:${PRINCIPAL}`,
+      `memory.owner:${PRINCIPAL}`,
     ]);
     await plane.close();
-  });
-});
-
-describe("ask() — grant check", () => {
-  it("denies with KnowledgeNotPermittedError when no grant matches (effect: null)", async () => {
-    const grants = {
-      grantStore: createInMemoryGrantStore([]),
-      conditionRegistry: {},
-    };
-    const plane = createKnowledgePlane(askConfig, grants);
-    await expect(
-      plane.ask({ tenantId: TENANT, principalId: PRINCIPAL, query: "q" }),
-    ).rejects.toBeInstanceOf(KnowledgeNotPermittedError);
-  });
-
-  it("denies when the only matching grant is an explicit deny", async () => {
-const denyGrant: GrantRule = { ...grant("find"), effect: "deny" };
-    const grants = {
-      grantStore: createInMemoryGrantStore([denyGrant]),
-      conditionRegistry: {},
-    };
-    const plane = createKnowledgePlane(askConfig, grants);
-    await expect(
-      plane.ask({ tenantId: TENANT, principalId: PRINCIPAL, query: "q" }),
-    ).rejects.toBeInstanceOf(KnowledgeNotPermittedError);
-  });
-});
-
-describe("ask() — missing generate", () => {
-  it("throws KnowledgeError 501 before find when generate is not wired", async () => {
-    // Pointed at a nonexistent DB: if find ran first this would surface a
-    // connection/driver error instead of the promised 501.
-    const grants = {
-grantStore: createInMemoryGrantStore([grant("find")]),
-      conditionRegistry: {},
-    };
-    const plane = createKnowledgePlane(askConfig, grants);
-    try {
-      await plane.ask({ tenantId: TENANT, principalId: PRINCIPAL, query: "q" });
-      throw new Error("expected ask() to reject");
-    } catch (err) {
-      expect(err).toBeInstanceOf(KnowledgeError);
-      expect((err as KnowledgeError).status).toBe(501);
-      expect((err as KnowledgeError).message).toContain("generate");
-    }
-  });
-});
-
-describe("ask() — allow path", () => {
-  it("finds as the principal and synthesizes when grant allows and generate is wired", async () => {
-    const grants = {
-      grantStore: createInMemoryGrantStore([grant("find")]),
-      conditionRegistry: {},
-    };
-    const generate = mock((messages: readonly ChatMessage[]) => {
-      expect(messages[0]?.role).toBe("system");
-      expect(messages[1]?.content).toContain("what is the answer?");
-      expect(messages[1]?.content).toContain("[1] Doc One");
-      expect(messages[1]?.content).toContain("the relevant snippet");
-      return Promise.resolve("Answer from context [1].");
-    });
-    const plane = createKnowledgePlane(askConfig, grants, { generate });
-    // Stub find so this unit test never needs a live Postgres. ask() looks
-    // up plane.find at call time, so reassignment is the wiring under test.
-    plane.find = mock(() =>
-      Promise.resolve({
-        items: [findItemFromHit(hit())],
-        evidence: "strong" as const,
-      }),
-    );
-
-    const result = await plane.ask({
-      tenantId: TENANT,
-      principalId: PRINCIPAL,
-      query: "what is the answer?",
-    });
-
-    expect(plane.find).toHaveBeenCalledWith({
-      tenantId: TENANT,
-      principalId: PRINCIPAL,
-      query: "what is the answer?",
-      includeEvidence: true,
-    });
-    expect(generate).toHaveBeenCalledTimes(1);
-    expect(result.text).toBe("Answer from context [1].");
-    expect(result.evidence).toBe("strong");
-    expect(result.citations).toEqual([
-      {
-        index: 1,
-        documentId: "doc-1",
-        title: "Doc One",
-        citation: hit().citation,
-      },
-    ]);
-  });
-});
-
-describe("synthesizeAnswer", () => {
-  const neverCalled = mock(() =>
-    Promise.reject(new Error("generate must not be called")),
-  );
-
-  it("refuses with no citations when there are no hits", async () => {
-    const result = await synthesizeAnswer(
-      "q",
-      { hits: [], evidence: "none" },
-      neverCalled,
-    );
-    expect(result.citations).toEqual([]);
-    expect(result.evidence).toBe("none");
-    expect(neverCalled).not.toHaveBeenCalled();
-  });
-
-  it("refuses with no citations when hits have no readable snippet text", async () => {
-    const result = await synthesizeAnswer(
-      "q",
-      { hits: [hit({ snippet: "   " })], evidence: "weak" },
-      neverCalled,
-    );
-    expect(result.text).toContain("couldn't read any text");
-    expect(result.citations).toEqual([]);
-    expect(neverCalled).not.toHaveBeenCalled();
-  });
-
-  it("grounds the prompt in the retrieved snippets and returns their citations", async () => {
-    const generate = mock((messages: readonly ChatMessage[]) => {
-      // The grounding contract: the model sees the numbered context, and only
-      // the numbered context, for the hits that fit the budget.
-      expect(messages[1]?.content).toContain("[1] Doc One");
-      expect(messages[1]?.content).toContain("the relevant snippet");
-      return Promise.resolve("Grounded answer [1].");
-    });
-
-    const result = await synthesizeAnswer(
-      "what is the answer?",
-      { hits: [hit()], evidence: "strong" },
-      generate,
-    );
-
-    expect(result.text).toBe("Grounded answer [1].");
-    expect(result.evidence).toBe("strong");
-    expect(result.citations).toEqual([
-      {
-        index: 1,
-        documentId: "doc-1",
-        title: "Doc One",
-        citation: hit().citation,
-      },
-    ]);
-  });
-
-  it("numbers citations sequentially among included entries, skipping empty snippets", async () => {
-    const generate = mock((messages: readonly ChatMessage[]) => {
-      const content = messages[1]?.content ?? "";
-      // First hit is empty → skipped; second becomes [1], not [2].
-      expect(content).toContain("[1] Real Doc");
-      expect(content).toContain("actual content");
-      expect(content).not.toContain("[2]");
-      expect(content).not.toContain("Empty Doc");
-      return Promise.resolve("From [1].");
-    });
-
-    const result = await synthesizeAnswer(
-      "q",
-      {
-        hits: [
-          hit({ title: "Empty Doc", snippet: "   " }),
-          hit({
-            title: "Real Doc",
-            snippet: "actual content",
-            document_id: "doc-2",
-            chunk_id: "chunk-2",
-          }),
-        ],
-        evidence: "weak",
-      },
-      generate,
-    );
-
-    expect(result.citations).toEqual([
-      {
-        index: 1,
-        documentId: "doc-2",
-        title: "Real Doc",
-        citation: hit().citation,
-      },
-    ]);
-  });
-
-  it("propagates a generate failure rather than inventing an answer", async () => {
-    const generate = mock(() => Promise.reject(new Error("model unreachable")));
-    await expect(
-      synthesizeAnswer("q", { hits: [hit()], evidence: "weak" }, generate),
-    ).rejects.toThrow("model unreachable");
   });
 });

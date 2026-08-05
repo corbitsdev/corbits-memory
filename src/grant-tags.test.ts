@@ -7,7 +7,8 @@ import {
   ownerTag,
   resolveAccessTags,
   tenantTag,
-} from "./acl.ts";
+} from "./grant-tags.ts";
+
 
 describe("resolveAccessTags", () => {
   test("always includes owner tag", () => {
@@ -41,13 +42,13 @@ describe("resolveAccessTags", () => {
     const tags = resolveAccessTags({
       principalId: "u1",
       tenantId: "t1",
-      accessTags: ["knowledge.space:eng"],
+      accessTags: ["memory.space:eng"],
       share: { tags: ["knowledge.project:ke"] },
     });
     expect(tags).toEqual(
       expect.arrayContaining([
         ownerTag("u1"),
-        "knowledge.space:eng",
+        "memory.space:eng",
         "knowledge.project:ke",
       ]),
     );
@@ -73,7 +74,7 @@ describe("canAccessDocument", () => {
         id: "g1",
         principalId: "peer",
         resource: tenantTag("t1"),
-        action: "find",
+        action: "search",
         effect: "allow",
         origin: "role",
         conditions: null,
@@ -107,8 +108,8 @@ describe("filterAccessibleDocuments", () => {
       {
         id: "g1",
         principalId: "viewer",
-        resource: "knowledge.space:eng",
-        action: "find",
+        resource: "memory.space:eng",
+        action: "search",
         effect: "allow",
         origin: "role",
         conditions: null,
@@ -125,7 +126,7 @@ describe("filterAccessibleDocuments", () => {
       {
         id: "b",
         createdByPrincipalId: "other",
-        accessTags: ["knowledge.space:eng"],
+        accessTags: ["memory.space:eng"],
       },
       {
         id: "c",
