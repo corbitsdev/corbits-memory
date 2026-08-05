@@ -9,7 +9,6 @@ export type {
   Mem0ClientOptions,
   Mem0MemoryProviderOptions,
   MemoryProvider,
-  VisibilitySpec,
 } from "./types.ts";
 export { mapUser } from "./map-user.ts";
 export { createMem0DocumentStore } from "./create-mem0-document-store.ts";

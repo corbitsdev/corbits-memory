@@ -35,13 +35,15 @@ function encodeDocumentBody(params: {
   text: string;
   documentId: string;
   externalRef?: string;
-  visibilityMode: string;
+  accessTags: string[];
 }): string {
   const header = `# ${params.title}`;
   const meta = [
     `documentId: ${params.documentId}`,
     params.externalRef ? `externalRef: ${params.externalRef}` : null,
-    `visibility: ${params.visibilityMode}`,
+    params.accessTags.length > 0
+      ? `accessTags: ${params.accessTags.join(",")}`
+      : null,
   ]
     .filter(Boolean)
     .join("\n");
@@ -211,13 +213,15 @@ export function createMem0DocumentStore(
         ...(params.externalRef !== undefined
           ? { externalRef: params.externalRef }
           : {}),
-        visibilityMode: params.visibility.mode,
+        accessTags: params.accessTags ?? [],
       });
       const metadata: Record<string, string> = {
         documentId,
         title: params.title,
-        visibility: params.visibility.mode,
       };
+      if (params.accessTags?.length) {
+        metadata.accessTags = params.accessTags.join(",");
+      }
       if (params.externalRef !== undefined) {
         metadata.externalRef = params.externalRef;
       }

@@ -1,7 +1,12 @@
 /**
  * In-package fakes for DocumentStore and SourceProvider.
  * Enough for hosts/tests to mount without Postgres or embed endpoints.
+ *
+ * Document access: creator always sees own docs; otherwise any accessTag that
+ * authorize(grants, …, tag, "find") allows when grants are provided. Without
+ * grants, only creator access (safe default for unit tests).
  */
+import { canAccessDocument } from "../acl.ts";
 import type {
   DocumentStore,
   DocumentStoreAddParams,
@@ -20,20 +25,33 @@ type StoredDoc = {
   principalId: string;
   title: string;
   text: string;
-  visibility: DocumentStoreAddParams["visibility"];
-  blockPrincipalIds: string[];
+  accessTags: string[];
   externalRef?: string;
   createdAt: string;
 };
 
-function visibleTo(doc: StoredDoc, principalId: string): boolean {
-  if (doc.blockPrincipalIds.includes(principalId)) return false;
-  const v = doc.visibility;
-  if (v.mode === "tenant") return true;
-  if (v.mode === "private" || v.mode === "principals") {
-    return (v.principalIds ?? []).includes(principalId);
+async function visibleTo(
+  doc: StoredDoc,
+  params: {
+    principalId: string;
+    tenantId: string;
+    grants?: DocumentStoreFindParams["grants"];
+    conditionRegistry?: DocumentStoreFindParams["conditionRegistry"];
+  },
+): Promise<boolean> {
+  if (!params.grants) {
+    return doc.principalId === params.principalId;
   }
-  return false;
+  return canAccessDocument({
+    grants: params.grants,
+    tenantId: params.tenantId,
+    principalId: params.principalId,
+    createdByPrincipalId: doc.principalId,
+    accessTags: doc.accessTags,
+    ...(params.conditionRegistry !== undefined
+      ? { conditionRegistry: params.conditionRegistry }
+      : {}),
+  });
 }
 
 function scoreMatch(query: string, title: string, text: string): number {
@@ -46,14 +64,14 @@ function scoreMatch(query: string, title: string, text: string): number {
 }
 
 /**
- * In-memory DocumentStore. ACL-aware substring match; no embeddings.
+ * In-memory DocumentStore. Grant-tag ACL when grants passed; creator-only otherwise.
  */
 export function createFakeDocumentStore(): DocumentStore {
   const docs: StoredDoc[] = [];
   let seq = 0;
 
   return {
-    async add(params) {
+    async add(params: DocumentStoreAddParams) {
       const documentId = `fake_doc_${++seq}`;
       const row: StoredDoc = {
         documentId,
@@ -61,8 +79,7 @@ export function createFakeDocumentStore(): DocumentStore {
         principalId: params.principalId,
         title: params.title,
         text: params.text,
-        visibility: params.visibility,
-        blockPrincipalIds: params.blockPrincipalIds ?? [],
+        accessTags: [...params.accessTags],
         createdAt: new Date().toISOString(),
       };
       if (params.externalRef !== undefined) {
@@ -76,17 +93,15 @@ export function createFakeDocumentStore(): DocumentStore {
       params: DocumentStoreFindParams,
     ): Promise<DocumentStoreFindResult> {
       const limit = params.limit ?? 8;
-      const items = docs
-        .filter(
-          (d) =>
-            d.tenantId === params.tenantId &&
-            visibleTo(d, params.principalId),
-        )
-        .map((d) => {
-          const score = scoreMatch(params.query, d.title, d.text);
-          return { d, score };
-        })
-        .filter((x) => x.score > 0)
+      const scored: { d: StoredDoc; score: number }[] = [];
+      for (const d of docs) {
+        if (d.tenantId !== params.tenantId) continue;
+        const ok = await visibleTo(d, params);
+        if (!ok) continue;
+        const score = scoreMatch(params.query, d.title, d.text);
+        if (score > 0) scored.push({ d, score });
+      }
+      const items = scored
         .sort((a, b) => b.score - a.score)
         .slice(0, limit)
         .map(({ d, score }) => ({
@@ -119,21 +134,23 @@ export function createFakeDocumentStore(): DocumentStore {
       params: DocumentStoreRecentParams,
     ): Promise<DocumentStoreRecentEvent[]> {
       const limit = params.limit ?? 50;
-      return docs
-        .filter(
-          (d) =>
-            d.tenantId === params.tenantId &&
-            visibleTo(d, params.principalId),
-        )
-        .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
-        .slice(0, limit)
-        .map((d) => ({
+      const out: DocumentStoreRecentEvent[] = [];
+      const sorted = [...docs]
+        .filter((d) => d.tenantId === params.tenantId)
+        .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+      for (const d of sorted) {
+        if (out.length >= limit) break;
+        const ok = await visibleTo(d, params);
+        if (!ok) continue;
+        out.push({
           at: d.createdAt,
           title: d.title,
           source: "fake",
           tenantId: d.tenantId,
           principalId: d.principalId,
-        }));
+        });
+      }
+      return out;
     },
 
     async close() {
@@ -152,52 +169,42 @@ export function createFakeSourceProvider(
   return {
     id,
     async searchLive(params) {
-      const q = params.query.toLowerCase();
+      const q = params.query.toLowerCase().trim();
       const limit = params.limit ?? 8;
       return catalog
-        .filter((item) => {
-          if (item.adapter !== id) return false;
-          // Fail-closed: seed rows may carry tenantId for tenancy tests.
-          const row = item as LiveSearchItem & { tenantId?: string };
-          if (row.tenantId !== undefined && row.tenantId !== params.tenantId) {
-            return false;
-          }
-          return (
+        .filter(
+          (item) =>
+            !q ||
             item.title.toLowerCase().includes(q) ||
-            item.snippet.toLowerCase().includes(q)
-          );
-        })
+            item.snippet.toLowerCase().includes(q),
+        )
         .slice(0, limit);
     },
   };
 }
 
-/** In-memory MemoryProvider for tests and host-with-fakes-only mounts. */
+/**
+ * In-memory MemoryProvider for tests.
+ */
 export function createFakeMemoryProvider(): MemoryProvider {
-  const mem: Array<{
-    tenantId: string;
-    principalId: string;
-    text: string;
-  }> = [];
+  const byKey = new Map<string, string[]>();
+  const key = (tenantId: string, principalId: string) =>
+    `${tenantId}::${principalId}`;
   return {
     async remember(params) {
-      mem.push({
-        tenantId: params.tenantId,
-        principalId: params.principalId,
-        text: params.text,
-      });
+      const k = key(params.tenantId, params.principalId);
+      const list = byKey.get(k) ?? [];
+      list.push(params.text);
+      byKey.set(k, list);
     },
     async recall(params) {
+      const list = byKey.get(key(params.tenantId, params.principalId)) ?? [];
       const q = params.query.toLowerCase();
-      return mem
-        .filter(
-          (m) =>
-            m.tenantId === params.tenantId &&
-            m.principalId === params.principalId &&
-            m.text.toLowerCase().includes(q),
-        )
-        .slice(0, params.limit ?? 5)
-        .map((m) => ({ text: m.text, score: 1 }));
+      const limit = params.limit ?? 5;
+      return list
+        .filter((t) => !q || t.toLowerCase().includes(q))
+        .slice(0, limit)
+        .map((text) => ({ text, score: 1 }));
     },
   };
 }

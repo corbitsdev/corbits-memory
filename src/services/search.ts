@@ -44,8 +44,9 @@ import type {
 } from "../core/schemas/search.ts";
 
 // The single doorway every retrieval read passes through. Every query below
-// filters `tenant_id` first, unconditionally, before any visibility logic
-// runs — tenant isolation is absolute.
+// filters `tenant_id` first, unconditionally. Per-document access is **not**
+// decided in SQL — the DocumentStore post-filters with Interchange grant tags
+// (`canAccessDocument`). See docs/AUTHZ-DOCUMENT-ACCESS.md.
 
 export const MAX_K = 100;
 export const DEFAULT_HYBRID_TOP_K = 8;
@@ -130,61 +131,8 @@ export function snippet(text: string, maxLen = 240): string {
   return trimmed.length > maxLen ? `${trimmed.slice(0, maxLen)}…` : trimmed;
 }
 
-// The single visibility predicate every retrieval channel (lexical, and the
-// dense channel) must apply. `principalId === null` means the caller has no
-// principal identity to check — only tenant-wide-visible documents match; a
-// document scoped to `principals`/`private` never matches a null principal.
-//
-// IMPORTANT: a null principal must NOT be modeled as "matches an empty
-// principal_ids array" — jsonb `@>` containment treats the empty array as a
-// subset of EVERY array, so `principal_ids @> '[]'::jsonb` is TRUE
-// regardless of what's actually in principal_ids, which would let a
-// null-principal caller see every `principals`/`private` document (a real
-// ACL bypass this predicate previously had). A null principal instead gets
-// its own, structurally simpler predicate: tenant-wide-visible documents
-// ONLY, with no principal_ids check at all.
-export function visibilityPredicateSql(principalId: string | null) {
-  if (principalId === null) {
-    return sql`(${knowledgeDocument.visibilityMode} = 'tenant')`;
-  }
-  return sql`(
-    ${knowledgeDocument.visibilityMode} = 'tenant'
-    OR (
-      ${knowledgeDocument.visibilityMode} IN ('principals', 'private')
-      AND ${knowledgeDocument.visibilityPrincipalIds} @> ${JSON.stringify([principalId])}::jsonb
-    )
-  )`;
-}
-
-// The raw (per-chunk, non-deduped) SQL fragment text mirroring
-// `visibilityPredicateSql` above, for the dense channel which queries a
-// dynamically-named `knowledge_embedding_<key>` table through the raw
-// postgres-js pool (no drizzle schema exists for that table, so the drizzle
-// `sql` fragment above cannot be reused verbatim there). Any change to the
-// visibility rule must be applied to BOTH this string and
-// `visibilityPredicateSql` — there is no third implementation anywhere else.
-export const VISIBILITY_PREDICATE_RAW_SQL = `(
-  kd.visibility_mode = 'tenant'
-  OR (
-    kd.visibility_mode IN ('principals', 'private')
-    AND kd.visibility_principal_ids @> $VISIBILITY_PRINCIPAL_JSON::jsonb
-  )
-)`;
-
-// The null-principal counterpart to `VISIBILITY_PREDICATE_RAW_SQL`, mirroring
-// `visibilityPredicateSql(null)`'s tenant-only fragment — no principal_ids
-// check, no `$VISIBILITY_PRINCIPAL_JSON` placeholder to substitute.
-export const VISIBILITY_PREDICATE_RAW_SQL_NULL_PRINCIPAL = `(kd.visibility_mode = 'tenant')`;
-
-// The single call site (fetchDenseCandidates) selects between the two raw
-// fragments above by whether a principal is present — never re-derive this
-// choice, and never let the two fragments' non-null shape drift from
-// `visibilityPredicateSql`'s non-null branch.
-export function visibilityPredicateRawSql(hasPrincipal: boolean): string {
-  return hasPrincipal
-    ? VISIBILITY_PREDICATE_RAW_SQL
-    : VISIBILITY_PREDICATE_RAW_SQL_NULL_PRINCIPAL;
-}
+// SQL retrieval is tenant-scoped only. Document access (grant tags + creator)
+// is enforced by the DocumentStore after hybridSearch returns candidates.
 
 const ADAPTER_OPEN_TYPES: Record<string, string> = {
   artifact: "artifact",
@@ -377,15 +325,15 @@ interface LexicalCandidateParams extends ChannelFilterFields {
 }
 
 // The single FTS-candidate query for the lexical channel. Returns raw,
-// overfetched, non-deduped per-chunk rows already filtered by tenant + ACL +
-// status — the caller decides how to combine/dedupe/truncate them.
+// overfetched, non-deduped per-chunk rows already filtered by tenant +
+// status + generation — the caller decides how to combine/dedupe/truncate
+// them. Document access is post-filtered via grant tags.
 export async function fetchLexicalCandidates(
   params: LexicalCandidateParams,
 ): Promise<CandidateRow[]> {
   const {
     db,
     tenantId,
-    principalId,
     query,
     ftsLanguage,
     overfetchLimit,
@@ -398,7 +346,6 @@ export async function fetchLexicalCandidates(
     eq(knowledgeChunk.tenantId, tenantId),
     eq(knowledgeVersion.status, "active"),
     eq(knowledgeVersion.generation, generation),
-    visibilityPredicateSql(principalId),
   ];
 
   if (kinds && kinds.length > 0) {
@@ -502,9 +449,9 @@ export function hnswEfSearch(overfetchLimit: number): number {
 
 // Dense channel: embeds the query, then runs an ANN cosine-distance query
 // against the tenant's ACTIVE embedding table only (never a superseded or
-// inactive model's table), joined back to knowledge_chunk/version/document
-// with the EXACT SAME visibility predicate as the lexical channel
-// (VISIBILITY_PREDICATE_RAW_SQL) — there is no second ACL implementation.
+// inactive model's table), joined back to knowledge_chunk/version/document.
+// Tenant + status + generation only — document access is post-filtered via
+// grant tags (same as the lexical channel).
 // Returns `null` (not an error) when there is no active embed model
 // configured for the tenant yet, or when the query is empty — both are
 // legitimate "dense not applicable" states, distinct from a runtime
@@ -517,7 +464,6 @@ export async function fetchDenseCandidates(
     embedClientConfig,
     fetchImpl,
     tenantId,
-    principalId,
     query,
     overfetchLimit,
     kinds,
@@ -542,23 +488,9 @@ export async function fetchDenseCandidates(
 
   const efSearch = hnswEfSearch(overfetchLimit);
 
-  // Placeholder numbering depends on whether a principal is present: the
-  // null-principal fragment (VISIBILITY_PREDICATE_RAW_SQL_NULL_PRINCIPAL)
-  // never references a principal placeholder at all, and Postgres cannot
-  // infer a type for a varparam that no fragment of the query references
-  // (error 42P18). So the principal value is only bound when a principal
-  // exists, and each placeholder is derived from its position in the
-  // params array rather than hand-numbered.
-  const hasPrincipal = principalId !== null;
+  // Tenant isolation is absolute (bound as $1). Document access is **not**
+  // applied in SQL — the DocumentStore post-filters with Interchange grant tags.
   const params: unknown[] = [tenantId];
-  let visibilitySql = visibilityPredicateRawSql(hasPrincipal);
-  if (hasPrincipal) {
-    params.push(JSON.stringify([principalId]));
-    visibilitySql = visibilitySql.replace(
-      "$VISIBILITY_PRINCIPAL_JSON",
-      `$${params.length}`,
-    );
-  }
   params.push(JSON.stringify(vector));
   const vectorParam = `$${params.length}`;
   params.push(overfetchLimit);
@@ -598,7 +530,6 @@ export async function fetchDenseCandidates(
     JOIN "knowledge"."document" kd ON kd.id = c.document_id
     WHERE e.tenant_id = $1 AND c.tenant_id = $1 AND kv.status = 'active'
       AND kv.generation = ${generationParam}
-      AND ${visibilitySql}
       ${kindClause}
       ${entityClause}
     ORDER BY ${cosineDistanceExpr("e.embedding", vectorParam, activeTable.dims)} ASC

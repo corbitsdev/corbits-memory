@@ -19,20 +19,17 @@ export type DocumentStoreCitation = {
   };
 };
 
-export type VisibilitySpec =
-  | { mode: "tenant" }
-  | { mode: "private"; principalIds: string[] }
-  | { mode: "principals"; principalIds: string[] };
-
 export type DocumentStoreAddParams = {
   tenantId: string;
   principalId: string;
   title: string;
   text: string;
-  visibility: VisibilitySpec;
-  blockPrincipalIds?: string[];
+  /** Grant-tag resource strings (ignored for enforcement; principal-bucket only). */
+  accessTags: string[];
   attributes?: Record<string, string | number | boolean | null>;
   externalRef?: string;
+  adapter?: string;
+  kind?: string;
 };
 
 export type DocumentStoreFindParams = {
@@ -171,13 +168,15 @@ function encodeContent(params: {
   text: string;
   documentId: string;
   externalRef?: string;
-  visibilityMode: string;
+  accessTags: string[];
 }): string {
   const header = `# ${params.title}`;
   const meta = [
     `documentId: ${params.documentId}`,
     params.externalRef ? `externalRef: ${params.externalRef}` : null,
-    `visibility: ${params.visibilityMode}`,
+    params.accessTags.length > 0
+      ? `accessTags: ${params.accessTags.join(",")}`
+      : null,
   ]
     .filter(Boolean)
     .join("\n");
@@ -243,13 +242,15 @@ export function createSupermemoryDocumentStore(
         ...(params.externalRef !== undefined
           ? { externalRef: params.externalRef }
           : {}),
-        visibilityMode: params.visibility.mode,
+        accessTags: params.accessTags ?? [],
       });
       const metadata: Record<string, string> = {
         documentId,
         title: params.title,
-        visibility: params.visibility.mode,
       };
+      if (params.accessTags?.length) {
+        metadata.accessTags = params.accessTags.join(",");
+      }
       if (params.externalRef !== undefined) {
         metadata.externalRef = params.externalRef;
       }

@@ -181,7 +181,7 @@ describe("plane merge (MergeLocalLiveV1)", () => {
       principalId: PRINCIPAL,
       title: "local CL-7 body",
       text: "collision payload local",
-      visibility: { mode: "tenant" },
+      accessTags: [`knowledge.owner:${PRINCIPAL}`],
       externalRef: "CL-7",
     });
     // Fake store citation uses adapter "fake" not linear — force collision by

@@ -33,9 +33,9 @@ export const knowledgeDocument = knowledgeSchema.table(
     title: text("title").notNull(),
     adapter: text("adapter").notNull(),
     externalRef: text("external_ref").notNull(),
-    visibilityMode: text("visibility_mode").notNull(),
-    visibilityPrincipalIds: jsonb("visibility_principal_ids"),
-    visibilitySourceAcl: jsonb("visibility_source_acl"),
+    // Grant-tag authz. Security path for document access.
+    // Resource strings in grant-pattern space; see docs/AUTHZ-DOCUMENT-ACCESS.md.
+    accessTags: text("access_tags").array().notNull().default([]),
     attributes: jsonb("attributes").notNull().default({}),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     lastSeenAt: timestamp("last_seen_at").notNull().defaultNow(),

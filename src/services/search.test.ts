@@ -1,5 +1,4 @@
 import { describe, expect, it } from "bun:test";
-import { PgDialect } from "drizzle-orm/pg-core";
 import {
   authorityWeightedScore,
   dedupeCandidatesPerDocument,
@@ -7,14 +6,8 @@ import {
   fetchDenseCandidates,
   hnswEfSearch,
   snippet,
-  visibilityPredicateSql,
-  visibilityPredicateRawSql,
-  VISIBILITY_PREDICATE_RAW_SQL,
-  VISIBILITY_PREDICATE_RAW_SQL_NULL_PRINCIPAL,
   type CandidateRow,
 } from "./search.ts";
-
-const dialect = new PgDialect();
 
 function candidate(overrides: Partial<CandidateRow> = {}): CandidateRow {
   return {
@@ -36,64 +29,6 @@ function candidate(overrides: Partial<CandidateRow> = {}): CandidateRow {
     ...overrides,
   };
 }
-
-describe("visibilityPredicateSql", () => {
-  it("scopes 'principals'/'private' docs to a JSON array containing the given principal id", () => {
-    const { sql, params } = dialect.sqlToQuery(visibilityPredicateSql("principal_a"));
-    expect(sql).toContain("visibility_mode");
-    expect(sql).toContain("'tenant'");
-    expect(sql).toContain("'principals', 'private'");
-    expect(params).toContain(JSON.stringify(["principal_a"]));
-  });
-
-  it("never matches a 'principals'/'private' doc when principalId is null — returns a tenant-only predicate with NO principal_ids check at all", () => {
-    const { sql, params } = dialect.sqlToQuery(visibilityPredicateSql(null));
-    // Regression guard: a null principal must NOT be modeled as "matches an
-    // empty principal_ids array" — jsonb `@>` containment treats the empty
-    // array as a subset of EVERY array (`'["x"]'::jsonb @> '[]'::jsonb` is
-    // TRUE), so that shape would vacuously match any 'principals'/'private'
-    // doc regardless of its actual principal_ids. The null-principal
-    // predicate is instead the plain, unconditional 'tenant' check — no
-    // principal_ids column reference, no jsonb params, at all.
-    expect(sql).toContain("visibility_mode");
-    expect(sql).toContain("'tenant'");
-    expect(sql).not.toContain("principal_ids");
-    expect(sql).not.toContain("'principals', 'private'");
-    expect(params).toEqual([]);
-  });
-
-  it("produces the identical predicate shape as the raw-SQL string used by the dense channel, for BOTH the with-principal and null-principal cases", () => {
-    function normalize(rawSql: string): string {
-      return rawSql
-        .replace(/"knowledge"\."document"\./g, "kd.")
-        .replace(/"knowledge_document"\./g, "kd.")
-        .replace(/"(\w+)"/g, "$1")
-        .replace(/\$\d+/g, "$PARAM")
-        .replace(/\s+/g, " ")
-        .trim();
-    }
-
-    const withPrincipal = dialect.sqlToQuery(visibilityPredicateSql("principal_a"));
-    const normalizedRawWithPrincipal = VISIBILITY_PREDICATE_RAW_SQL.replace(
-      "$VISIBILITY_PRINCIPAL_JSON",
-      "$PARAM",
-    )
-      .replace(/\s+/g, " ")
-      .trim();
-    expect(normalize(withPrincipal.sql)).toBe(normalizedRawWithPrincipal);
-    expect(visibilityPredicateRawSql(true)).toBe(VISIBILITY_PREDICATE_RAW_SQL);
-
-    const nullPrincipal = dialect.sqlToQuery(visibilityPredicateSql(null));
-    const normalizedRawNullPrincipal = VISIBILITY_PREDICATE_RAW_SQL_NULL_PRINCIPAL.replace(
-      /\s+/g,
-      " ",
-    ).trim();
-    expect(normalize(nullPrincipal.sql)).toBe(normalizedRawNullPrincipal);
-    expect(visibilityPredicateRawSql(false)).toBe(
-      VISIBILITY_PREDICATE_RAW_SQL_NULL_PRINCIPAL,
-    );
-  });
-});
 
 describe("authorityWeightedScore", () => {
   it("boosts a relevance score by up to 50% at authority === 1", () => {

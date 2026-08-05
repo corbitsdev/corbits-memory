@@ -73,7 +73,7 @@ describe("createMem0DocumentStore", () => {
       principalId: "p1",
       title: "Prefs",
       text: "Prefers dark mode",
-      visibility: { mode: "private", principalIds: ["p1"] },
+      accessTags: ["knowledge.owner:p1"],
     });
 
     expect(documentId).toMatch(
@@ -150,7 +150,7 @@ describe("createMem0DocumentStore", () => {
         principalId: "p",
         title: "t",
         text: "x",
-        visibility: { mode: "tenant" },
+        accessTags: ["knowledge.owner:p"],
       }),
     ).rejects.toThrow(/tenantId/);
 

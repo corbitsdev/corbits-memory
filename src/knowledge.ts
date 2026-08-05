@@ -1,18 +1,16 @@
-/**
- * Knowledge plane: green surface add / find / ask / recent.
- *
- * One product path — always store-backed. Default store is the engine's
- * pgvector DocumentStore; hosts inject Mem0 / Supermemory / fakes the same way.
- */
 import { authorize } from "@intx/authz";
 
-import { blockedDocumentIds } from "./acl.ts";
+import {
+  canAccessDocument,
+  resolveAccessTags,
+  ownerTag,
+  type ShareSugar,
+} from "./acl.ts";
 import type { EngineConfig } from "./config.ts";
 import { log } from "./log.ts";
 import { createDb, type Db, type RawSql } from "./db/client.ts";
 import { createFtsVerification, parseFtsLanguage } from "./core/fts-language.ts";
 import { createRawSqlClient } from "./core/embed-sql.ts";
-import type { VisibilitySpec } from "./core/schemas/document.ts";
 import type { SearchHit } from "./core/schemas/search.ts";
 import { validateRerankConfig } from "./core/rerank-client.ts";
 import { captureDocument } from "./services/capture.ts";
@@ -26,7 +24,6 @@ import {
 import {
   listTimelineEvents,
   type TimelineEvent,
-  DEFAULT_TIMELINE_LIMIT,
 } from "./services/timeline.ts";
 import {
   LIVE_TIMEOUT_MS,
@@ -40,14 +37,16 @@ import type { KnowledgeConfig } from "./mount-config.ts";
 import type { GrantConfig } from "./routes/deps.ts";
 import type {
   DocumentStore,
+  DocumentStoreFindParams,
   MemoryProvider,
   SourceProvider,
 } from "./ports/types.ts";
+// (drizzle select was used briefly for grant-tag load; raw sql keeps unit-test
+// mocks simple and matches the rest of the engine store.)
 
 // Re-export so hosts typing plane results don't reach into services/.
 export type { HybridSearchResult } from "./services/search.ts";
 export type { SearchHit } from "./core/schemas/search.ts";
-export type { VisibilitySpec } from "./core/schemas/document.ts";
 export type {
   DocumentStore,
   DocumentStoreAddParams,
@@ -55,6 +54,13 @@ export type {
   MemoryProvider,
   SourceProvider,
 } from "./ports/types.ts";
+export {
+  resolveAccessTags,
+  ownerTag,
+  tenantTag,
+  canAccessDocument,
+  type ShareSugar,
+} from "./acl.ts";
 
 export type ChatMessage = {
   role: "system" | "user" | "assistant";
@@ -98,7 +104,7 @@ export const FIND_LIMIT_MAX = 50;
 
 /** Green recent limit bounds (matches timeline service default/cap). */
 export const RECENT_LIMIT_MIN = 1;
-export const RECENT_LIMIT_MAX = DEFAULT_TIMELINE_LIMIT;
+export const RECENT_LIMIT_MAX = 100;
 
 export type KnowledgeFindParams = KnowledgeIdentity & {
   query: string;
@@ -162,10 +168,7 @@ export class KnowledgeNotPermittedError extends Error {
   }
 }
 
-export type KnowledgeShare =
-  | { mode: "private" }
-  | { mode: "tenant" }
-  | { mode: "principals"; principalIds: string[] };
+export type KnowledgeShare = ShareSugar;
 
 export type KnowledgeAddParams = KnowledgeIdentity & {
   /** Exactly one of `content` or `file` is required. */
@@ -179,15 +182,15 @@ export type KnowledgeAddParams = KnowledgeIdentity & {
   kind?: string;
   adapter?: string;
   externalRef?: string;
-  /** Direct escape hatch; mutually exclusive with `share`. */
-  visibility?: VisibilitySpec;
-  /** Direct escape hatch; with `share`, use `share.block` instead. */
-  blockPrincipalIds?: string[];
   /**
-   * Sugar for visibility + optional block list.
-   * Mutually exclusive with `visibility`.
+   * Explicit resource tags in grant-pattern space. Always merged with the
+   * owner tag for the caller.
    */
-  share?: KnowledgeShare & { block?: string[] };
+  accessTags?: string[];
+  /**
+   * Share sugar — only mints tags (tenant / peer owners / explicit tags).
+   */
+  share?: ShareSugar;
   attributes?: Record<string, string | number | boolean | null>;
 };
 
@@ -375,8 +378,8 @@ export type KnowledgePlaneOptions = {
   textExtractor?: TextExtractor;
   /**
    * Override durable storage. When set, the plane does not open Postgres or
-   * call embed/rerank endpoints — use for fakes and replaceable backends
-   * (Mem0, Supermemory). When omitted, the default engine DocumentStore is used.
+   * call embed/rerank endpoints — use for fakes and host DocumentStore
+   * backends. When omitted, the default engine DocumentStore is used.
    */
   documentStore?: DocumentStore;
   /**
@@ -453,51 +456,16 @@ function findItemsToHits(items: readonly FindItem[]): SearchHit[] {
   }));
 }
 
-function resolveShareAndVisibility(params: KnowledgeAddParams): {
-  visibility: VisibilitySpec;
-  blockPrincipalIds?: string[];
-} {
-  if (params.share !== undefined && params.visibility !== undefined) {
-    throw new KnowledgeError(
-      400,
-      "provide share or visibility, not both",
-    );
-  }
-
-  if (params.share !== undefined) {
-    if (params.blockPrincipalIds !== undefined) {
-      throw new KnowledgeError(
-        400,
-        "provide share.block or blockPrincipalIds, not both",
-      );
-    }
-    const share = params.share;
-    let visibility: VisibilitySpec;
-    if (share.mode === "private") {
-      visibility = {
-        mode: "private",
-        principalIds: [params.principalId],
-      };
-    } else if (share.mode === "tenant") {
-      visibility = { mode: "tenant" };
-    } else {
-      const ids = new Set(share.principalIds);
-      ids.add(params.principalId);
-      visibility = { mode: "principals", principalIds: [...ids] };
-    }
-    const block = share.block;
-    return {
-      visibility,
-      ...(block && block.length > 0 ? { blockPrincipalIds: block } : {}),
-    };
-  }
-
-  return {
-    visibility: params.visibility ?? { mode: "tenant" as const },
-    ...(params.blockPrincipalIds !== undefined
-      ? { blockPrincipalIds: params.blockPrincipalIds }
-      : {}),
-  };
+/**
+ * Resolve access tags for add — share sugar + explicit tags only.
+ */
+function resolveAddAccessTags(params: KnowledgeAddParams): string[] {
+  return resolveAccessTags({
+    principalId: params.principalId,
+    tenantId: params.tenantId,
+    ...(params.accessTags !== undefined ? { accessTags: params.accessTags } : {}),
+    ...(params.share !== undefined ? { share: params.share } : {}),
+  });
 }
 
 /**
@@ -505,13 +473,14 @@ function resolveShareAndVisibility(params: KnowledgeAddParams): {
  *
  * One product path: every plane is store-backed. When `options.documentStore`
  * is omitted, the default pgvector engine is wrapped as that store. Hosts
- * inject Mem0 / Supermemory / fakes the same way — no second plane implementation.
+ * inject a DocumentStore or fakes the same way — no second plane implementation.
  *
  * - `grants` is required for `ask()` (in-process capability check). Standalone
  *   add/find callers may omit it.
  * - Rerank config is validated at construction when using the default store.
  * - Pass `options.sources` for live SourceProviders; find/ask merge via
  *   MergeLocalLiveV1 (fail-soft, 800ms timeout, prefer-local dedupe).
+ * - Document access uses grant tags via the host GrantStore (not mini-ACL).
  */
 export function createKnowledgePlane(
   config: KnowledgeConfig | undefined,
@@ -772,6 +741,10 @@ function createPlaneFromStore(
         ...(params.entityIds !== undefined
           ? { entityIds: params.entityIds }
           : {}),
+        ...(grants !== undefined ? { grants: grants.grantStore } : {}),
+        ...(grants?.conditionRegistry !== undefined
+          ? { conditionRegistry: grants.conditionRegistry }
+          : {}),
       });
       localItems = local.items.map((it) => ({
         documentId: it.documentId,
@@ -835,7 +808,7 @@ function createPlaneFromStore(
       // HTTP surface's `requireGrant("knowledge", ...)` route guard, so the
       // check has to live here — AUTH.md is explicit that the capability and
       // data layers are independent and BOTH must allow. Per-document
-      // visibility (enforced inside the store) is not a substitute for "may
+      // grant-tag access (enforced inside the store) is not a substitute for "may
       // this principal search at all".
       if (!grants) {
         throw new KnowledgeError(
@@ -942,8 +915,7 @@ function createPlaneFromStore(
           file.title ?? extracted.title ?? file.filename ?? "untitled";
       }
 
-      const { visibility, blockPrincipalIds } =
-        resolveShareAndVisibility(params);
+      const accessTags = resolveAddAccessTags(params);
 
       const externalRef =
         params.externalRef ??
@@ -954,9 +926,8 @@ function createPlaneFromStore(
         principalId: params.principalId,
         title,
         text,
-        visibility,
+        accessTags,
         externalRef,
-        ...(blockPrincipalIds !== undefined ? { blockPrincipalIds } : {}),
         ...(params.attributes !== undefined
           ? { attributes: params.attributes }
           : {}),
@@ -971,11 +942,16 @@ function createPlaneFromStore(
         tenantId: params.tenantId,
         principalId: params.principalId,
         ...(limit !== undefined ? { limit } : {}),
+        ...(grants !== undefined ? { grants: grants.grantStore } : {}),
+        ...(grants?.conditionRegistry !== undefined
+          ? { conditionRegistry: grants.conditionRegistry }
+          : {}),
       });
     },
 
     remember: memoryApi.remember,
     recall: memoryApi.recall,
+
 
     async close() {
       await store.close();
@@ -987,8 +963,8 @@ function createPlaneFromStore(
 
 /**
  * Default DocumentStore: engine pgvector + hybrid search + timeline.
- * Owns construction-time rerank validation, FTS verification, and ACL
- * block-list post-filter. The plane never opens Postgres itself.
+ * Owns construction-time rerank validation, FTS verification, and grant-tag
+ * post-filter for document access. The plane never opens Postgres itself.
  */
 function createEngineDocumentStore(config: KnowledgeConfig): DocumentStore {
   // Catch a chunk-size / reranker-limit mismatch at construction time, rather
@@ -1033,7 +1009,7 @@ function createEngineDocumentStore(config: KnowledgeConfig): DocumentStore {
   );
 
   /**
-   * Hybrid retrieval + block-list post-filter.
+   * Hybrid retrieval + grant-tag post-filter (security boundary).
    * Returns the full HybridSearchResult so evidence/degrade pass through.
    */
   async function retrieve(params: {
@@ -1043,6 +1019,8 @@ function createEngineDocumentStore(config: KnowledgeConfig): DocumentStore {
     k?: number;
     kinds?: string[];
     entityIds?: string[];
+    grants?: DocumentStoreFindParams["grants"];
+    conditionRegistry?: DocumentStoreFindParams["conditionRegistry"];
   }): Promise<HybridSearchResult> {
     try {
       await ensureVerified();
@@ -1057,43 +1035,66 @@ function createEngineDocumentStore(config: KnowledgeConfig): DocumentStore {
           : {}),
       });
 
-      // Block-list post-filter: docs may store acl_block as a list of
-      // principal ids. Engine visibility does not model block lists yet.
-      // Shared with recent via readBlockList / blockedDocumentIds.
       if (result.hits.length === 0) return result;
       const docIds = Array.from(
         new Set(result.hits.map((h) => h.document_id)),
       );
+
+      // Load access_tags + active-version creator for grant-tag check.
+      // Raw SQL so unit tests can mock `sql` without a real drizzle client.
       const rows = await sql<
-        { id: string; attributes: Record<string, unknown> | null }[]
+        {
+          id: string;
+          access_tags: string[] | null;
+          created_by: string | null;
+        }[]
       >`
-          SELECT id, attributes
-          FROM "knowledge"."document"
-          WHERE id = ANY(${docIds}::text[])
+          SELECT d.id,
+                 d.access_tags,
+                 v.created_by_principal_id AS created_by
+          FROM "knowledge"."document" d
+          LEFT JOIN "knowledge"."version" v
+            ON v.document_id = d.id
+           AND v.status = 'active'
+           AND v.generation = 'live'
+          WHERE d.id = ANY(${docIds}::text[])
         `;
-      const { blocked, unreadable } = blockedDocumentIds(
-        docIds,
-        rows,
-        params.principalId,
+
+      const byId = new Map(
+        rows.map((r) => [
+          r.id,
+          {
+            accessTags: (r.access_tags ?? []) as string[],
+            createdByPrincipalId: r.created_by,
+          },
+        ]),
       );
-      if (unreadable.length > 0) {
-        // Cap the sample so a large withhold batch cannot flood logs; count
-        // is always present so the full size is still auditable.
-        const sampleLimit = 20;
-        const documentIds = unreadable.slice(0, sampleLimit);
-        const more =
-          unreadable.length > sampleLimit
-            ? ` (+${unreadable.length - sampleLimit} more)`
-            : "";
-        log.warn(
-          `find: ${unreadable.length} document(s) had an unreadable acl_block or missing row; withholding: ${documentIds.join(", ")}${more}`,
-          { count: unreadable.length, documentIds },
-        );
+
+      const allowed = new Set<string>();
+      for (const id of docIds) {
+        const meta = byId.get(id);
+        if (!meta) continue;
+        // No grants → creator-only (safe default for standalone / unit tests).
+        if (!params.grants) {
+          if (meta.createdByPrincipalId === params.principalId) {
+            allowed.add(id);
+          }
+          continue;
+        }
+        const ok = await canAccessDocument({
+          grants: params.grants,
+          tenantId: params.tenantId,
+          principalId: params.principalId,
+          createdByPrincipalId: meta.createdByPrincipalId,
+          accessTags: meta.accessTags,
+          ...(params.conditionRegistry !== undefined
+            ? { conditionRegistry: params.conditionRegistry }
+            : {}),
+        });
+        if (ok) allowed.add(id);
       }
-      if (blocked.size === 0) return result;
-      const hits = result.hits.filter((h) => !blocked.has(h.document_id));
-      // result.evidence is already "none" only when there were no hits, so
-      // a post-filter that empties the list is the only way to reach "none".
+
+      const hits = result.hits.filter((h) => allowed.has(h.document_id));
       return {
         ...result,
         hits,
@@ -1115,12 +1116,7 @@ function createEngineDocumentStore(config: KnowledgeConfig): DocumentStore {
       const externalRef =
         params.externalRef ??
         `knowledge:${params.tenantId}:${crypto.randomUUID()}`;
-      const attributes: Record<string, string | number | boolean | null> = {
-        ...(params.attributes ?? {}),
-      };
-      if (params.blockPrincipalIds && params.blockPrincipalIds.length > 0) {
-        attributes["acl_block"] = JSON.stringify(params.blockPrincipalIds);
-      }
+      const accessTags = params.accessTags ?? [ownerTag(params.principalId)];
 
       const captureResult = await captureDocument(deps, {
         tenantId: params.tenantId,
@@ -1130,12 +1126,14 @@ function createEngineDocumentStore(config: KnowledgeConfig): DocumentStore {
           kind: params.kind ?? "note",
           title: params.title,
           externalRef,
-          visibility: params.visibility,
+          accessTags,
           entityHints: [],
           chunks: [{ ordinal: 0, text: params.text }],
           actor: { kind: "human", principalId: params.principalId },
           contentHash: "", // recomputed canonically in adapt-and-plan
-          ...(Object.keys(attributes).length > 0 ? { attributes } : {}),
+          ...(params.attributes !== undefined
+            ? { attributes: params.attributes }
+            : {}),
         },
       });
       return { documentId: captureResult.documentId };
@@ -1150,6 +1148,10 @@ function createEngineDocumentStore(config: KnowledgeConfig): DocumentStore {
         ...(params.kinds !== undefined ? { kinds: params.kinds } : {}),
         ...(params.entityIds !== undefined
           ? { entityIds: params.entityIds }
+          : {}),
+        ...(params.grants !== undefined ? { grants: params.grants } : {}),
+        ...(params.conditionRegistry !== undefined
+          ? { conditionRegistry: params.conditionRegistry }
           : {}),
       });
       const items = hitsToFindItems(result.hits);
@@ -1172,6 +1174,10 @@ function createEngineDocumentStore(config: KnowledgeConfig): DocumentStore {
         tenantId: params.tenantId,
         principalId: params.principalId,
         ...(params.limit !== undefined ? { limit: params.limit } : {}),
+        ...(params.grants !== undefined ? { grants: params.grants } : {}),
+        ...(params.conditionRegistry !== undefined
+          ? { conditionRegistry: params.conditionRegistry }
+          : {}),
       });
     },
 

@@ -1,12 +1,11 @@
 /**
- * Plane construction, ACL wiring, and ask() coverage for knowledge.ts.
+ * Plane construction, grant-tag ACL wiring, and ask() coverage for knowledge.ts.
  *
  * - Construction: rerank maxDocChars validation runs in createKnowledgePlane.
- * - Find wiring: acl.test.ts covers blockedDocumentIds itself; the post-filter
- *   call site is pinned here so deleting or inverting it fails the suite.
+ * - Find wiring: grant-tag post-filter (creator-only without grants).
  * - ask(): grant check, missing generate (501 before find), allow path,
  *   synthesizeAnswer grounding.
- * - add(): documentId return, content/file XOR, share → ACL mapping.
+ * - add(): documentId return, content/file XOR, share → access tags.
  * - find/recent: limit bounds, evidence default omit.
  */
 import {
@@ -43,7 +42,8 @@ const TENANT = "t1";
 
 type DocAclRow = {
   id: string;
-  attributes: { acl_block?: unknown };
+  access_tags: string[] | null;
+  created_by: string | null;
 };
 
 /** Satisfies createFtsVerification → createRawSqlClient(sql).unsafe on the find path. */
@@ -187,10 +187,10 @@ describe("createKnowledgePlane — construction validation", () => {
   });
 });
 
-describe("createKnowledgePlane.find — ACL post-filter wiring", () => {
+describe("createKnowledgePlane.find — grant-tag post-filter wiring", () => {
   const hybridSearch = mock((): Promise<HybridSearchResult> =>
     Promise.resolve({
-      hits: [hit("d-blocked"), hit("d-open")],
+      hits: [hit("d-other"), hit("d-mine")],
       evidence: "strong",
     }),
   );
@@ -199,12 +199,14 @@ describe("createKnowledgePlane.find — ACL post-filter wiring", () => {
     mock((): Promise<DocAclRow[]> =>
       Promise.resolve([
         {
-          id: "d-blocked",
-          attributes: { acl_block: [PRINCIPAL] },
+          id: "d-other",
+          access_tags: ["knowledge.owner:other"],
+          created_by: "other",
         },
         {
-          id: "d-open",
-          attributes: {},
+          id: "d-mine",
+          access_tags: [`knowledge.owner:${PRINCIPAL}`],
+          created_by: PRINCIPAL,
         },
       ]),
     ),
@@ -230,13 +232,12 @@ describe("createKnowledgePlane.find — ACL post-filter wiring", () => {
     mock.module("./services/search.ts", () => realSearch);
   });
 
-  it("drops hits that blockedDocumentIds withholds (call-site coverage)", async () => {
-    // If knowledge.ts stops calling blockedDocumentIds (or keeps the blocked set
-    // instead of filtering it out), this assertion fails.
+  it("keeps creator docs and drops others when grants are absent", async () => {
+    // Without grants the engine store is creator-only (safe default).
     hybridSearch.mockClear();
     hybridSearch.mockImplementation(() =>
       Promise.resolve({
-        hits: [hit("d-blocked"), hit("d-open")],
+        hits: [hit("d-other"), hit("d-mine")],
         evidence: "strong" as const,
       }),
     );
@@ -244,12 +245,14 @@ describe("createKnowledgePlane.find — ACL post-filter wiring", () => {
     sql.mockImplementation(() =>
       Promise.resolve([
         {
-          id: "d-blocked",
-          attributes: { acl_block: [PRINCIPAL] },
+          id: "d-other",
+          access_tags: ["knowledge.owner:other"],
+          created_by: "other",
         },
         {
-          id: "d-open",
-          attributes: {},
+          id: "d-mine",
+          access_tags: [`knowledge.owner:${PRINCIPAL}`],
+          created_by: PRINCIPAL,
         },
       ]),
     );
@@ -267,7 +270,7 @@ describe("createKnowledgePlane.find — ACL post-filter wiring", () => {
 
     expect(hybridSearch).toHaveBeenCalled();
     expect(result.items.map((i: FindItem) => i.documentId)).toEqual([
-      "d-open",
+      "d-mine",
     ]);
     expect(result.evidence).toBe("strong");
 
@@ -307,25 +310,16 @@ describe("createKnowledgePlane.find — ACL post-filter wiring", () => {
     await plane.close();
   });
 
-  it("withholds a hit whose acl_block is unreadable (fail-closed wiring)", async () => {
-    // Non-string/non-array acl_block is the case this PR closed: the post-filter
-    // must remove the hit, not pass it through.
+  it("withholds a hit whose row did not come back (fail-closed)", async () => {
     hybridSearch.mockClear();
     hybridSearch.mockImplementation(() =>
       Promise.resolve({
-        hits: [hit("d-bad")],
+        hits: [hit("d-missing")],
         evidence: "strong" as const,
       }),
     );
     sql.mockClear();
-    sql.mockImplementation(() =>
-      Promise.resolve([
-        {
-          id: "d-bad",
-          attributes: { acl_block: 42 },
-        },
-      ]),
-    );
+    sql.mockImplementation(() => Promise.resolve([]));
 
     const { createKnowledgePlane: makePlane } = await import(
       `./knowledge.ts?wiring-unreadable=${Date.now()}`
@@ -355,7 +349,13 @@ describe("createKnowledgePlane.find — ACL post-filter wiring", () => {
     );
     sql.mockClear();
     sql.mockImplementation(() =>
-      Promise.resolve([{ id: "d-open", attributes: {} }]),
+      Promise.resolve([
+        {
+          id: "d-open",
+          access_tags: [`knowledge.owner:${PRINCIPAL}`],
+          created_by: PRINCIPAL,
+        },
+      ]),
     );
 
     const { createKnowledgePlane: makePlane } = await import(
@@ -629,7 +629,7 @@ async function freshPlane(opts?: {
     await plane.close();
   });
 
-  it("maps share private to visibility private with owner principalId", async () => {
+  it("maps share.tenant to tenant access tag", async () => {
     captureDocument.mockClear();
     captureDocument.mockImplementation(() =>
       Promise.resolve({
@@ -643,29 +643,27 @@ async function freshPlane(opts?: {
     await plane.add({
       tenantId: TENANT,
       principalId: PRINCIPAL,
-      content: { title: "Private note", text: "secret" },
-      share: { mode: "private", block: ["blocked-p"] },
+      content: { title: "Team note", text: "shared" },
+      share: { tenant: true },
     });
     const call = captureDocument.mock.calls[0] as unknown as [
       unknown,
       {
         document: {
-          visibility: { mode: string; principalIds?: string[] };
-          attributes?: { acl_block?: string };
+          accessTags: string[];
         };
       },
     ];
-    expect(call[1].document.visibility).toEqual({
-      mode: "private",
-      principalIds: [PRINCIPAL],
-    });
-    expect(call[1].document.attributes?.acl_block).toBe(
-      JSON.stringify(["blocked-p"]),
+    expect(call[1].document.accessTags).toContain(
+      `knowledge.owner:${PRINCIPAL}`,
+    );
+    expect(call[1].document.accessTags).toContain(
+      `knowledge.tenant:${TENANT}`,
     );
     await plane.close();
   });
 
-  it("maps share principals and always includes the owner", async () => {
+  it("maps share.principals to peer owner tags", async () => {
     captureDocument.mockClear();
     captureDocument.mockImplementation(() =>
       Promise.resolve({
@@ -680,38 +678,51 @@ async function freshPlane(opts?: {
       tenantId: TENANT,
       principalId: PRINCIPAL,
       content: { title: "Shared", text: "body" },
-      share: { mode: "principals", principalIds: ["alice", "bob"] },
+      share: { principals: ["alice", "bob"] },
     });
     const call = captureDocument.mock.calls[0] as unknown as [
       unknown,
       {
         document: {
-          visibility: { mode: string; principalIds?: string[] };
+          accessTags: string[];
         };
       },
     ];
-    expect(call[1].document.visibility.mode).toBe("principals");
-    const ids = call[1].document.visibility.principalIds ?? [];
-    expect(ids).toContain(PRINCIPAL);
-    expect(ids).toContain("alice");
-    expect(ids).toContain("bob");
+    expect(call[1].document.accessTags).toContain(
+      `knowledge.owner:${PRINCIPAL}`,
+    );
+    expect(call[1].document.accessTags).toContain("knowledge.owner:alice");
+    expect(call[1].document.accessTags).toContain("knowledge.owner:bob");
     await plane.close();
   });
 
-  it("rejects share together with visibility", async () => {
+  it("defaults to owner-only access tags", async () => {
+    captureDocument.mockClear();
+    captureDocument.mockImplementation(() =>
+      Promise.resolve({
+        status: "captured" as const,
+        documentId: "kdoc_default",
+        versionId: "kver_1",
+        chunks: 1,
+      }),
+    );
     const plane = await freshPlane();
-    try {
-      await plane.add({
-        tenantId: TENANT,
-        principalId: PRINCIPAL,
-        content: { title: "T", text: "body" },
-        share: { mode: "tenant" },
-        visibility: { mode: "private", principalIds: [PRINCIPAL] },
-      });
-      throw new Error("expected add() to reject");
-    } catch (err) {
-      expectKnowledgeError400(err, "share or visibility");
-    }
+    await plane.add({
+      tenantId: TENANT,
+      principalId: PRINCIPAL,
+      content: { title: "T", text: "body" },
+    });
+    const call = captureDocument.mock.calls[0] as unknown as [
+      unknown,
+      {
+        document: {
+          accessTags: string[];
+        };
+      },
+    ];
+    expect(call[1].document.accessTags).toEqual([
+      `knowledge.owner:${PRINCIPAL}`,
+    ]);
     await plane.close();
   });
 });

@@ -1,297 +1,98 @@
 import { describe, expect, it } from "bun:test";
+import { createInMemoryGrantStore } from "@intx/authz";
 import { PgDialect } from "drizzle-orm/pg-core";
-import { desc } from "drizzle-orm";
 
-import { LIVE_GENERATION } from "../core/generation.ts";
-import type { Db } from "../db/client.ts";
-import { knowledgeDocument } from "../db/schema.ts";
 import {
-  DEFAULT_TIMELINE_LIMIT,
-  filterTimelineRowsForPrincipal,
-  listTimelineEvents,
-  timelineActiveVersionJoin,
-  timelineRowBlock,
+  filterTimelineRows,
   timelineWhere,
   type TimelineRow,
 } from "./timeline.ts";
 
 const dialect = new PgDialect();
 
-function row(
-  overrides: Partial<TimelineRow> & { id: string; title: string },
-): TimelineRow {
+function row(overrides: Partial<TimelineRow> = {}): TimelineRow {
   return {
-    tenantId: "t1",
-    adapter: "mcp",
-    lastSeenAt: new Date("2026-01-01T00:00:00.000Z"),
-    attributes: {},
-    principalId: "alice",
+    documentId: "doc_1",
+    title: "Title",
+    adapter: "http",
+    externalRef: "note:1",
+    occurredAt: new Date("2026-01-01T00:00:00Z"),
+    createdByPrincipalId: "owner",
+    accessTags: ["knowledge.owner:owner"],
     ...overrides,
   };
 }
 
-/** Minimal drizzle-shaped chain that returns fixed rows from `.limit()`. */
-function mockDb(rows: TimelineRow[]): {
-  db: Db;
-  get limitSeen(): number | null;
-} {
-  let limitSeen: number | null = null;
-  const chain = {
-    from: () => chain,
-    innerJoin: () => chain,
-    where: () => chain,
-    orderBy: () => chain,
-    limit: (n: number) => {
-      limitSeen = n;
-      return Promise.resolve(rows);
-    },
-  };
-  const db = {
-    select: () => chain,
-  } as unknown as Db;
-  return {
-    db,
-    get limitSeen() {
-      return limitSeen;
-    },
-  };
-}
-
-describe("timelineRowBlock (readBlockList gate shared with search)", () => {
-  it("allows absent and empty block lists", () => {
-    expect(timelineRowBlock(null, "p1")).toBe("allow");
-    expect(timelineRowBlock({}, "p1")).toBe("allow");
-    expect(timelineRowBlock({ acl_block: "[]" }, "p1")).toBe("allow");
-    expect(timelineRowBlock({ acl_block: [] }, "p1")).toBe("allow");
-  });
-
-  it("blocks membership for both JSON-string and native array encodings", () => {
-    expect(
-      timelineRowBlock({ acl_block: JSON.stringify(["p1"]) }, "p1"),
-    ).toBe("blocked");
-    expect(timelineRowBlock({ acl_block: ["p1"] }, "p1")).toBe("blocked");
-    expect(timelineRowBlock({ acl_block: ["other"] }, "p1")).toBe("allow");
-  });
-
-  it("fail-closes on unreadable shapes (non-string, non-array, corrupt JSON)", () => {
-    expect(timelineRowBlock({ acl_block: 42 }, "p1")).toBe("unreadable");
-    expect(timelineRowBlock({ acl_block: { subjects: ["p1"] } }, "p1")).toBe(
-      "unreadable",
+describe("filterTimelineRows (grant-tag access)", () => {
+  it("allows the creator without grants on tags", async () => {
+    const { events, withheld } = await filterTimelineRows(
+      [row({ createdByPrincipalId: "p1", accessTags: [] })],
+      { principalId: "p1", tenantId: "t1", grants: createInMemoryGrantStore([]) },
     );
-    expect(timelineRowBlock({ acl_block: "{not-json" }, "p1")).toBe(
-      "unreadable",
-    );
-    expect(timelineRowBlock({ acl_block: ["p1", 2] }, "p1")).toBe(
-      "unreadable",
-    );
-  });
-});
-
-describe("filterTimelineRowsForPrincipal", () => {
-  it("keeps tenant-visible events and drops blocked titles for the caller", () => {
-    const rows: TimelineRow[] = [
-      row({ id: "1", title: "team standup notes" }),
-      row({
-        id: "2",
-        title: "Q3 layoffs — draft list",
-        attributes: { acl_block: JSON.stringify(["p1"]) },
-      }),
-      row({
-        id: "3",
-        title: "ok for everyone",
-        attributes: { acl_block: JSON.stringify(["other"]) },
-      }),
-    ];
-    const { events, unreadableIds } = filterTimelineRowsForPrincipal(
-      rows,
-      "p1",
-      100,
-    );
-    expect(unreadableIds).toEqual([]);
-    expect(events.map((e) => e.title)).toEqual([
-      "team standup notes",
-      "ok for everyone",
-    ]);
-    expect(events.map((e) => e.title)).not.toContain("Q3 layoffs — draft list");
-  });
-
-  it("fail-closes on unparseable acl_block and does not surface the title", () => {
-    const rows: TimelineRow[] = [
-      row({
-        id: "bad",
-        title: "should not leak",
-        attributes: { acl_block: "{not-json" },
-      }),
-      row({ id: "ok", title: "visible" }),
-    ];
-    const { events, unreadableIds } = filterTimelineRowsForPrincipal(
-      rows,
-      "p1",
-      100,
-    );
-    expect(unreadableIds).toEqual(["bad"]);
-    expect(events.map((e) => e.title)).toEqual(["visible"]);
-  });
-
-  it("fail-closes on native non-string acl_block (the pre-#9 fail-open hole)", () => {
-    const rows: TimelineRow[] = [
-      row({
-        id: "num",
-        title: "must not leak",
-        attributes: { acl_block: 42 },
-      }),
-      row({
-        id: "native-block",
-        title: "native array blocked",
-        attributes: { acl_block: ["p1"] },
-      }),
-      row({ id: "ok", title: "visible" }),
-    ];
-    const { events, unreadableIds } = filterTimelineRowsForPrincipal(
-      rows,
-      "p1",
-      100,
-    );
-    expect(unreadableIds).toEqual(["num"]);
-    expect(events.map((e) => e.title)).toEqual(["visible"]);
-  });
-
-  it("maps wire fields from durable row columns (lastSeenAt → at, adapter → source)", () => {
-    const rows: TimelineRow[] = [
-      row({
-        id: "1",
-        title: "note",
-        adapter: "mcp",
-        principalId: "alice",
-        lastSeenAt: new Date("2026-06-01T12:00:00.000Z"),
-      }),
-    ];
-    const { events } = filterTimelineRowsForPrincipal(rows, "p1", 100);
-    expect(events[0]).toEqual({
-      at: "2026-06-01T12:00:00.000Z",
-      title: "note",
-      source: "mcp",
-      tenantId: "t1",
-      principalId: "alice",
-    });
-  });
-
-  it("respects the limit after filtering", () => {
-    const rows: TimelineRow[] = [
-      row({
-        id: "blocked",
-        title: "blocked",
-        attributes: { acl_block: JSON.stringify(["p1"]) },
-      }),
-      row({ id: "a", title: "a" }),
-      row({ id: "b", title: "b" }),
-    ];
-    const { events } = filterTimelineRowsForPrincipal(rows, "p1", 1);
+    expect(withheld).toBe(0);
     expect(events).toHaveLength(1);
-    expect(events[0]?.title).toBe("a");
+    expect(events[0]?.title).toBe("Title");
   });
 
-  it("uses empty string when version principal is null", () => {
-    const rows: TimelineRow[] = [
-      row({ id: "1", title: "sys", principalId: null }),
-    ];
-    const { events } = filterTimelineRowsForPrincipal(rows, "p1", 100);
-    expect(events[0]?.principalId).toBe("");
+  it("denies a peer without a matching grant", async () => {
+    const { events, withheld } = await filterTimelineRows(
+      [row({ createdByPrincipalId: "owner", accessTags: ["knowledge.tenant:t1"] })],
+      {
+        principalId: "peer",
+        tenantId: "t1",
+        grants: createInMemoryGrantStore([]),
+      },
+    );
+    expect(withheld).toBe(1);
+    expect(events).toHaveLength(0);
+  });
+
+  it("allows a peer with a grant on an access tag", async () => {
+    const grants = createInMemoryGrantStore([
+      {
+        id: "g1",
+        principalId: "peer",
+        resource: "knowledge.tenant:t1",
+        action: "find",
+        effect: "allow",
+        origin: "role",
+        conditions: null,
+        expiresAt: null,
+        roleId: null,
+      },
+    ]);
+    const { events, withheld } = await filterTimelineRows(
+      [
+        row({
+          createdByPrincipalId: "owner",
+          accessTags: ["knowledge.tenant:t1"],
+        }),
+      ],
+      { principalId: "peer", tenantId: "t1", grants },
+    );
+    expect(withheld).toBe(0);
+    expect(events).toHaveLength(1);
+  });
+
+  it("creator-only when no GrantStore is mounted", async () => {
+    const { events, withheld } = await filterTimelineRows(
+      [
+        row({ documentId: "a", createdByPrincipalId: "p1", title: "mine" }),
+        row({ documentId: "b", createdByPrincipalId: "other", title: "theirs" }),
+      ],
+      { principalId: "p1", tenantId: "t1" },
+    );
+    expect(withheld).toBe(1);
+    expect(events.map((e) => e.title)).toEqual(["mine"]);
   });
 });
 
-describe("listTimelineEvents (production path via mock db)", () => {
-  it("applies acl_block post-filter so blocked titles never reach the wire", async () => {
-    const SECRET = "Q3 layoffs — draft list";
-    const rows: TimelineRow[] = [
-      row({ id: "1", title: "team standup notes" }),
-      row({
-        id: "2",
-        title: SECRET,
-        attributes: { acl_block: JSON.stringify(["p1"]) },
-      }),
-      row({
-        id: "3",
-        title: "corrupt-should-not-leak",
-        attributes: { acl_block: "{not-json" },
-      }),
-      row({
-        id: "4",
-        title: "non-string-should-not-leak",
-        attributes: { acl_block: 42 },
-      }),
-    ];
-    const mock = mockDb(rows);
-    const events = await listTimelineEvents({
-      db: mock.db,
-      tenantId: "t1",
-      principalId: "p1",
-      limit: 10,
-    });
-    expect(events.map((e) => e.title)).toEqual(["team standup notes"]);
-    expect(events.map((e) => e.title)).not.toContain(SECRET);
-    expect(events.map((e) => e.title)).not.toContain("corrupt-should-not-leak");
-    expect(events.map((e) => e.title)).not.toContain(
-      "non-string-should-not-leak",
-    );
-    // Small limit still overfetches at least DEFAULT_TIMELINE_LIMIT candidates.
-    expect(mock.limitSeen).toBe(DEFAULT_TIMELINE_LIMIT);
-  });
-
-  it("caps page size at the requested limit after filtering", async () => {
-    const rows: TimelineRow[] = Array.from({ length: 5 }, (_, i) =>
-      row({ id: String(i), title: `doc-${i}` }),
-    );
-    const mock = mockDb(rows);
-    const events = await listTimelineEvents({
-      db: mock.db,
-      tenantId: "t1",
-      principalId: "p1",
-      limit: 2,
-    });
-    expect(events).toHaveLength(2);
-    expect(events.map((e) => e.title)).toEqual(["doc-0", "doc-1"]);
-  });
-});
-
-describe("listTimelineEvents SQL composition (shared with search)", () => {
-  it("timelineWhere attaches tenant + the same visibilityPredicateSql as search", () => {
-    const fragment = timelineWhere("t1", "principal_a");
-    const { sql, params } = dialect.sqlToQuery(fragment!);
+describe("timelineWhere", () => {
+  it("is tenant-only (no visibility mini-ACL in SQL)", () => {
+    const { sql, params } = dialect.sqlToQuery(timelineWhere("tenant_a"));
     expect(sql).toContain("tenant_id");
-    expect(sql).toContain("visibility_mode");
-    expect(sql).toContain("'tenant'");
-    expect(sql).toContain("'principals', 'private'");
-    expect(sql).toContain("visibility_principal_ids");
-    expect(params).toContain("t1");
-    expect(params).toContain(JSON.stringify(["principal_a"]));
-  });
-
-  it("timelineWhere with a principal never matches private/allowlist docs for others", () => {
-    // Regression: private/principals visibility requires principal_ids @> [caller].
-    // A second principal must not satisfy that containment for the first's private doc.
-    const forAlice = dialect.sqlToQuery(timelineWhere("t1", "alice")!);
-    const forBob = dialect.sqlToQuery(timelineWhere("t1", "bob")!);
-    expect(forAlice.params).toContain(JSON.stringify(["alice"]));
-    expect(forBob.params).toContain(JSON.stringify(["bob"]));
-    expect(forAlice.params).not.toContain(JSON.stringify(["bob"]));
-    // Both include the principals/private branch (not tenant-only null-principal shape).
-    expect(forAlice.sql).toContain("'principals', 'private'");
-    expect(forBob.sql).toContain("'principals', 'private'");
-  });
-
-  it("timelineActiveVersionJoin pins active + live generation", () => {
-    const fragment = timelineActiveVersionJoin();
-    const { sql, params } = dialect.sqlToQuery(fragment!);
-    expect(sql).toContain("document_id");
-    expect(sql).toContain("status");
-    expect(sql).toContain("generation");
-    expect(params).toContain("active");
-    expect(params).toContain(LIVE_GENERATION);
-  });
-
-  it("orders by last_seen_at so re-captures rise in the timeline", () => {
-    const { sql } = dialect.sqlToQuery(desc(knowledgeDocument.lastSeenAt));
-    expect(sql).toContain("last_seen_at");
+    expect(params).toContain("tenant_a");
+    expect(sql).not.toContain("visibility_mode");
+    expect(sql).not.toContain("visibility_principal_ids");
   });
 });

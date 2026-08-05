@@ -2,12 +2,15 @@
  * Port contracts for pluggable storage, live sources, and optional personal memory.
  *
  * DocumentStore is the durable backend for add/find/recent (default: local
- * pgvector). Hosts replace it with Mem0, Supermemory, or fakes — no dual store.
- * SourceProvider is tools-shaped live connectors (e.g. Linear), not a store.
- * MemoryProvider is an optional ask side-channel (includeMemory); not how you
- * swap backends.
+ * pgvector). Hosts replace it with any DocumentStore implementation or fakes —
+ * no dual store. SourceProvider is tools-shaped live connectors (e.g. Linear),
+ * not a store. MemoryProvider is an optional ask side-channel (includeMemory);
+ * not how you swap backends.
+ *
+ * Document access uses Interchange grant tags (accessTags), not a mini-ACL.
+ * See docs/AUTHZ-DOCUMENT-ACCESS.md.
  */
-import type { VisibilitySpec } from "../core/schemas/document.ts";
+import type { GrantStore, ConditionRegistry } from "@intx/authz";
 import type {
   SearchEvidence,
   SearchHit,
@@ -21,8 +24,8 @@ export type DocumentStoreAddParams = {
   principalId: string;
   title: string;
   text: string;
-  visibility: VisibilitySpec;
-  blockPrincipalIds?: string[];
+  /** Resource tags in grant-pattern space (security boundary). */
+  accessTags: string[];
   attributes?: Record<string, string | number | boolean | null>;
   externalRef?: string;
   /** Capture adapter id (default engine store uses `"http"`). */
@@ -41,6 +44,12 @@ export type DocumentStoreFindParams = {
   kinds?: string[];
   /** Narrow local retrieval by linked entity ids (unset/`[]` = no filter). */
   entityIds?: string[];
+  /**
+   * Host grant store for grant-tag document access (default engine + fakes).
+   * Vendor stores may ignore (principal-bucket only).
+   */
+  grants?: GrantStore;
+  conditionRegistry?: ConditionRegistry;
 };
 
 export type DocumentStoreFindItem = {
@@ -66,6 +75,8 @@ export type DocumentStoreRecentParams = {
   tenantId: string;
   principalId: string;
   limit?: number;
+  grants?: GrantStore;
+  conditionRegistry?: ConditionRegistry;
 };
 
 export type DocumentStoreRecentEvent = {
@@ -78,7 +89,7 @@ export type DocumentStoreRecentEvent = {
 
 /**
  * Durable document plane. Default implementation is the engine's pgvector
- * store. Hosts inject Mem0 / Supermemory / fakes via `options.documentStore`
+ * store. Hosts inject a DocumentStore (or fakes) via `options.documentStore`
  * to replace local Postgres entirely — this is the only product path for
  * swapping backends.
  */
@@ -124,7 +135,7 @@ export type SourceProvider = {
 
 /**
  * Optional personal-memory side channel for ask(includeMemory). Not a
- * DocumentStore replacement — Mem0/Supermemory product adapters implement
+ * DocumentStore replacement — product backends for durable knowledge implement
  * DocumentStore, not this port.
  */
 export type MemoryProvider = {
@@ -142,5 +153,4 @@ export type MemoryProvider = {
   }): Promise<Array<{ text: string; score?: number }>>;
 };
 
-// Keep SearchHit import used if needed by consumers re-exporting citation shapes.
 export type { SearchHit };
