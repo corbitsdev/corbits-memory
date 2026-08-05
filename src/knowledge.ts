@@ -1,6 +1,8 @@
 /**
  * Knowledge plane backed by the engine's pgvector Postgres. Wraps the capture
  * and hybrid-search services directly — no HTTP hop.
+ *
+ * Green surface: add / find / ask / recent.
  */
 import { authorize } from "@intx/authz";
 
@@ -19,15 +21,17 @@ import {
   KnowledgeSearchInputError,
   toRerankClientConfig,
   type HybridSearchResult,
+  DEFAULT_HYBRID_TOP_K,
 } from "./services/search.ts";
 import {
   listTimelineEvents,
   type TimelineEvent,
+  DEFAULT_TIMELINE_LIMIT,
 } from "./services/timeline.ts";
 import type { KnowledgeConfig } from "./mount-config.ts";
 import type { GrantConfig } from "./routes/deps.ts";
 
-// Re-export so hosts typing plane.search() results don't reach into services/.
+// Re-export so hosts typing plane results don't reach into services/.
 export type { HybridSearchResult } from "./services/search.ts";
 export type { SearchHit } from "./core/schemas/search.ts";
 export type { VisibilitySpec } from "./core/schemas/document.ts";
@@ -51,31 +55,54 @@ export type ChatMessage = {
  */
 export type Generate = (messages: readonly ChatMessage[]) => Promise<string>;
 
+/**
+ * Optional host-supplied extractor for `add({ file })`. The engine never
+ * ships a PDF/OCR/vendor SDK — the host plugs one in when file ingest is needed.
+ */
+export type TextExtractor = {
+  extract(file: {
+    bytes: Uint8Array;
+    mimeType?: string;
+    filename?: string;
+  }): Promise<{ text: string; title?: string }>;
+};
+
 export type KnowledgeIdentity = {
   principalId: string;
   tenantId: string;
 };
 
-export type KnowledgeSearchParams = KnowledgeIdentity & {
+/** Green find limit bounds (stricter than hybridSearch's internal MAX_K). */
+export const FIND_LIMIT_MIN = 1;
+export const FIND_LIMIT_MAX = 50;
+
+/** Green recent limit bounds (matches timeline service default/cap). */
+export const RECENT_LIMIT_MIN = 1;
+export const RECENT_LIMIT_MAX = DEFAULT_TIMELINE_LIMIT;
+
+export type KnowledgeFindParams = KnowledgeIdentity & {
   query: string;
-  k?: number | undefined;
+  /** Max items to return (1–50). Default 8. */
+  limit?: number;
+  /** When true, include evidence (and degraded if any). Default: omit. */
+  includeEvidence?: boolean;
   /**
    * Narrows every retrieval channel to documents whose `kind` is one of
    * these — see `hybridSearch` in services/search.ts. Applied before fusion,
    * so a fused hit is always guaranteed to match. Unset or an empty array
    * both mean "no filter" (equivalent, not "match nothing").
    */
-  kinds?: string[] | undefined;
+  kinds?: string[];
   /**
    * Same scoping as `kinds`, restricted to documents linked to one of these
    * entity ids. Unset or an empty array both mean "no filter".
    */
-  entityIds?: string[] | undefined;
+  entityIds?: string[];
 };
 
 export type KnowledgeAskParams = KnowledgeIdentity & {
   query: string;
-  k?: number;
+  limit?: number;
 };
 
 /** One source cited in an `ask()` answer, matched to its bracket in the text. */
@@ -101,19 +128,54 @@ export class KnowledgeNotPermittedError extends Error {
   }
 }
 
-export type KnowledgeCaptureParams = KnowledgeIdentity & {
-  title: string;
-  text: string;
+export type KnowledgeShare =
+  | { mode: "private" }
+  | { mode: "tenant" }
+  | { mode: "principals"; principalIds: string[] };
+
+export type KnowledgeAddParams = KnowledgeIdentity & {
+  /** Exactly one of `content` or `file` is required. */
+  content?: { title: string; text: string };
+  file?: {
+    bytes: Uint8Array;
+    mimeType?: string;
+    filename?: string;
+    title?: string;
+  };
   kind?: string;
   adapter?: string;
   externalRef?: string;
+  /** Direct escape hatch; mutually exclusive with `share`. */
   visibility?: VisibilitySpec;
-  /** Principal ids blocked from seeing this doc (stored for read-path post-filter). */
+  /** Direct escape hatch; with `share`, use `share.block` instead. */
   blockPrincipalIds?: string[];
+  /**
+   * Sugar for visibility + optional block list.
+   * Mutually exclusive with `visibility`.
+   */
+  share?: KnowledgeShare & { block?: string[] };
   attributes?: Record<string, string | number | boolean | null>;
 };
 
-export type KnowledgeTimelineParams = KnowledgeIdentity & {
+export type KnowledgeAddResult = { documentId: string };
+
+export type FindItem = {
+  documentId: string;
+  title: string;
+  snippet: string;
+  score: number;
+  kind: string;
+  citation: SearchHit["citation"];
+};
+
+export type FindResult = {
+  items: FindItem[];
+  /** Only present when includeEvidence: true */
+  evidence?: "strong" | "weak" | "none";
+  degraded?: HybridSearchResult["degraded"];
+};
+
+export type KnowledgeRecentParams = KnowledgeIdentity & {
   limit?: number;
 };
 
@@ -128,10 +190,10 @@ export class KnowledgeError extends Error {
 }
 
 export type KnowledgePlane = {
-  search(params: KnowledgeSearchParams): Promise<HybridSearchResult>;
+  find(params: KnowledgeFindParams): Promise<FindResult>;
   ask(params: KnowledgeAskParams): Promise<AskResult>;
-  capture(params: KnowledgeCaptureParams): Promise<void>;
-  timeline(params: KnowledgeTimelineParams): Promise<TimelineEvent[]>;
+  add(params: KnowledgeAddParams): Promise<KnowledgeAddResult>;
+  recent(params: KnowledgeRecentParams): Promise<TimelineEvent[]>;
   close(): Promise<void>;
 };
 
@@ -225,15 +287,126 @@ export async function synthesizeAnswer(
 }
 
 export type KnowledgePlaneOptions = {
-  /** Required for `ask()`; omit if the host only captures and searches. */
+  /** Required for `ask()`; omit if the host only adds and finds. */
   generate?: Generate;
+  /** Required for `add({ file })`; omit if the host only adds text content. */
+  textExtractor?: TextExtractor;
 };
+
+function resolveFindLimit(limit: number | undefined): number {
+  if (limit === undefined) return DEFAULT_HYBRID_TOP_K;
+  if (
+    typeof limit !== "number" ||
+    !Number.isInteger(limit) ||
+    limit < FIND_LIMIT_MIN ||
+    limit > FIND_LIMIT_MAX
+  ) {
+    throw new KnowledgeError(
+      400,
+      `limit must be an integer between ${FIND_LIMIT_MIN} and ${FIND_LIMIT_MAX}`,
+    );
+  }
+  return limit;
+}
+
+function resolveRecentLimit(limit: number | undefined): number | undefined {
+  if (limit === undefined) return undefined;
+  if (
+    typeof limit !== "number" ||
+    !Number.isInteger(limit) ||
+    limit < RECENT_LIMIT_MIN ||
+    limit > RECENT_LIMIT_MAX
+  ) {
+    throw new KnowledgeError(
+      400,
+      `limit must be an integer between ${RECENT_LIMIT_MIN} and ${RECENT_LIMIT_MAX}`,
+    );
+  }
+  return limit;
+}
+
+function hitsToFindItems(hits: readonly SearchHit[]): FindItem[] {
+  return hits.map((h) => ({
+    documentId: h.document_id,
+    title: h.title,
+    snippet: h.snippet,
+    score: h.score,
+    kind: h.kind,
+    citation: h.citation,
+  }));
+}
+
+/** Map FindItems back to the minimal SearchHit shape synthesizeAnswer needs. */
+function findItemsToHits(items: readonly FindItem[]): SearchHit[] {
+  return items.map((item) => ({
+    chunk_id: "",
+    document_id: item.documentId,
+    version: 0,
+    version_id: "",
+    status: "active" as const,
+    score: item.score,
+    title: item.title,
+    snippet: item.snippet,
+    kind: item.kind,
+    created_by_kind: "human" as const,
+    citation: item.citation,
+    entity_ids: [],
+    channels_matched: [],
+  }));
+}
+
+function resolveShareAndVisibility(params: KnowledgeAddParams): {
+  visibility: VisibilitySpec;
+  blockPrincipalIds?: string[];
+} {
+  if (params.share !== undefined && params.visibility !== undefined) {
+    throw new KnowledgeError(
+      400,
+      "provide share or visibility, not both",
+    );
+  }
+
+  if (params.share !== undefined) {
+    if (params.blockPrincipalIds !== undefined) {
+      throw new KnowledgeError(
+        400,
+        "provide share.block or blockPrincipalIds, not both",
+      );
+    }
+    const share = params.share;
+    let visibility: VisibilitySpec;
+    if (share.mode === "private") {
+      visibility = {
+        mode: "private",
+        principalIds: [params.principalId],
+      };
+    } else if (share.mode === "tenant") {
+      visibility = { mode: "tenant" };
+    } else {
+      const ids = new Set(share.principalIds);
+      ids.add(params.principalId);
+      visibility = { mode: "principals", principalIds: [...ids] };
+    }
+    const block = share.block;
+    return {
+      visibility,
+      ...(block && block.length > 0 ? { blockPrincipalIds: block } : {}),
+    };
+  }
+
+  return {
+    visibility: params.visibility ?? { mode: "tenant" as const },
+    ...(params.blockPrincipalIds !== undefined
+      ? { blockPrincipalIds: params.blockPrincipalIds }
+      : {}),
+  };
+}
 
 /**
  * Build a knowledge plane.
  *
  * - `grants` is required for `ask()` (in-process capability check). Standalone
- *   capture/search callers may omit it — same as #8's out-of-band plane.
+ *   add/find callers may omit it — same as #8's out-of-band plane.
  * - Rerank config is validated at construction (same as mount).
  */
 export function createKnowledgePlane(
@@ -242,7 +415,7 @@ export function createKnowledgePlane(
   options: KnowledgePlaneOptions = {},
 ): KnowledgePlane {
   // Catch a chunk-size / reranker-limit mismatch at construction time, rather
-  // than silently on every search once the reranker starts rejecting batches.
+  // than silently on every find once the reranker starts rejecting batches.
   // Throws instead of warning: a mismatch means every rerank call for this
   // host WILL 413 and silently degrade to fused ranking, with no per-request
   // signal — a construction-time failure surfaces that once, loudly.
@@ -271,7 +444,7 @@ export function createKnowledgePlane(
   // synchronous, so "before accepting traffic" becomes a memoized check
   // awaited by the first query. Read-only; migration stays a deploy step.
   // NOTE this is a lazy check, not a boot-time one: nothing forces it to run
-  // until the first real search()/capture() call, so a host that neither
+  // until the first real find()/add() call, so a host that neither
   // runs runKnowledgeMigrations itself nor wires a readiness probe will not
   // learn about a language mismatch until that first call fails. A host
   // that wants a real boot-time guarantee MUST call the exported
@@ -282,67 +455,103 @@ export function createKnowledgePlane(
     engineConfig.ftsLanguage,
   );
 
-  const plane: KnowledgePlane = {
-    async search(params) {
-      try {
-        await ensureVerified();
-        const result = await hybridSearch(deps, {
-          tenantId: params.tenantId,
-          principalId: params.principalId,
-          query: params.query,
-          k: params.k,
-          kinds: params.kinds,
-          entityIds: params.entityIds,
-        });
+  /**
+   * Hybrid retrieval + block-list post-filter. Shared by find() and ask().
+   * Returns the full HybridSearchResult so ask can synthesize from hits.
+   */
+  async function retrieve(params: {
+    tenantId: string;
+    principalId: string;
+    query: string;
+    k?: number;
+    kinds?: string[];
+    entityIds?: string[];
+  }): Promise<HybridSearchResult> {
+    try {
+      await ensureVerified();
+      const result = await hybridSearch(deps, {
+        tenantId: params.tenantId,
+        principalId: params.principalId,
+        query: params.query,
+        ...(params.k !== undefined ? { k: params.k } : {}),
+        ...(params.kinds !== undefined ? { kinds: params.kinds } : {}),
+        ...(params.entityIds !== undefined
+          ? { entityIds: params.entityIds }
+          : {}),
+      });
 
-        // Block-list post-filter: docs may store acl_block as a list of
-        // principal ids. Engine visibility does not model block lists yet.
-        // Shared with timeline via readBlockList / blockedDocumentIds.
-        if (result.hits.length === 0) return result;
-        const docIds = Array.from(
-          new Set(result.hits.map((h) => h.document_id)),
-        );
-        const rows = await sql<
-          { id: string; attributes: Record<string, unknown> | null }[]
-        >`
+      // Block-list post-filter: docs may store acl_block as a list of
+      // principal ids. Engine visibility does not model block lists yet.
+      // Shared with recent via readBlockList / blockedDocumentIds.
+      if (result.hits.length === 0) return result;
+      const docIds = Array.from(
+        new Set(result.hits.map((h) => h.document_id)),
+      );
+      const rows = await sql<
+        { id: string; attributes: Record<string, unknown> | null }[]
+      >`
           SELECT id, attributes
           FROM knowledge_document
           WHERE id = ANY(${docIds}::text[])
         `;
-        const { blocked, unreadable } = blockedDocumentIds(
-          docIds,
-          rows,
-          params.principalId,
+      const { blocked, unreadable } = blockedDocumentIds(
+        docIds,
+        rows,
+        params.principalId,
+      );
+      if (unreadable.length > 0) {
+        // Cap the sample so a large withhold batch cannot flood logs; count
+        // is always present so the full size is still auditable.
+        const sampleLimit = 20;
+        const documentIds = unreadable.slice(0, sampleLimit);
+        const more =
+          unreadable.length > sampleLimit
+            ? ` (+${unreadable.length - sampleLimit} more)`
+            : "";
+        log.warn(
+          `find: ${unreadable.length} document(s) had an unreadable acl_block or missing row; withholding: ${documentIds.join(", ")}${more}`,
+          { count: unreadable.length, documentIds },
         );
-        if (unreadable.length > 0) {
-          // Cap the sample so a large withhold batch cannot flood logs; count
-          // is always present so the full size is still auditable.
-          const sampleLimit = 20;
-          const documentIds = unreadable.slice(0, sampleLimit);
-          const more =
-            unreadable.length > sampleLimit
-              ? ` (+${unreadable.length - sampleLimit} more)`
-              : "";
-          log.warn(
-            `search: ${unreadable.length} document(s) had an unreadable acl_block or missing row; withholding: ${documentIds.join(", ")}${more}`,
-            { count: unreadable.length, documentIds },
-          );
-        }
-        if (blocked.size === 0) return result;
-        const hits = result.hits.filter((h) => !blocked.has(h.document_id));
-        // result.evidence is already "none" only when there were no hits, so
-        // a post-filter that empties the list is the only way to reach "none".
-        return {
-          ...result,
-          hits,
-          evidence: hits.length === 0 ? "none" : result.evidence,
-        };
-      } catch (err) {
-        if (err instanceof KnowledgeSearchInputError) {
-          throw new KnowledgeError(400, err.message);
-        }
-        throw err;
       }
+      if (blocked.size === 0) return result;
+      const hits = result.hits.filter((h) => !blocked.has(h.document_id));
+      // result.evidence is already "none" only when there were no hits, so
+      // a post-filter that empties the list is the only way to reach "none".
+      return {
+        ...result,
+        hits,
+        evidence: hits.length === 0 ? "none" : result.evidence,
+      };
+    } catch (err) {
+      if (err instanceof KnowledgeSearchInputError) {
+        throw new KnowledgeError(400, err.message);
+      }
+      throw err;
+    }
+  }
+
+  const plane: KnowledgePlane = {
+    async find(params) {
+      const limit = resolveFindLimit(params.limit);
+      const result = await retrieve({
+        tenantId: params.tenantId,
+        principalId: params.principalId,
+        query: params.query,
+        ...(limit !== undefined ? { k: limit } : {}),
+        ...(params.kinds !== undefined ? { kinds: params.kinds } : {}),
+        ...(params.entityIds !== undefined
+          ? { entityIds: params.entityIds }
+          : {}),
+      });
+      const items = hitsToFindItems(result.hits);
+      if (params.includeEvidence) {
+        return {
+          items,
+          evidence: result.evidence,
+          ...(result.degraded ? { degraded: result.degraded } : {}),
+        };
+      }
+      return { items };
     },
 
     async ask(params) {
@@ -350,8 +559,9 @@ export function createKnowledgePlane(
       // HTTP surface's `requireGrant("knowledge", ...)` route guard, so the
       // check has to live here — AUTH.md is explicit that the capability and
       // data layers are independent and BOTH must allow. Per-document
-      // visibility (enforced inside `search`) is not a substitute for "may
+      // visibility (enforced inside `find`) is not a substitute for "may
       // this principal search at all".
+// HTTP routes still guard with action "search"; ask matches that.
       if (!grants) {
         throw new KnowledgeError(
           501,
@@ -395,56 +605,106 @@ export function createKnowledgePlane(
         );
       }
 
-      // Search AS the asking principal — the per-document ACL boundary,
-      // including the block-list post-filter above.
-      const result = await plane.search({
+      // Find AS the asking principal — the per-document ACL boundary,
+      // including the block-list post-filter. includeEvidence so synthesis
+      // can report evidence; goes through plane.find so tests can stub it.
+      const findResult = await plane.find({
         tenantId: params.tenantId,
         principalId: params.principalId,
         query: params.query,
-        ...(params.k !== undefined ? { k: params.k } : {}),
+        includeEvidence: true,
+        ...(params.limit !== undefined ? { limit: params.limit } : {}),
       });
 
-      return synthesizeAnswer(params.query, result, options.generate);
+      return synthesizeAnswer(
+        params.query,
+        {
+          hits: findItemsToHits(findResult.items),
+          evidence: findResult.evidence ?? "none",
+        },
+        options.generate,
+      );
     },
 
-    async capture(params) {
+    async add(params) {
       await ensureVerified();
+
+      const hasContent = params.content !== undefined;
+      const hasFile = params.file !== undefined;
+      if (hasContent === hasFile) {
+        throw new KnowledgeError(
+          400,
+          "provide exactly one of content or file",
+        );
+      }
+
+      let title: string;
+      let text: string;
+      if (params.content) {
+        title = params.content.title;
+        text = params.content.text;
+      } else {
+        const file = params.file!;
+        if (!options.textExtractor) {
+          throw new KnowledgeError(
+            400,
+            "file requires a textExtractor on the knowledge plane",
+          );
+        }
+        const extracted = await options.textExtractor.extract({
+          bytes: file.bytes,
+          ...(file.mimeType !== undefined ? { mimeType: file.mimeType } : {}),
+          ...(file.filename !== undefined ? { filename: file.filename } : {}),
+        });
+        text = extracted.text;
+        title =
+          file.title ??
+          extracted.title ??
+          file.filename ??
+          "untitled";
+      }
+
+      const { visibility, blockPrincipalIds } =
+        resolveShareAndVisibility(params);
+
       const adapter = params.adapter ?? "mcp";
       const externalRef =
         params.externalRef ??
         `knowledge:${params.tenantId}:${crypto.randomUUID()}`;
-      const visibility = params.visibility ?? { mode: "tenant" as const };
       const attributes: Record<string, string | number | boolean | null> = {
         ...(params.attributes ?? {}),
       };
-      if (params.blockPrincipalIds && params.blockPrincipalIds.length > 0) {
-        attributes["acl_block"] = JSON.stringify(params.blockPrincipalIds);
+      if (blockPrincipalIds && blockPrincipalIds.length > 0) {
+        attributes["acl_block"] = JSON.stringify(blockPrincipalIds);
       }
 
-      await captureDocument(deps, {
+      const captureResult = await captureDocument(deps, {
         tenantId: params.tenantId,
         adapter,
         occurredAt: new Date().toISOString(),
         document: {
           kind: params.kind ?? "note",
-          title: params.title,
+          title,
           externalRef,
           visibility,
           entityHints: [],
-          chunks: [{ ordinal: 0, text: params.text }],
+          chunks: [{ ordinal: 0, text }],
           actor: { kind: "human", principalId: params.principalId },
           contentHash: "", // recomputed canonically in adapt-and-plan
           ...(Object.keys(attributes).length > 0 ? { attributes } : {}),
         },
       });
+      // Both captured and noop return documentId — always surface it.
+      return { documentId: captureResult.documentId };
     },
 
-    async timeline(params) {
+    async recent(params) {
+      const limit = resolveRecentLimit(params.limit);
       return listTimelineEvents({
         db,
         tenantId: params.tenantId,
         principalId: params.principalId,
-        ...(params.limit !== undefined ? { limit: params.limit } : {}),
+        ...(limit !== undefined ? { limit } : {}),
       });
     },
 

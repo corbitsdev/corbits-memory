@@ -5,7 +5,6 @@ import { type } from "arktype";
 
 import { formatCaughtError, log } from "../log.ts";
 import { KnowledgeError } from "../knowledge.ts";
-import { SearchResponseSchema } from "../core/schemas/search.ts";
 import type { RouteDeps } from "./deps.ts";
 import { caller, grantGuard, requirePrincipal } from "./deps.ts";
 
@@ -23,6 +22,21 @@ const SearchRequest = type({
   "entity_ids?": "string[]",
 });
 
+// Green FindResult shape. includeEvidence is always true on HTTP so the wire
+// keeps reporting evidence for existing clients.
+const FindResponse = type({
+  items: type({
+    documentId: "string",
+    title: "string",
+    snippet: "string",
+    score: "number",
+    kind: "string",
+    citation: "unknown",
+  }).array(),
+  "evidence?": "'strong'|'weak'|'none'",
+  "degraded?": "string[]",
+});
+
 export function mountSearchRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
   app.post(
     "/api/knowledge/search",
@@ -35,9 +49,9 @@ export function mountSearchRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
         "requested kind/entity.",
       responses: {
         200: {
-          description: "Ranked hits with evidence",
+          description: "Ranked items with evidence",
           content: {
-            "application/json": { schema: resolver(SearchResponseSchema) },
+            "application/json": { schema: resolver(FindResponse) },
           },
         },
         400: { description: "Invalid query" },
@@ -52,11 +66,14 @@ export function mountSearchRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
       const { query, k, kinds, entity_ids } = c.req.valid("json");
       const { scopeId, subjectId } = caller(c);
       try {
-        const result = await deps.knowledge.search({
+// Body still accepts k — map to green limit. Always includeEvidence so
+        // the wire keeps the evidence field clients already rely on.
+        const result = await deps.knowledge.find({
           query,
           tenantId: scopeId,
           principalId: subjectId,
-          ...(k !== undefined ? { k } : {}),
+          includeEvidence: true,
+          ...(k !== undefined ? { limit: k } : {}),
           ...(kinds !== undefined ? { kinds } : {}),
           ...(entity_ids !== undefined ? { entityIds: entity_ids } : {}),
         });

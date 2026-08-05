@@ -29,8 +29,8 @@ const TENANT = "t1";
 const SECRET_TITLE = "Q3 layoffs — draft list";
 const PUBLIC_TITLE = "team standup notes";
 
-// A knowledge plane stub that records captures and returns fixed results.
-// Timeline applies a simple ACL model so route tests can prove the route
+// A knowledge plane stub that records adds and returns fixed results.
+// Recent applies a simple ACL model so route tests can prove the route
 // never invents titles and always scopes by the caller's principal.
 function stubPlane(opts?: {
   timelineCatalog?: Array<
@@ -40,23 +40,27 @@ function stubPlane(opts?: {
   const captured: { title: string; tenantId: string; principalId: string }[] =
     [];
   const searched: Array<
-    Pick<Parameters<KnowledgePlane["search"]>[0], "kinds" | "entityIds" | "k">
+    Pick<
+      Parameters<KnowledgePlane["find"]>[0],
+      "kinds" | "entityIds" | "limit"
+    >
   > = [];
   const catalog = opts?.timelineCatalog ?? [];
   const plane: KnowledgePlane = {
-    search: async (p) => {
-      searched.push({ kinds: p.kinds, entityIds: p.entityIds, k: p.k });
-      return { hits: [], evidence: "none" };
+    find: async (p) => {
+      searched.push({ kinds: p.kinds, entityIds: p.entityIds, limit: p.limit });
+      return { items: [], evidence: "none" };
     },
     ask: async () => ({ text: "", citations: [], evidence: "none" }),
-    capture: async (p) => {
+    add: async (p) => {
       captured.push({
-        title: p.title,
+        title: p.content?.title ?? "",
         tenantId: p.tenantId,
         principalId: p.principalId,
       });
+      return { documentId: "doc-stub" };
     },
-    timeline: async (p) => {
+    recent: async (p) => {
       return catalog
         .filter(
           (e) =>
@@ -177,6 +181,12 @@ describe("knowledge HTTP routes", () => {
       jsonPost({ title: "t", text: "body" }),
     );
     expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      status: string;
+      documentId: string;
+    };
+    expect(body.status).toBe("captured");
+    expect(body.documentId).toBe("doc-stub");
     expect(captured).toEqual([
       { title: "t", tenantId: TENANT, principalId: PRINCIPAL },
     ]);
@@ -208,7 +218,11 @@ describe("knowledge HTTP routes", () => {
       jsonPost({ query: "hello" }),
     );
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { evidence: string };
+    const body = (await res.json()) as {
+      items: unknown[];
+      evidence: string;
+    };
+    expect(body.items).toEqual([]);
     expect(body.evidence).toBe("none");
   });
 
@@ -242,7 +256,11 @@ describe("knowledge HTTP routes", () => {
     );
     expect(res.status).toBe(200);
     expect(searched).toEqual([
-      { kinds: ["artifact", "task"], entityIds: ["e1", "e2"], k: undefined },
+      {
+        kinds: ["artifact", "task"],
+        entityIds: ["e1", "e2"],
+        limit: undefined,
+      },
     ]);
   });
 
@@ -254,7 +272,7 @@ describe("knowledge HTTP routes", () => {
     );
     expect(res.status).toBe(200);
     expect(searched).toEqual([
-      { kinds: undefined, entityIds: undefined, k: undefined },
+      { kinds: undefined, entityIds: undefined, limit: undefined },
     ]);
   });
 
@@ -276,7 +294,9 @@ describe("knowledge HTTP routes", () => {
       jsonPost({ query: "hello", kinds: [], entity_ids: [] }),
     );
     expect(res.status).toBe(200);
-    expect(searched).toEqual([{ kinds: [], entityIds: [], k: undefined }]);
+    expect(searched).toEqual([
+      { kinds: [], entityIds: [], limit: undefined },
+    ]);
   });
 
   test("timeline requires the search grant", async () => {

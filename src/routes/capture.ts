@@ -14,7 +14,10 @@ const CaptureRequest = type({
   "acl?": "unknown",
 });
 
-const CaptureResponse = type({ status: "'captured'" });
+const CaptureResponse = type({
+  status: "'captured'",
+  documentId: "string",
+});
 
 export function mountCaptureRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
   app.post(
@@ -45,15 +48,14 @@ export function mountCaptureRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
       if (!parsed.ok) return c.json({ error: parsed.error }, 400);
 
       try {
-        await deps.knowledge.capture({
-          title,
-          text,
+        const { documentId } = await deps.knowledge.add({
+          content: { title, text },
           tenantId: scopeId,
           principalId: subjectId,
           visibility: parsed.visibility,
           blockPrincipalIds: parsed.block,
         });
-        return c.json({ status: "captured" });
+        return c.json({ status: "captured", documentId });
       } catch (err) {
         const errMessage = formatCaughtError(err);
         log.error(`knowledge capture failed: ${errMessage}`, { error: errMessage });

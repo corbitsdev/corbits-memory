@@ -28,7 +28,7 @@ export type { EngineConfig } from "./config.ts";
 export { RerankConfigError } from "./core/rerank-client.ts";
 // Knowledge plane
 //
-// `createKnowledgePlane` is exported so a host can capture or search outside a
+// `createKnowledgePlane` is exported so a host can add or find outside a
 // request — a CLI seeder, a batch ingester, or a test — without standing up a
 // Hono app just to get a plane. Callers acting on behalf of a user are
 // responsible for the capability check `requireGrant` would have performed; see
@@ -39,15 +39,21 @@ export type {
   AskCitation,
   AskResult,
   ChatMessage,
+  FindItem,
+  FindResult,
   Generate,
   HybridSearchResult,
+  KnowledgeAddParams,
+  KnowledgeAddResult,
   KnowledgeAskParams,
-  KnowledgeCaptureParams,
+  KnowledgeFindParams,
   KnowledgeIdentity,
   KnowledgePlane,
   KnowledgePlaneOptions,
-  KnowledgeSearchParams,
+  KnowledgeRecentParams,
+  KnowledgeShare,
   SearchHit,
+  TextExtractor,
   TimelineEvent,
   VisibilitySpec,
 } from "./knowledge.ts";
@@ -83,7 +89,7 @@ export type MountKnowledgeEngineOptions = {
    */
   grants: GrantConfig;
   /**
-   * How `ask()` reaches a model. Omit if this host only captures and searches;
+   * How `ask()` reaches a model. Omit if this host only adds and finds;
    * `ask()` then fails with a 501 naming what is missing.
    *
    * The engine owns no generation client on purpose — Interchange's
