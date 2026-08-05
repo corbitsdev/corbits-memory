@@ -73,9 +73,10 @@ exposes the same three verbs.
 Returns an in-process `Memory` (`add`, `search`, `list`, `close`) for host
 workers and ingestion modules that already resolved identity.
 
-**Agent tools are not in this package.** Routes are OpenAPI-described
-(`describeRoute`). The host mounts `@corbitsdev/hono-openapi-mcp` (or any
-OpenAPI→tools bridge) so agents call these routes under Interchange auth.
+**Agent tools live in this package** as thin HTTP clients
+(`@corbits/memory/tools` / `interchange.tools`): `defineTool` factories that
+`fetch` the mounted routes with install credentials. They do not import the
+in-process plane. OpenAPI→MCP remains an optional host bridge.
 
 ## Provenance
 

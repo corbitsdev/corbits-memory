@@ -18,6 +18,7 @@ never creates one; it mounts onto yours.
 | `loadMemoryConfig()` | Config from env |
 | `runMemoryMigrations(url)` | Apply pgvector schema |
 | `registerMemoryRoutes` | Low-level HTTP only (optional) |
+| `@corbits/memory/tools` | Interchange `defineTool` factories (`memory_add` / `memory_search` / `memory_list`) |
 
 ### Verbs
 
@@ -53,9 +54,10 @@ Agent / ingestion module
 ```
 
 1. **Mount** — host passes `app` + the same grant store it already uses.
-2. **Tools** — host exposes the OpenAPI routes as agent tools (e.g.
-   `@corbitsdev/hono-openapi-mcp`). Agents call add/search/list as the
-   authenticated principal.
+2. **Tools** — install `@corbits/memory/tools` (`defineTool` factories) on a
+   workflow with env credentials (`memoryBaseUrl`, `memoryTenantId`,
+   `memoryAuthToken`). Tools HTTP-call the mounted routes; identity is the
+   hub-authenticated principal. OpenAPI→MCP remains an optional host bridge.
 3. **Ingestion** — host modules (webhooks, batch jobs) call the routes or the
    returned plane with a resolved principal.
 

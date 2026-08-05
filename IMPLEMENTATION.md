@@ -491,9 +491,12 @@ Each route is guarded with `grantGuard(deps, action)`, which applies the host's
 | `GET /api/tenants/:tenantId/memory/list` | `search` | — | `200 { events: [{ at, title, source, tenantId, principalId }] }` — durable recent documents for the caller's scope, filtered with grant-tag access (`canAccessDocument`). One event per document (active live version). |
 
 `registerMemoryRoutes` and `createMemory({ app })` register the three HTTP routes.
-Agent tools are a host concern — mount `@corbitsdev/hono-openapi-mcp` (or any
-OpenAPI→tools bridge) against the same app. The plane surface is only
-`add` / `search` / `list` (plus `close`); inference stays on the host.
+Agent tools ship in this package as Interchange `defineTool` factories
+(`@corbits/memory/tools` / `interchange.tools`): thin HTTP clients that call the
+mounted routes with install env (`memoryBaseUrl`, `memoryTenantId`,
+`memoryAuthToken`). They do not import the plane. OpenAPI→MCP remains an optional
+host bridge. The plane surface is only `add` / `search` / `list` (plus `close`);
+inference stays on the host.
 
 
 
