@@ -1,7 +1,8 @@
 # Document access = Interchange authz (not a second ACL)
 
-**Status:** shipped hard cutover (grant tags + creator; baseline migrations)  
-**Problem (historical):** the green plane shipped a **mini-ACL** (`visibility` mode + principal list + block list) that was parallel to Interchange grants. That path is removed.
+**Status:** grant tags + creator (baseline migrations)  
+**Problem (historical):** an earlier mini-ACL (`visibility` mode + principal list + block list) ran parallel to Interchange grants. That path is gone — document access is grant tags only.
+
 
 
 ## Source of truth
@@ -145,7 +146,8 @@ Unchanged intentional tradeoff: live `SourceProvider` hits are **enrichment unde
 
 Identity never in body. `access_tags` and `share` are optional; default owner-only.
 
-`find` / `ask` / `recent` need no ACL body — principal from context + grant store.
+`search` / `list` need no ACL body — principal from context + grant store.
+
 
 ## Schema
 
@@ -174,6 +176,7 @@ Fresh databases apply the baseline migrations (`0001_extensions.sql` +
 2. Default add is owner-visible only (creator + owner tag).
 3. Principal B sees A’s doc only when host grant allows `search` on a tag present on the doc (or B is creator).
 4. Capability `memory`/`search` still required for search/list.
-5. PRODUCT.md / MIGRATION.md / README describe grant tags, not mini-ACL.
+5. PRODUCT.md / README describe grant tags, not mini-ACL.
+
 6. Engine + fakes enforce the algorithm; vendor adapters document principal-bucket limit.
 7. `bun run typecheck && bun run test` green.

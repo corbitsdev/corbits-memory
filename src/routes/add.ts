@@ -31,7 +31,8 @@ const AddResponse = type({
 
 export function mountAddRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
   app.post(
-    "/api/memory/add",
+    "/api/tenants/:tenantId/memory/add",
+
     describeRoute({
       tags: ["memory"],
       summary: "Add a note into memory",

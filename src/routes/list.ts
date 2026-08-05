@@ -41,7 +41,8 @@ function parseLimit(raw: string | undefined): number | undefined {
 
 export function mountListRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
   app.get(
-    "/api/memory/list",
+    "/api/tenants/:tenantId/memory/list",
+
     describeRoute({
       tags: ["memory"],
       summary: "List recent documents for the caller's scope",

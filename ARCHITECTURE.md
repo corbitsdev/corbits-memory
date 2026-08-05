@@ -1,97 +1,84 @@
 # Corbits Memory — Architecture
 
-A memory add / find / ask / recent SDK that mounts onto an Interchange hub. The
-host owns auth, tenancy, and the process; this library owns the memory /
-vector plane and the routes that read and write it.
+A memory **add / search / list** SDK that mounts onto an Interchange hub. The
+host owns auth, tenancy, and the process; this library owns the durable memory
+plane and the protected routes that read and write it.
 
 ## Why an SDK, not a service
 
-The memory store was originally built inside a larger backend. It turned out
-to be cleanly detachable, and then cleanly *mountable*:
+The store was detachable from a larger backend, then mountable:
 
-- No memory table has a foreign key into any control-plane table — every
-  cross-reference (`tenant_id`, `principal_id`, source refs) is plain `text`.
-- Embedding and reranking go out as plain HTTP to configured model endpoints,
-  not through any agent runtime.
-- The ACL rule is a self-contained scope stored on the row, not a join against
-  a grant engine.
+- No memory table has a foreign key into any control-plane table — cross-refs
+  (`tenant_id`, `principal_id`, source refs) are plain `text`.
+- Embedding and reranking go out as plain HTTP to configured model endpoints.
+- Document access is Interchange grant tags on the row (`accessTags` + creator),
+  not a private ACL engine inside this package.
 
-So the library needs nothing but a pgvector Postgres and an embed/rerank
-endpoint. It ships as `createMemory(opts)` — pass `app` to register HTTP. The host passes its
+It ships as `createMemory({ app, … })`: the host passes its Hono app and grant
+store; the library registers routes, reads identity from request context, and
+talks to its DocumentStore. No second server.
 
-Hono app and its grant store; the library mounts its routes, reads identity from
-the request context, and talks to its own vector store. No second server, no
-HTTP hop.
+## Product path
+
+```
+tools / ingestion  →  /api/tenants/:tenantId/memory/*  →  Memory plane  →  DocumentStore
+         ↑
+   Interchange auth + principal + grants
+```
+
+Mount is intentionally small. The host already has `app`, grants, and
+principal middleware; memory only needs to be handed those and the vector
+config (or an injected store).
 
 ## Boundaries
 
-- **Runtime**: Bun + Hono, mounted on the host's app. **DB**: its own pgvector
-  Postgres (`KNOWLEDGE_DATABASE_URL`). **Types**: arktype at every route
-  boundary.
-- **No auth of its own.** The SDK authenticates nothing. Interchange resolves
-  the caller (session, `cke_` API key, or MCP OAuth) and puts `principal` +
-  `tenant` on the request context; each mounted route reads identity from there
-  (`caller(c)` → `scopeId = principal.tenantId`, `subjectId = principal.id`).
-- **Grants delegate to the host.** Pass `grants` (`{ grantStore,
-  conditionRegistry }`) and the SDK guards routes with Interchange's
-  `createRequireGrant`.
-- **Dependencies** are public npm only — `@intx/hub-api` (`TenantEnv`,
-  `createRequireGrant`), `@intx/authz` (`authorize`), `@intx/log`, Hono,
-  Drizzle, arktype, `postgres`, `hono-openapi`. Eight total. LGPL-2.1-licensed —
-  see `LICENSE`.
+- **Runtime**: Bun + Hono, mounted on the host app. **DB**: own pgvector
+  Postgres (`KNOWLEDGE_DATABASE_URL`) unless `documentStore` is injected.
+  **Types**: arktype at every route boundary.
+- **No auth of its own.** Interchange resolves the caller and puts `principal`
+  + `tenant` on context; routes read identity from there
+  (`tenantId = principal.tenantId`, `principalId = principal.id`).
+- **Grants delegate to the host.** Pass `grantStore` + `conditionRegistry`;
+  routes use `createRequireGrant("memory", action)`.
+- **Dependencies**: `@intx/hub-api`, `@intx/authz`, `@intx/log`, Hono, Drizzle,
+  arktype, `postgres`, `hono-openapi`. LGPL-2.1 — see `LICENSE`.
 
-## Identity — read from context, stored as data
+## Identity — context in, data out
 
-1. **Who is calling** is the request principal, read off the Interchange
-   context. Clients never send `tenant_id`/`principal_id` — the handlers read
-   only content fields (title/text/query/limit/access_tags/share) and take identity from context.
-2. **What is stored** is opaque data on every record: `tenant_id`,
-   `principal_id`, `created_by_kind` (human/agent/system), `source_class`, and
-   relations (the edge graph). Every query is scoped by `tenant_id` first; then
-   document access uses Interchange grant tags (`accessTags` + creator).
+1. **Who is calling** is the request principal. Clients never send
+   `tenant_id` / `principal_id` on the body.
+2. **What is stored** is opaque data: `tenant_id`, `principal_id`,
+   `created_by_kind`, `access_tags`, source refs. Queries scope by `tenant_id`
+   first; document access is grant tags + creator.
 
-Cross-tenant isolation is enforced at query time by `tenant_id`; document-level
-access is grant tags via `@intx/authz` (creator always allowed). This is the
-trust model.
+## Layers (default pgvector store)
 
-## Layers
+- `raw_capture` — immutable original content (replay substrate).
+- `derived` — chunks / embeddings / authority / edges from raw.
+- `transform_config` + replay — rebuild derived from raw without re-fetch.
 
-- `raw_capture` — immutable, append-only original content. The replay substrate.
-- `derived` — chunks / embeddings / authority / edges, all derived from
-  `raw_capture`.
-- `transform_config` + replay — a named, versioned transform (chunk strategy,
-  embed model, rerank endpoint, authority weights, MMR λ) that rebuilds the
-  derived layer from raw without re-fetching source.
+Injected DocumentStores own their own persistence model; the plane still
+exposes the same three verbs.
 
 ## Mounted surface
 
-`createMemory({ app })` adds, under the host app:
+`createMemory({ app })` registers:
 
-- `POST /api/memory/add` — ingest a note (raw + derive).
-- `POST /api/memory/search` — hybrid retrieval: FTS + dense (pgvector) → RRF
-  fusion → cross-encoder rerank → bounded authority/recency boosts → MMR;
-  optional live `SourceProvider` merge (fail-soft).
-- `GET /api/memory/list` — recent documents for the caller's scope,
-  filtered with the same grant-tag access as local search (`canAccessDocument`).
+- `POST /api/tenants/:tenantId/memory/add` — ingest (raw + derive on the default store).
+- `POST /api/tenants/:tenantId/memory/search` — hybrid retrieval (FTS + dense → RRF → rerank →
+  authority/recency → MMR); optional live `SourceProvider` merge (fail-soft).
+- `GET /api/tenants/:tenantId/memory/list` — recent documents, same grant-tag filter as local
+  search.
 
-It also returns an in-process `Memory` (`add`, `search`, `list`, `close`).
-There is no product `ask` / `remember` / `recall` and no host-injected
-`generate` on the plane — inference is host-owned and ephemeral (call your
-model, then `add` / `search`).
+Returns an in-process `Memory` (`add`, `search`, `list`, `close`) for host
+workers and ingestion modules that already resolved identity.
 
-MCP is not part of this package — mount `@corbitsdev/hono-openapi-mcp` to expose
-these routes as MCP tools.
-
-External ingestion (Linear, GitHub, …) is not a route here — the host
-authenticates the forwarder to Interchange and calls `plane.add` / a
-`SourceProvider` mapper, or mounts HTTP add after its own auth.
-
-Legacy paths `/capture`, `/search` (old knowledge), `/timeline`, `/find`,
-`/ask`, `/recent` are not mounted (hard cutover).
+**Agent tools are not in this package.** Routes are OpenAPI-described
+(`describeRoute`). The host mounts `@corbitsdev/hono-openapi-mcp` (or any
+OpenAPI→tools bridge) so agents call these routes under Interchange auth.
 
 ## Provenance
 
-The framework-agnostic core (chunk strategies, embed client + model registry,
-authority weighting, hybrid search, MMR, rerank client, ingestion adapters) was
-extracted from an internal RAG implementation and generalized. The persistence
-and the mountable surface are native to this repo.
+Framework-agnostic core (chunking, embed/rerank clients, hybrid search, MMR)
+was extracted from an internal RAG implementation. Persistence and the
+mountable surface are native to this repo.
