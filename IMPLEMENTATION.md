@@ -329,7 +329,7 @@ returns the run summary either way.
    this repo; chunks left unembedded simply never populate the dense
    channel for the query — they're still found by lexical/FTS). Any of these
    failure modes sets `degraded: true` on the `CaptureResult`, surfaced by
-   `POST /api/memory/add` as a `degraded` field in its response — the add
+   `POST /api/tenants/:tenantId/memory/add` as a `degraded` field in its response — the add
    still succeeded (chunks are durable and lexically searchable), only the
    dense/vector channel for those chunks is incomplete.
 
@@ -486,12 +486,15 @@ Each route is guarded with `grantGuard(deps, action)`, which applies the host's
 
 | Method + path | Grant action | Request body | Response |
 |---|---|---|---|
-| `POST /api/memory/add` | `add` | `{ title, text, access_tags?, share? }` | `200 { documentId }`; `400` on validation |
-| `POST /api/memory/search` | `search` | `{ query, limit?, kinds?, entity_ids? }` (limit 1–50; `kinds`/`entity_ids` narrow every retrieval channel — lexical and dense — to a document `kind` or linked entity id before fusion; unset or `[]` = unfiltered) | `200 { items[], evidence?, degraded? }`; `400` on bad input |
-| `GET /api/memory/list` | `search` | — | `200 { events: [{ at, title, source, tenantId, principalId }] }` — durable recent documents for the caller's scope, filtered with grant-tag access (`canAccessDocument`). One event per document (active live version). |
+| `POST /api/tenants/:tenantId/memory/add` | `add` | `{ title, text, access_tags?, share? }` | `200 { documentId }`; `400` on validation |
+| `POST /api/tenants/:tenantId/memory/search` | `search` | `{ query, limit?, kinds?, entity_ids? }` (limit 1–50; `kinds`/`entity_ids` narrow every retrieval channel — lexical and dense — to a document `kind` or linked entity id before fusion; unset or `[]` = unfiltered) | `200 { items[], evidence?, degraded? }`; `400` on bad input |
+| `GET /api/tenants/:tenantId/memory/list` | `search` | — | `200 { events: [{ at, title, source, tenantId, principalId }] }` — durable recent documents for the caller's scope, filtered with grant-tag access (`canAccessDocument`). One event per document (active live version). |
 
-`registerMemoryRoutes` and `createMemory({ app })` register the three HTTP routes. MCP is a separate package (`@corbitsdev/hono-openapi-mcp`).
-There is no product `ask` / `remember` / `recall` HTTP or plane surface.
+`registerMemoryRoutes` and `createMemory({ app })` register the three HTTP routes.
+Agent tools are a host concern — mount `@corbitsdev/hono-openapi-mcp` (or any
+OpenAPI→tools bridge) against the same app. The plane surface is only
+`add` / `search` / `list` (plus `close`); inference stays on the host.
+
 
 
 ### Timeline wire fields (vs the old CaptureLog ring)

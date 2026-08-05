@@ -99,8 +99,10 @@ export { registerMemoryRoutes, type GrantConfig } from "./routes/mount.ts";
 
 export type CreateMemoryOptions = MemoryOptions & {
   /**
-   * When set, register `/api/memory/*` on this Hono app. Requires `grantStore`
-   * (routes are guarded with `requireGrant("memory", …)`).
+   * When set, register `/api/tenants/:tenantId/memory/*` on this Hono app.
+   * Requires `grantStore` (routes are guarded with `requireGrant("memory", …)`).
+   * On a real hub, mount under the same app that already runs
+   * `createResolveTenant` on `/api/tenants/:tenantId/*`.
    */
   app?: Hono<TenantEnv>;
 };
@@ -127,7 +129,8 @@ export type CreateMemoryOptions = MemoryOptions & {
  *   grantStore,
  *   conditionRegistry,
  * });
- * // POST /api/memory/add | search · GET /api/memory/list
+ * // POST …/memory/add | search · GET …/memory/list
+ * // under /api/tenants/:tenantId/
  * ```
  */
 export function createMemory(options: CreateMemoryOptions): Memory {

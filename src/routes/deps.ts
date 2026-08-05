@@ -46,10 +46,9 @@ export function caller(c: Context<TenantEnv>): {
  * rather than as the host missing middleware. `caller()` below has a perfectly
  * good error message for exactly this case, but it never gets to run.
  *
- * These routes mount at `/api/memory/*`, outside the
- * `/api/tenants/:tenantId/*` prefix that Interchange's `createResolveTenant`
- * covers, so an unresolved context is the DEFAULT for a host that just calls
- * `createMemory({ app })`. See the README for the middleware the host supplies.
+ * Routes mount at `/api/tenants/:tenantId/memory/*` so a real hub's
+ * `createResolveTenant` already sets principal + tenant. This guard is a
+ * fail-closed safety net for mis-mounted hosts and unit tests.
  */
 export function requirePrincipal(): MiddlewareHandler<TenantEnv> {
   return async (c, next) => {
@@ -59,10 +58,9 @@ export function requirePrincipal(): MiddlewareHandler<TenantEnv> {
           error: {
             code: "principal_required",
             message:
-              "No principal on the request context. The memory routes mount " +
-              "at /api/memory/*, which is outside Interchange's " +
-              "/api/tenants/:tenantId/* tenant middleware — the host must " +
-              "resolve tenant + principal for this prefix. See the " +
+              "No principal on the request context. Mount memory under " +
+              "Interchange's /api/tenants/:tenantId/* tree (or equivalent " +
+              "host middleware that sets principal + tenant). See the " +
               "@corbits/memory README.",
           },
         },

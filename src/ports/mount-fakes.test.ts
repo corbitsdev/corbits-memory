@@ -121,7 +121,7 @@ describe("createMemory with fakes only", () => {
     });
     expect(listed.some((e) => e.title === "ports note")).toBe(true);
 
-    const addRes = await app.request("/api/memory/add", {
+    const addRes = await app.request("/api/tenants/tenant_fake/memory/add", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -133,7 +133,7 @@ describe("createMemory with fakes only", () => {
     const addBody = (await addRes.json()) as { documentId: string };
     expect(addBody.documentId).toMatch(/^fake_doc_/);
 
-    const searchRes = await app.request("/api/memory/search", {
+    const searchRes = await app.request("/api/tenants/tenant_fake/memory/search", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ query: "http path" }),

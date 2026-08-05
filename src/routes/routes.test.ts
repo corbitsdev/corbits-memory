@@ -164,7 +164,7 @@ describe("memory HTTP routes", () => {
       grant(PRINCIPAL, "search"),
     ]);
     const res = await app.request(
-      "/api/memory/add",
+      "/api/tenants/t1/memory/add",
       jsonPost({ title: "t", text: "body" }),
     );
     expect(res.status).toBe(200);
@@ -178,7 +178,7 @@ describe("memory HTTP routes", () => {
   test("add without the add grant is 403", async () => {
     const { app, added } = buildApp([grant(PRINCIPAL, "search")]);
     const res = await app.request(
-      "/api/memory/add",
+      "/api/tenants/t1/memory/add",
       jsonPost({ title: "t", text: "body" }),
     );
     expect(res.status).toBe(403);
@@ -188,7 +188,7 @@ describe("memory HTTP routes", () => {
   test("legacy capture grant does not authorize add", async () => {
     const { app, added } = buildApp([grant(PRINCIPAL, "capture")]);
     const res = await app.request(
-      "/api/memory/add",
+      "/api/tenants/t1/memory/add",
       jsonPost({ title: "t", text: "body" }),
     );
     expect(res.status).toBe(403);
@@ -198,7 +198,7 @@ describe("memory HTTP routes", () => {
   test("add validates the body (400 on missing text)", async () => {
     const { app } = buildApp([grant(PRINCIPAL, "add")]);
     const res = await app.request(
-      "/api/memory/add",
+      "/api/tenants/t1/memory/add",
       jsonPost({ title: "t" }),
     );
     expect(res.status).toBe(400);
@@ -207,7 +207,7 @@ describe("memory HTTP routes", () => {
   test("search with the search grant returns a result", async () => {
     const { app } = buildApp([grant(PRINCIPAL, "search")]);
     const res = await app.request(
-      "/api/memory/search",
+      "/api/tenants/t1/memory/search",
       jsonPost({ query: "hello" }),
     );
     expect(res.status).toBe(200);
@@ -222,7 +222,7 @@ describe("memory HTTP routes", () => {
   test("search requires the search grant", async () => {
     const { app } = buildApp([grant(PRINCIPAL, "add")]);
     const res = await app.request(
-      "/api/memory/search",
+      "/api/tenants/t1/memory/search",
       jsonPost({ query: "hi" }),
     );
     expect(res.status).toBe(403);
@@ -231,7 +231,7 @@ describe("memory HTTP routes", () => {
   test("legacy find grant does not authorize search", async () => {
     const { app } = buildApp([grant(PRINCIPAL, "find")]);
     const res = await app.request(
-      "/api/memory/search",
+      "/api/tenants/t1/memory/search",
       jsonPost({ query: "hi" }),
     );
     expect(res.status).toBe(403);
@@ -240,7 +240,7 @@ describe("memory HTTP routes", () => {
   test("search rejects out-of-range limit (400)", async () => {
     const { app } = buildApp([grant(PRINCIPAL, "search")]);
     const res = await app.request(
-      "/api/memory/search",
+      "/api/tenants/t1/memory/search",
       jsonPost({ query: "hi", limit: 999 }),
     );
     expect(res.status).toBe(400);
@@ -249,7 +249,7 @@ describe("memory HTTP routes", () => {
   test("search threads kinds and entity_ids through to the plane", async () => {
     const { app, searched } = buildApp([grant(PRINCIPAL, "search")]);
     const res = await app.request(
-      "/api/memory/search",
+      "/api/tenants/t1/memory/search",
       jsonPost({
         query: "hello",
         kinds: ["artifact", "task"],
@@ -269,7 +269,7 @@ describe("memory HTTP routes", () => {
   test("search with no kinds/entity_ids leaves them unset on the plane call", async () => {
     const { app, searched } = buildApp([grant(PRINCIPAL, "search")]);
     const res = await app.request(
-      "/api/memory/search",
+      "/api/tenants/t1/memory/search",
       jsonPost({ query: "hello" }),
     );
     expect(res.status).toBe(200);
@@ -281,7 +281,7 @@ describe("memory HTTP routes", () => {
   test("search rejects a non-string-array kinds (400)", async () => {
     const { app } = buildApp([grant(PRINCIPAL, "search")]);
     const res = await app.request(
-      "/api/memory/search",
+      "/api/tenants/t1/memory/search",
       jsonPost({ query: "hi", kinds: [1, 2] }),
     );
     expect(res.status).toBe(400);
@@ -290,7 +290,7 @@ describe("memory HTTP routes", () => {
   test("search passes an empty kinds/entity_ids array through unchanged", async () => {
     const { app, searched } = buildApp([grant(PRINCIPAL, "search")]);
     const res = await app.request(
-      "/api/memory/search",
+      "/api/tenants/t1/memory/search",
       jsonPost({ query: "hello", kinds: [], entity_ids: [] }),
     );
     expect(res.status).toBe(200);
@@ -301,7 +301,7 @@ describe("memory HTTP routes", () => {
 
   test("list requires the search grant", async () => {
     const { app } = buildApp([grant(PRINCIPAL, "add")]);
-    const res = await app.request("/api/memory/list");
+    const res = await app.request("/api/tenants/t1/memory/list");
     expect(res.status).toBe(403);
   });
 
@@ -310,7 +310,7 @@ describe("memory HTTP routes", () => {
       timelineCatalog: LIST_CATALOG,
       principalId: PRINCIPAL,
     });
-    const res = await app.request("/api/memory/list");
+    const res = await app.request("/api/tenants/t1/memory/list");
     expect(res.status).toBe(200);
     const body = (await res.json()) as { events: TimelineEvent[] };
     expect(body.events.map((e) => e.title)).toEqual([PUBLIC_TITLE]);
@@ -322,7 +322,7 @@ describe("memory HTTP routes", () => {
       timelineCatalog: LIST_CATALOG,
       principalId: "alice",
     });
-    const res = await app.request("/api/memory/list");
+    const res = await app.request("/api/tenants/t1/memory/list");
     expect(res.status).toBe(200);
     const body = (await res.json()) as { events: TimelineEvent[] };
     expect(body.events.map((e) => e.title)).toContain(SECRET_TITLE);
@@ -331,7 +331,7 @@ describe("memory HTTP routes", () => {
   test("missing principal is 401", async () => {
     const app = buildAppWithoutPrincipal();
     const res = await app.request(
-      "/api/memory/search",
+      "/api/tenants/t1/memory/search",
       jsonPost({ query: "hi" }),
     );
     expect(res.status).toBe(401);

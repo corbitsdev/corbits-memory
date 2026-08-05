@@ -1,8 +1,9 @@
 # Agent guide — @corbits/memory
 
-A library, not a service. `src/` is the whole product: a memory add / find /
-ask / recent SDK that **mounts onto a host Interchange app**. There is no server,
+A library, not a service. `src/` is the whole product: a memory **add / search /
+list** SDK that **mounts onto a host Interchange app**. There is no server,
 port, or process entrypoint here, and there never should be.
+
 
 ## Commands
 

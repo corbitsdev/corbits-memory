@@ -14,15 +14,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `registerMemoryRoutes`.
 
   `createMemory`, `loadMemoryConfig`, `runMemoryMigrations`, `Memory`,
-  `MemoryConfig`, `MemoryError`. HTTP paths are under `/api/memory/`; grants are
+  `MemoryConfig`, `MemoryError`. HTTP paths are under
+  `/api/tenants/:tenantId/memory/`; grants are
   `memory:add` / `memory:search`; access tags use `memory.owner:` / `memory.tenant:`
-  / `memory.space:`. Postgres schema name remains `knowledge`. See `MIGRATION.md`.
+  / `memory.space:`. Postgres schema name remains `knowledge`.
 - **Breaking:** memory plane surface is `add` / `search` / `list` with
-  `principalId` + `tenantId` only. Removed product verbs: `find` (→`search`),
-  `recent` (→`list`), `ask`, `remember`, `recall`, and any `MemoryProvider` /
-  `generate` path. Inference is host-owned. See `MIGRATION.md`.
-- **Breaking:** HTTP routes are `POST /api/memory/add`,
-  `POST /api/memory/search`, `GET /api/memory/list`. Old paths are not mounted.
+  `principalId` + `tenantId` only. Inference is host-owned (no answer endpoint
+  or personal-memory side-channel on the plane).
+
+- **Breaking:** HTTP routes are `POST /api/tenants/:tenantId/memory/add`,
+  `POST /api/tenants/:tenantId/memory/search`,
+  `GET /api/tenants/:tenantId/memory/list` (inherits hub `resolveTenant`).
+  Old unscoped `/api/memory/*` paths are not mounted.
 - **Breaking:** grant actions are `add` and `search` (was `capture` / `find` /
   knowledge `search`). `list` uses the `search` grant. Capability resource is
   `memory`. Document-tag checks use action `search`.
@@ -42,13 +45,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optional `TextExtractor` + `file` XOR `content` on `add`
 - `share` sugar on `add` (maps to access tags only: owner, tenant, peers)
 - `access_tags` on `knowledge.document` (baseline schema; Postgres schema name unchanged)
-- `MIGRATION.md` hard-cutover notes for in-repo consumers
 
 ### Removed
 
-- Product `ask` / `remember` / `recall` and `MemoryProvider` side-channel
-- Host-injected `generate` on the plane (use host inference + `add` / `search`)
-- HTTP `POST /api/memory/ask`, `POST /api/memory/find`, `GET /api/memory/recent`
+- Host-injected generate path on the plane (use host inference + `add` / `search`)
 
 ## [0.1.2] — 2026-07-31
 
