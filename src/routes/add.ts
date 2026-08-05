@@ -8,38 +8,37 @@ import { parseAcl } from "../acl.ts";
 import type { RouteDeps } from "./deps.ts";
 import { caller, grantGuard, requirePrincipal } from "./deps.ts";
 
-const CaptureRequest = type({
+const AddRequest = type({
   title: "string >= 1",
   text: "string >= 1",
   "acl?": "unknown",
 });
 
-const CaptureResponse = type({
-  status: "'captured'",
+const AddResponse = type({
   documentId: "string",
 });
 
-export function mountCaptureRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
+export function mountAddRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
   app.post(
-    "/api/knowledge/capture",
+    "/api/knowledge/add",
     describeRoute({
       tags: ["knowledge"],
-      summary: "Capture a note into the knowledge base",
+      summary: "Add a note into the knowledge base",
       responses: {
         200: {
-          description: "Captured",
+          description: "Added",
           content: {
-            "application/json": { schema: resolver(CaptureResponse) },
+            "application/json": { schema: resolver(AddResponse) },
           },
         },
         400: { description: "Invalid request or ACL" },
         401: { description: "No principal on the request context" },
-        403: { description: "Missing the knowledge:capture grant" },
+        403: { description: "Missing the knowledge:add grant" },
       },
     }),
     requirePrincipal(),
-    grantGuard(deps, "capture"),
-    validator("json", CaptureRequest),
+    grantGuard(deps, "add"),
+    validator("json", AddRequest),
     async (c) => {
       const { title, text, acl } = c.req.valid("json");
       const { scopeId, subjectId } = caller(c);
@@ -55,11 +54,11 @@ export function mountCaptureRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
           visibility: parsed.visibility,
           blockPrincipalIds: parsed.block,
         });
-        return c.json({ status: "captured", documentId });
+        return c.json({ documentId });
       } catch (err) {
         const errMessage = formatCaughtError(err);
-        log.error(`knowledge capture failed: ${errMessage}`, { error: errMessage });
-        return c.json({ error: "capture failed" }, 502);
+        log.error(`knowledge add failed: ${errMessage}`, { error: errMessage });
+        return c.json({ error: "add failed" }, 502);
       }
     },
   );

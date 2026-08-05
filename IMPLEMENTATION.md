@@ -470,17 +470,18 @@ so knowing it will flip the tenant's live dense channel too.
 `mountKnowledgeEngine` mounts these onto the host app. Identity is the request
 principal read off the Interchange context (`caller(c)` →
 `{ scopeId: principal.tenantId, subjectId: principal.id }`); clients never send
-`tenant_id`/`principal_id` — the handlers only read title/text/query/k/acl.
+`tenant_id`/`principal_id` — the handlers only read title/text/query/limit/acl.
 Each route is guarded with `grantGuard(deps, action)`, which applies the host's
 `requireGrant("knowledge", action)` when provided (else a pass-through).
 
 | Method + path | Grant action | Request body | Response |
 |---|---|---|---|
-| `POST /api/knowledge/capture` | `capture` | `{ title, text, acl? }` | `200 { status: "captured" }`; `400` on validation |
-| `POST /api/knowledge/search` | `search` | `{ query, k?, kinds?, entity_ids? }` (k 1–50; `kinds`/`entity_ids` narrow every retrieval channel — lexical and dense — to a document `kind` or linked entity id before fusion; unset or `[]` = unfiltered) | `200 SearchResponse` (`{ hits[], evidence, degraded? }`); `400` on bad input |
-| `GET /api/knowledge/timeline` | `search` | — | `200 { events: [{ at, title, source, tenantId, principalId }] }` — durable recent documents for the caller's scope (`last_seen_at` DESC), filtered with the same visibility SQL + `acl_block` post-filter as search. One event per document (active live version), not per capture attempt. See wire field notes below. |
+| `POST /api/knowledge/add` | `add` | `{ title, text, acl? }` | `200 { documentId }`; `400` on validation |
+| `POST /api/knowledge/find` | `find` | `{ query, limit?, kinds?, entity_ids? }` (limit 1–50; `kinds`/`entity_ids` narrow every retrieval channel — lexical and dense — to a document `kind` or linked entity id before fusion; unset or `[]` = unfiltered) | `200 { items[], evidence?, degraded? }`; `400` on bad input |
+| `POST /api/knowledge/ask` | `find` | `{ query, limit? }` (1–50) | `200 { text, citations[], evidence }`; `403` / `501` as plane errors |
+| `GET /api/knowledge/recent` | `find` | — | `200 { events: [{ at, title, source, tenantId, principalId }] }` — durable recent documents for the caller's scope (`last_seen_at` DESC), filtered with the same visibility SQL + `acl_block` post-filter as find. One event per document (active live version). |
 
-`mountKnowledgeRoutes` and `mountKnowledgeEngine` both mount the three HTTP routes. MCP is a separate package (`@corbitsdev/hono-openapi-mcp`).
+`mountKnowledgeRoutes` and `mountKnowledgeEngine` mount the four HTTP routes. MCP is a separate package (`@corbitsdev/hono-openapi-mcp`).
 
 ### Timeline wire fields (vs the old CaptureLog ring)
 

@@ -111,7 +111,7 @@ describe("grantGuard", () => {
       called = { resource: String(resource), action };
       return (async () => {}) as never;
     };
-    grantGuard(deps(grantsWith(), requireGrant), "capture");
-    expect(called).toEqual({ resource: "knowledge", action: "capture" });
+grantGuard(deps(grantsWith(), requireGrant), "add");
+    expect(called).toEqual({ resource: "knowledge", action: "add" });
   });
 });

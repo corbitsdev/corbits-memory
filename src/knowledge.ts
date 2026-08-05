@@ -120,10 +120,10 @@ export type AskResult = {
   evidence: HybridSearchResult["evidence"];
 };
 
-/** Thrown when the asking principal lacks the knowledge:search capability. */
+/** Thrown when the asking principal lacks the knowledge:find capability. */
 export class KnowledgeNotPermittedError extends Error {
   constructor() {
-    super("principal lacks the knowledge:search grant");
+    super("principal lacks the knowledge:find grant");
     this.name = "KnowledgeNotPermittedError";
   }
 }
@@ -561,7 +561,7 @@ export function createKnowledgePlane(
       // data layers are independent and BOTH must allow. Per-document
       // visibility (enforced inside `find`) is not a substitute for "may
       // this principal search at all".
-// HTTP routes still guard with action "search"; ask matches that.
+// Same action as HTTP find/ask/recent: knowledge:find.
       if (!grants) {
         throw new KnowledgeError(
           501,
@@ -574,7 +574,7 @@ export function createKnowledgePlane(
         params.principalId,
         params.tenantId,
         "knowledge",
-        "search",
+        "find",
         grants.conditionRegistry,
       );
       // `effect: null` means no grant matched at all — deny by default, same
@@ -584,7 +584,7 @@ export function createKnowledgePlane(
         // template, not the structured context object (see src/log.ts).
         const effect = decision.effect ?? "no-matching-grant";
         log.info(
-          `ask: denied knowledge:search for ${params.principalId} (effect=${effect})`,
+          `ask: denied knowledge:find for ${params.principalId} (effect=${effect})`,
           {
             principalId: params.principalId,
             effect,
