@@ -5,7 +5,11 @@
   "exports": {
     ".": "./src/index.ts",
     "./migrations": "./src/migrations.ts",
-    "./config": "./src/mount-config.ts"
+    "./config": "./src/mount-config.ts",
+    "./tools": "./src/tools/index.ts"
+  },
+  "interchange": {
+    "tools": "./src/tools/index.ts"
   },
   "license": "LGPL-2.1-only",
   "type": "module",
@@ -20,6 +24,7 @@
     "test:coverage": "bun test --coverage --coverage-reporter=lcov --coverage-reporter=text ./src"
   },
   "dependencies": {
+    "@intx/agent": "0.2.2",
     "@intx/authz": "0.2.2",
     "@intx/hub-api": "0.2.2",
     "@intx/log": "0.2.2",

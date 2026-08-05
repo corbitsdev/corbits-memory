@@ -5,6 +5,7 @@
     "": {
       "name": "company-knowledge-engine",
       "dependencies": {
+        "@intx/agent": "0.2.2",
         "@intx/authz": "0.2.2",
         "@intx/hub-api": "0.2.2",
         "@intx/log": "0.2.2",
