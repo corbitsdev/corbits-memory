@@ -1,0 +1,37 @@
+{
+  "name": "@corbits/knowledge-source-linear",
+  "version": "0.1.0",
+  "description": "Thin Linear SourceProvider mapper for @corbits/knowledge-engine. Host owns OAuth, webhooks, and cron.",
+  "license": "LGPL-2.1-only",
+  "type": "module",
+  "module": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "engines": {
+    "bun": ">=1.2.0"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test ./src ./fixtures"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.9.0"
+  },
+  "files": [
+    "src",
+    "!src/**/*.test.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "linear",
+    "knowledge",
+    "source-provider",
+    "corbits"
+  ]
+}

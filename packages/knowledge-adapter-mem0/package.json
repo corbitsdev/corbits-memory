@@ -1,0 +1,47 @@
+{
+  "name": "@corbits/knowledge-adapter-mem0",
+  "version": "0.1.0",
+  "description": "Mem0 MemoryProvider adapter for @corbits/knowledge-engine (pure fetch, no SDK)",
+  "type": "module",
+  "module": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "engines": {
+    "bun": ">=1.2.0"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.9.0"
+  },
+  "license": "LGPL-2.1-only",
+  "author": "Sawyer Cutler <sawyer@dirtroad.dev>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/corbitsdev/corbits-knowledge-engine.git",
+    "directory": "packages/knowledge-adapter-mem0"
+  },
+  "homepage": "https://github.com/corbitsdev/corbits-knowledge-engine#readme",
+  "bugs": {
+    "url": "https://github.com/corbitsdev/corbits-knowledge-engine/issues"
+  },
+  "keywords": [
+    "mem0",
+    "memory",
+    "knowledge",
+    "corbits"
+  ],
+  "files": [
+    "src",
+    "!src/**/*.test.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}
