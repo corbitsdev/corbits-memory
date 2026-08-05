@@ -166,7 +166,7 @@ export function createFakeSourceProvider(
   };
 }
 
-/** In-memory MemoryProvider for tests (M3 product wire still required). */
+/** In-memory MemoryProvider for tests and host-with-fakes-only mounts. */
 export function createFakeMemoryProvider(): MemoryProvider {
   const mem: Array<{
     tenantId: string;

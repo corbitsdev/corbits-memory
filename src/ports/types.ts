@@ -1,8 +1,8 @@
 /**
- * Port contracts for pluggable storage and live sources.
+ * Port contracts for pluggable storage, live sources, and personal memory.
  *
- * DocumentStore + SourceProvider are the M2 foundation. MemoryProvider is a
- * type stub only until M3 wires remember/recall product behavior.
+ * DocumentStore + SourceProvider are the M2 foundation. MemoryProvider is
+ * wired into ask (includeMemory) and plane.remember/recall in M3.
  */
 import type { VisibilitySpec } from "../core/schemas/document.ts";
 import type {
@@ -110,8 +110,9 @@ export type SourceProvider = {
 };
 
 /**
- * M2 stub type only. remember/recall product wire is M3 (CL-5228).
- * Adapters implement this in packages/*; core never imports vendor SDKs.
+ * Personal memory port. Adapters implement this in packages/*;
+ * core never imports vendor SDKs. Writes are host-owned (remember);
+ * ask only recalls when includeMemory is true.
  */
 export type MemoryProvider = {
   remember(params: {

@@ -17,7 +17,10 @@ export const MAX_BATCH_QUERIES = 5;
 export type DegradeFlag =
   | "dense_unavailable"
   | "rerank_unavailable"
-  | "rerank_query_too_long";
+  | "rerank_query_too_long"
+  | "live_timeout"
+  | "live_error"
+  | "memory_unavailable";
 
 export interface RankedCandidate {
   /** Stable identifier the candidate is keyed by across channels (a chunk id). */

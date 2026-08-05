@@ -22,7 +22,11 @@ const DEGRADE_FLAG_SET = {
   dense_unavailable: true,
   rerank_unavailable: true,
   rerank_query_too_long: true,
+  live_timeout: true,
+  live_error: true,
+  memory_unavailable: true,
 } satisfies Record<DegradeFlag, true>;
+
 
 // Deriving the list from a `satisfies Record<DegradeFlag, true>` object
 // means adding a flag in hybrid-search.ts without adding it here is a
