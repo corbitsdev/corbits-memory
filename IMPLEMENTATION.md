@@ -8,7 +8,8 @@ and wire shapes. For the "why standalone" / boundaries story, read
 
 ```
 src/
-  index.ts                # mountMemory / mountMemoryRoutes
+  index.ts                # createMemory / registerMemoryRoutes
+
   mount-config.ts         # MemoryConfig + loadMemoryConfig() — the mount config
   config.ts               # EngineConfig — the core vector-plane config (db + embed + rerank)
   memory.ts               # createMemory — add/find/ask/recent against store or pgvector
@@ -18,7 +19,8 @@ src/
   migrations.ts           # runMemoryMigrations(url)
   ports/                  # DocumentStore / SourceProvider / MemoryProvider + fakes
   routes/                 # the mounted routes
-    mount.ts              # mountMemoryRoutes (HTTP)
+    mount.ts              # registerMemoryRoutes (HTTP)
+
     deps.ts               # RouteDeps, caller(c) (context identity), grantGuard
     add.ts, find.ts, ask.ts, recent.ts
   db/
@@ -40,7 +42,8 @@ compose.yml               # pgvector + Ollama + reranker for local dev
 ```
 
 
-The SDK has no server and no process entrypoint. `mountMemory` takes
+The SDK has no server and no process entrypoint. `createMemory` takes
+
 the host's `Hono<TenantEnv>` app plus `{ config, grants? }` and mounts the
 routes; each reads identity from the context (`caller(c)`) and guards via
 `grantGuard`. Services take `{ db, sql, config }` explicitly (no module-level
@@ -60,7 +63,8 @@ There are two config types, both in the SDK:
 - **`EngineConfig`** (`src/config.ts`) — the core vector-plane config the DB
   client and capture/search/transform services consume: `databaseUrl`,
   `dbPoolMax`, `embed`, `rerank`.
-- **`MemoryConfig`** (`src/mount-config.ts`) — what `mountMemory`
+- **`MemoryConfig`** (`src/mount-config.ts`) — what `createMemory`
+
   takes: just `{ memory: EngineConfig }`. `loadMemoryConfig()` builds one
   from the environment; hosts may also construct it programmatically. Auth,
   tenancy, and grants are the host's — none of that is config here.
@@ -472,7 +476,8 @@ so knowing it will flip the tenant's live dense channel too.
 
 ## Mounted routes
 
-`mountMemory` mounts these onto the host app. Identity is the request
+`createMemory({ app })` registers these onto the host app. Identity is the request
+
 principal read off the Interchange context (`caller(c)` →
 `{ scopeId: principal.tenantId, subjectId: principal.id }`); clients never send
 `tenant_id`/`principal_id` — the handlers only read title/text/query/limit/access_tags/share.
@@ -486,7 +491,8 @@ Each route is guarded with `grantGuard(deps, action)`, which applies the host's
 | `POST /api/memory/ask` | `find` | `{ query, limit? }` (1–50) | `200 { text, citations[], evidence }`; `403` / `501` as plane errors |
 | `GET /api/memory/recent` | `find` | — | `200 { events: [{ at, title, source, tenantId, principalId }] }` — durable recent documents for the caller's scope, filtered with grant-tag access (`canAccessDocument`). One event per document (active live version). |
 
-`mountMemoryRoutes` and `mountMemory` mount the four HTTP routes. MCP is a separate package (`@corbitsdev/hono-openapi-mcp`).
+`registerMemoryRoutes` and `createMemory({ app })` register the four HTTP routes. MCP is a separate package (`@corbitsdev/hono-openapi-mcp`).
+
 
 ### Timeline wire fields (vs the old CaptureLog ring)
 

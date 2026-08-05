@@ -5,8 +5,10 @@ import type { GrantRule } from "@intx/authz";
 import { createRequireGrant, type TenantEnv } from "@intx/hub-api";
 
 import type { Memory, TimelineEvent } from "../memory.ts";
-import { mountMemoryRoutes } from "./mount.ts";
+import { registerMemoryRoutes } from "./mount.ts";
+
 import type { RouteDeps } from "./deps.ts";
+
 
 function grant(principalId: string, action: string): GrantRule {
   return {
@@ -124,7 +126,7 @@ function buildApp(
     });
     await next();
   });
-  mountMemoryRoutes(app, deps);
+  registerMemoryRoutes(app, deps);
   return { app, added, searched };
 }
 
@@ -142,7 +144,7 @@ function buildAppWithoutPrincipal() {
     requireGrant: createRequireGrant(grantConfig),
   };
   const app = new Hono<TenantEnv>();
-  mountMemoryRoutes(app, deps);
+  registerMemoryRoutes(app, deps);
   return app;
 }
 

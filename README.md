@@ -1,8 +1,12 @@
 # @corbits/memory
 
-Mountable memory plane for [Interchange](https://github.com/corbitsdev) hubs:
+Memory plane for [Interchange](https://github.com/corbitsdev) hubs:
 **add** documents, **find** with hybrid search, **ask** grounded answers, **recent**
 timeline — with optional live sources and personal memory.
+
+**One entry point:** `createMemory(options)`. Pass `app` to register
+`/api/memory/*` on your Hono host. Without `app`, you get an in-process plane
+only (CLI, worker, tests).
 
 **Authenticates nothing.** Identity is `c.get("principal")` on HTTP; in-process
 callers pass `principalId` + `tenantId`. Authorization is the host grant store
@@ -39,7 +43,6 @@ import { createInMemoryGrantStore, type GrantRule } from "@intx/authz";
 import {
   createFakeDocumentStore,
   createMemory,
-  mountMemory,
 } from "@corbits/memory";
 
 const TENANT = "tenant_demo";
@@ -72,10 +75,9 @@ const grantRules: GrantRule[] = [
   },
 ];
 
-const grants = {
-  grantStore: createInMemoryGrantStore(grantRules),
-  conditionRegistry: {}, // empty registry is fine when grants have no conditions
-};
+const grantStore = createInMemoryGrantStore(grantRules);
+// Empty condition registry is fine when grants have no conditions.
+const conditionRegistry = {};
 
 // 2. Durable store. Fakes prove the port boundary; swap for Postgres or a
 //    sibling DocumentStore adapter later.
@@ -109,9 +111,11 @@ app.use("/api/memory/*", async (c, next) => {
   await next();
 });
 
-// 4. Mount HTTP plane. Returns the same Memory object for in-process use.
-const { memory } = mountMemory(app, {
-  grants,
+// 4. One call: plane + HTTP routes. Returns Memory for in-process use too.
+const memory = createMemory({
+  app,
+  grantStore,
+  conditionRegistry,
   documentStore,
   // optional: generate for ask(); textExtractor for add({ file })
   generate: async (messages) => {
@@ -120,28 +124,21 @@ const { memory } = mountMemory(app, {
   },
 });
 
-// 5. In-process path (CLI, worker, tests) — same plane, no HTTP.
-//    One options bag only. Never createMemory(undefined, …).
-const plane = createMemory({
-  grants,
-  documentStore,
-  generate: async () => "in-process answer",
-});
-
-await plane.add({
+// 5. In-process path (CLI, worker, tests) — same plane, no second factory.
+await memory.add({
   tenantId: TENANT,
   principalId: PRINCIPAL,
   content: { title: "Kickoff", text: "Ship memory 0→1 docs" },
 });
 
-const hits = await plane.find({
+const hits = await memory.find({
   tenantId: TENANT,
   principalId: PRINCIPAL,
   query: "memory docs",
 });
 console.log("find hits:", hits.items.length);
 
-const answer = await plane.ask({
+const answer = await memory.ask({
   tenantId: TENANT,
   principalId: PRINCIPAL,
   query: "what should we ship?",
@@ -154,7 +151,6 @@ export default {
   fetch: app.fetch,
 };
 
-// Or: bun.serve({ port: 8787, fetch: app.fetch })
 console.log("listening on http://127.0.0.1:8787");
 ```
 
@@ -163,7 +159,8 @@ Try the HTTP routes (principal is fixed by middleware above):
 ```bash
 curl -sS -X POST http://127.0.0.1:8787/api/memory/add \
   -H 'content-type: application/json' \
-  -d '{"content":{"title":"Note","text":"hello from curl"}}'
+  -d '{"title":"Note","text":"hello from curl"}'
+
 
 curl -sS -X POST http://127.0.0.1:8787/api/memory/find \
   -H 'content-type: application/json' \
@@ -188,20 +185,19 @@ Clients never send tenant/principal in the body. Without principal middleware:
 
 ## Production host (Postgres + real Interchange)
 
-Same `mountMemory` call. Replace fakes and the demo grant store with the hub’s
-real wiring:
+Same `createMemory` call. Replace fakes and the demo grant store with the hub’s
+real wiring. Register principal/tenant middleware **before** `createMemory({ app })`.
 
 ```ts
-import { mountMemory, loadMemoryConfig } from "@corbits/memory";
+import { createMemory, loadMemoryConfig } from "@corbits/memory";
 
 // Same grantStore + conditionRegistry you already pass to createApp /
 // createRequireGrant from @intx/hub-api.
-mountMemory(app, {
+const memory = createMemory({
+  app,
   config: loadMemoryConfig(), // needs KNOWLEDGE_DATABASE_URL + embed env
-  grants: {
-    grantStore: hubGrantStore,
-    conditionRegistry: hubConditionRegistry,
-  },
+  grantStore: hubGrantStore,
+  conditionRegistry: hubConditionRegistry,
   // generate: wire to @intx/inference (or your own) for ask()
 });
 ```
@@ -219,9 +215,6 @@ Tables live under Postgres schema **`knowledge`**
 (`knowledge.document`, `knowledge.version`, `knowledge.chunk`, …). Hard cutover
 pre-1.0: re-run migrations on a fresh knowledge DB.
 
-Mount middleware **before** `mountMemory` that sets `c.set("principal", …)` and
-`c.set("tenant", …)` for `/api/memory/*` (session auth is still the host’s job).
-
 ## Ports
 
 | Port | Default | Override |
@@ -234,8 +227,8 @@ Mount middleware **before** `mountMemory` that sets `c.set("principal", …)` an
 `live_error` degrade; dedupe `adapter:externalRef`; optional `sources` filter.
 
 **Memory side-channel:** `ask({ includeMemory: true })` recalls when a provider
-is mounted; failure → `memory_unavailable`, docs-only. `plane.remember` /
-`plane.recall` for host-owned writes (ask never auto-remembers).
+is set; failure → `memory_unavailable`, docs-only. `memory.remember` /
+`memory.recall` for host-owned writes (ask never auto-remembers).
 
 ### Optional DocumentStore adapters (sibling packages)
 
@@ -253,7 +246,8 @@ import { createMem0DocumentStore } from "@corbits/mem0-memory-adapter";
 
 const memory = createMemory({
   documentStore: createMem0DocumentStore({ apiKey: process.env.MEM0_API_KEY! }),
-  grants,
+  grantStore,
+  conditionRegistry,
 });
 ```
 
@@ -261,23 +255,30 @@ const memory = createMemory({
 
 1. Host capability grants (`memory` + `add` / `find`)
 2. Per-document **access tags** + creator rule (Interchange `@intx/authz`)
-3. Share sugars on `add` only mint tags — no visibility modes or block lists
+3. Share mints tags only — no visibility modes or block lists
 
-Full design: `docs/AUTHZ-DOCUMENT-ACCESS.md`.
+See [docs/AUTHZ-DOCUMENT-ACCESS.md](./docs/AUTHZ-DOCUMENT-ACCESS.md).
 
-## Docs
+## Compose routes yourself
 
-- `PRODUCT.md` — product shape and out-of-scope
-- `ARCHITECTURE.md` — design decisions
-- `IMPLEMENTATION.md` — env vars, data model, services
-- `MIGRATION.md` — hard cutover from capture/search/timeline
+Most hosts use `createMemory({ app, … })`. For custom route composition:
 
-## Develop
+```ts
+import { createMemory, registerMemoryRoutes, resolveGrantConfig } from "@corbits/memory";
+import { createRequireGrant } from "@intx/hub-api";
 
-```bash
-bun install
-bun run typecheck
-bun run test
+const grantStore = hubGrantStore;
+const conditionRegistry = hubConditionRegistry;
+const grants = resolveGrantConfig({ grantStore, conditionRegistry })!;
+
+const memory = createMemory({ grantStore, conditionRegistry, documentStore }); // no app
+registerMemoryRoutes(app, {
+  memory,
+  grants,
+  requireGrant: createRequireGrant(grants),
+});
 ```
 
-License: LGPL-2.1 (`LICENSE`). Contributions: `CLA.md`.
+## License
+
+LGPL-2.1-only

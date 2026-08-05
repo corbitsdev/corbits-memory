@@ -45,10 +45,8 @@ describe("MemoryProvider product wire (CL-5228)", () => {
     };
     const store = createFakeDocumentStore();
     const plane = createMemory({
-      grants: {
-        grantStore: createInMemoryGrantStore([grant("find")]),
-        conditionRegistry: {},
-      },
+      grantStore: createInMemoryGrantStore([grant("find")]),
+      conditionRegistry: {},
       documentStore: store,
       memoryProvider: memory,
       generate: async (msgs) => {
@@ -80,10 +78,8 @@ describe("MemoryProvider product wire (CL-5228)", () => {
     });
     const store = createFakeDocumentStore();
     const plane = createMemory({
-      grants: {
-        grantStore: createInMemoryGrantStore([grant("find")]),
-        conditionRegistry: {},
-      },
+      grantStore: createInMemoryGrantStore([grant("find")]),
+      conditionRegistry: {},
       documentStore: store,
       memoryProvider: memory,
       generate: async (msgs) => {
@@ -117,10 +113,8 @@ describe("MemoryProvider product wire (CL-5228)", () => {
     };
     const store = createFakeDocumentStore();
     const plane = createMemory({
-      grants: {
-        grantStore: createInMemoryGrantStore([grant("find")]),
-        conditionRegistry: {},
-      },
+      grantStore: createInMemoryGrantStore([grant("find")]),
+      conditionRegistry: {},
       documentStore: store,
       memoryProvider: memory,
       generate: async () => "docs-only [1]",

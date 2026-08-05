@@ -75,8 +75,10 @@ In-process `ask()` also checks `memory` / `find` (was `knowledge` / `search`).
 | Was | Now |
 | --- | --- |
 | `@corbits/knowledge-engine` | `@corbits/memory` |
-| `mountKnowledgeEngine` | `mountMemory` |
-| `mountKnowledgeRoutes` | `mountMemoryRoutes` |
+| `mountKnowledgeEngine` | `createMemory({ app, … })` |
+| `mountKnowledgeRoutes` | `registerMemoryRoutes` (or `createMemory({ app })`) |
+| `mountMemory` / `mountMemoryRoutes` | `createMemory({ app })` / `registerMemoryRoutes` |
+
 | `createKnowledgePlane` | `createMemory` |
 | `loadKnowledgeConfig` | `loadMemoryConfig` |
 | `runKnowledgeMigrations` | `runMemoryMigrations` |

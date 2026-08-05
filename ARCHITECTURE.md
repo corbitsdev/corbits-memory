@@ -17,7 +17,8 @@ to be cleanly detachable, and then cleanly *mountable*:
   a grant engine.
 
 So the library needs nothing but a pgvector Postgres and an embed/rerank
-endpoint. It ships as `mountMemory(app, opts)`: the host passes its
+endpoint. It ships as `createMemory(opts)` — pass `app` to register HTTP. The host passes its
+
 Hono app and its grant store; the library mounts its routes, reads identity from
 the request context, and talks to its own vector store. No second server, no
 HTTP hop.
@@ -64,7 +65,8 @@ trust model.
 
 ## Mounted surface
 
-`mountMemory` adds, under the host app:
+`createMemory({ app })` adds, under the host app:
+
 
 - `POST /api/memory/add` — ingest a note (raw + derive).
 - `POST /api/memory/find` — hybrid retrieval: FTS + dense (pgvector) → RRF

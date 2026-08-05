@@ -11,10 +11,11 @@ SDK never creates one; it mounts onto yours.
 
 | Surface | Role |
 | --- | --- |
-| `mountMemory(app, opts)` | Plane + HTTP on an Interchange `createApp` |
-| `createMemory(options?: MemoryOptions)` | Same plane without HTTP |
+| `createMemory(opts)` | Plane; pass `app` to register HTTP on an Interchange host |
 | `runMemoryMigrations(url)` | Apply pgvector schema under Postgres `knowledge` |
-| `loadMemoryConfig()` | Mount config from env |
+| `loadMemoryConfig()` | Config from env |
+| `registerMemoryRoutes` | Optional low-level HTTP registration |
+
 
 ### Green public plane (only these verbs)
 
@@ -96,7 +97,8 @@ Claude Code / Codex / Workbench (clients)
         ▼
 ┌──────────────────────────────────────────────┐
 │  Host Interchange createApp                  │
-│  + mountMemory(app, opts)           │
+│  + createMemory({ app, … })         │
+
 │       grants: memory:add | memory:find │
 │       documentStore: pgvector | host store │
 │                      | fake                │

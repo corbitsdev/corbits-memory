@@ -2,7 +2,7 @@ import type { EngineConfig } from "./config.ts";
 import { parseFtsLanguage } from "./core/fts-language.ts";
 
 /**
- * SDK mount config — what `mountMemory` consumes.
+ * SDK config — what `createMemory` consumes.
  *
  * The host Interchange app owns auth, tenancy, grants, and the process. This
  * config carries only what the memory engine itself needs: its vector DB +

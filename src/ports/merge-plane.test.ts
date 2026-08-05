@@ -232,10 +232,8 @@ describe("plane merge (MergeLocalLiveV1)", () => {
   it("ask still works when live source errors", async () => {
     const store = createFakeDocumentStore();
     const plane = createMemory({
-      grants: {
-        grantStore: createInMemoryGrantStore([grant("find")]),
-        conditionRegistry: {},
-      },
+      grantStore: createInMemoryGrantStore([grant("find")]),
+      conditionRegistry: {},
       documentStore: store,
       sources: [
         {

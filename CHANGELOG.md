@@ -10,7 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Breaking:** package and public surface renamed from `@corbits/knowledge-engine`
-  to `@corbits/memory`. Public APIs: `mountMemory`, `mountMemoryRoutes`,
+  to `@corbits/memory`. Public APIs: `createMemory` (optional `app` registers HTTP),
+  `registerMemoryRoutes`.
+
   `createMemory`, `loadMemoryConfig`, `runMemoryMigrations`, `Memory`,
   `MemoryConfig`, `MemoryError`. HTTP paths are under `/api/memory/`; grants are
   `memory:add` / `memory:find`; access tags use `memory.owner:` / `memory.tenant:`

@@ -881,7 +881,7 @@ export async function hybridSearch(
     try {
       // A replay's transform_config can supply its own rerank endpoint/model
       // (resolvedTuning?.rerank, above) that never passes through
-      // mountMemory's startup validation — validate it here, on the
+      // createMemory's startup validation — validate it here, on the
       // same terms as the mounted config, so a replay-authored mismatch
       // degrades to fused ranking (caught below) instead of silently
       // 413-ing every rerank call for that generation.

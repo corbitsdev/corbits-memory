@@ -377,10 +377,17 @@ export type MemoryOptions = {
   /** Engine config (DB + model endpoints). Required when `documentStore` is omitted. */
   config?: MemoryConfig;
   /**
-   * Host grant store + condition registry. Required for `ask()` (in-process
-   * capability check). Standalone add/find callers may omit it.
+   * Host Interchange `GrantStore`. Required for `ask()` (in-process capability
+   * check) and for document access filtering on find/recent. Standalone
+   * add-only callers may omit it.
    */
-  grants?: GrantConfig;
+  grantStore?: GrantConfig["grantStore"];
+  /**
+   * Host Interchange condition evaluators keyed by name. Optional — default
+   * `{}` when `grantStore` is set. Same object the hub passes to
+   * `createRequireGrant` / `createApp`.
+   */
+  conditionRegistry?: GrantConfig["conditionRegistry"];
   /** Required for `ask()`; omit if the host only adds and finds. */
   generate?: Generate;
   /** Required for `add({ file })`; omit if the host only adds text content. */
@@ -402,6 +409,17 @@ export type MemoryOptions = {
    */
   memoryProvider?: MemoryProvider;
 };
+
+/** Bundle host authz pieces for route guards and document access. */
+export function resolveGrantConfig(
+  options: Pick<MemoryOptions, "grantStore" | "conditionRegistry">,
+): GrantConfig | undefined {
+  if (!options.grantStore) return undefined;
+  return {
+    grantStore: options.grantStore,
+    conditionRegistry: options.conditionRegistry ?? {},
+  };
+}
 
 function resolveFindLimit(limit: number | undefined): number {
   if (limit === undefined) return DEFAULT_HYBRID_TOP_K;
@@ -484,8 +502,9 @@ function resolveAddAccessTags(params: MemoryAddParams): string[] {
  * is omitted, the default pgvector engine is wrapped as that store. Hosts
  * inject a DocumentStore or fakes the same way — no second plane implementation.
  *
- * - `options.grants` is required for `ask()` (in-process capability check).
- *   Standalone add/find callers may omit it.
+ * - `options.grantStore` is required for `ask()` (in-process capability check).
+ *   Standalone add/find callers may omit it. `conditionRegistry` is optional
+ *   (defaults to `{}`).
  * - Rerank config is validated at construction when using the default store.
  * - Pass `options.sources` for live SourceProviders; find/ask merge via
  *   MergeLocalLiveV1 (fail-soft, 800ms timeout, prefer-local dedupe).
@@ -495,7 +514,8 @@ function resolveAddAccessTags(params: MemoryAddParams): string[] {
  * ```ts
  * const memory = createMemory({
  *   config: loadMemoryConfig(),
- *   grants: { grantStore, conditionRegistry },
+ *   grantStore,
+ *   conditionRegistry,
  * });
  * ```
  *
@@ -503,20 +523,25 @@ function resolveAddAccessTags(params: MemoryAddParams): string[] {
  * ```ts
  * const memory = createMemory({
  *   documentStore: myStore,
- *   grants: { grantStore, conditionRegistry },
+ *   grantStore,
  * });
  * ```
  */
 export function createMemory(options: MemoryOptions = {}): Memory {
   const {
     config,
-    grants,
+    grantStore,
+    conditionRegistry,
     documentStore,
     generate,
     textExtractor,
     sources,
     memoryProvider,
   } = options;
+  const grants = resolveGrantConfig({
+    ...(grantStore !== undefined ? { grantStore } : {}),
+    ...(conditionRegistry !== undefined ? { conditionRegistry } : {}),
+  });
   const store =
     documentStore ??
     (() => {
@@ -731,7 +756,7 @@ function makeRememberRecall(options: MemoryOptions): {
         throw new MemoryError(
           501,
           "remember() requires a MemoryProvider. Pass memoryProvider to " +
-            "createMemory/mountMemory.",
+            "createMemory.",
         );
       }
       await options.memoryProvider.remember({
@@ -852,8 +877,8 @@ function createPlaneFromStore(
       if (!grants) {
         throw new MemoryError(
           501,
-          "ask() requires a GrantConfig. Pass grants to " +
-            "createMemory/mountMemory.",
+          "ask() requires a grantStore. Pass grantStore to " +
+            "createMemory({ grantStore, … }) (conditionRegistry optional).",
         );
       }
       const decision = await authorize(
@@ -883,7 +908,7 @@ function createPlaneFromStore(
         throw new MemoryError(
           501,
           "ask() requires a `generate` function. Pass one to " +
-            "createMemory/mountMemory, wired to your " +
+            "createMemory, wired to your " +
             "inference layer.",
         );
       }
@@ -1015,7 +1040,7 @@ function createEngineDocumentStore(config: MemoryConfig): DocumentStore {
   // (`defaultMaxDocCharsForModel`) is self-consistent by construction —
   // validation can only fire on an operator's own `maxDocChars` override,
   // never spuriously on an unmodified config.
-  // Lives here (not only in mountMemory) so standalone construction
+  // Lives here (not only in createMemory with app) so standalone construction
   // cannot silently degrade on a bad override.
   const rerankConfig = toRerankClientConfig(config.memory.rerank);
   if (rerankConfig) validateRerankConfig(rerankConfig);

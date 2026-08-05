@@ -1,5 +1,5 @@
 /**
- * Acceptance: a host can mount with only fakes and get working
+ * Acceptance: a host can createMemory with only fakes and get working
  * add / find / ask / recent — proves the port boundary is real.
  */
 import { describe, expect, it } from "bun:test";
@@ -13,7 +13,7 @@ import {
 import {
   createFakeDocumentStore,
   createFakeSourceProvider,
-  mountMemory,
+  createMemory,
 } from "../index.ts";
 
 const TENANT = "tenant_fake";
@@ -62,7 +62,7 @@ function appWithPrincipal() {
   return app;
 }
 
-describe("mount with fakes only", () => {
+describe("createMemory with fakes only", () => {
   it("add → find → recent → ask without Postgres or embed config", async () => {
     const store = createFakeDocumentStore();
     const sources = [
@@ -87,11 +87,10 @@ describe("mount with fakes only", () => {
       ]),
     ];
     const app = appWithPrincipal();
-    const { memory } = mountMemory(app, {
-      grants: {
-        grantStore: createInMemoryGrantStore([grant("add"), grant("find")]),
-        conditionRegistry: {},
-      },
+    const memory = createMemory({
+      app,
+      grantStore: createInMemoryGrantStore([grant("add"), grant("find")]),
+      conditionRegistry: {},
       documentStore: store,
       sources,
       generate: async () => "Answer from local store [1].",
@@ -138,6 +137,7 @@ describe("mount with fakes only", () => {
         title: "via http",
         text: "http path uses the same store",
       }),
+
     });
     expect(addRes.status).toBe(200);
     const addBody = (await addRes.json()) as { documentId: string };

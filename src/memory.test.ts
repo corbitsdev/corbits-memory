@@ -172,7 +172,7 @@ function baseConfig(
 describe("createMemory — construction validation", () => {
   it("throws RerankConfigError when maxDocChars overflows a known TEI model", () => {
     // Proves validateRerankConfig runs inside createMemory (not only
-    // mountMemory): a standalone plane with a bad override must fail
+    // createMemory): a standalone plane with a bad override must fail
     // construction, not silently degrade on every later find.
     expect(() =>
       createMemory({
@@ -734,23 +734,24 @@ async function freshPlane(opts?: {
 
 describe("ask() — grant check", () => {
   it("denies with MemoryNotPermittedError when no grant matches (effect: null)", async () => {
-    const grants = {
-      grantStore: createInMemoryGrantStore([]),
+    const grantStore = createInMemoryGrantStore([]);
+    const plane = createMemory({
+      config: askConfig,
+      grantStore,
       conditionRegistry: {},
-    };
-    const plane = createMemory({ config: askConfig, grants });
+    });
     await expect(
       plane.ask({ tenantId: TENANT, principalId: PRINCIPAL, query: "q" }),
     ).rejects.toBeInstanceOf(MemoryNotPermittedError);
   });
 
   it("denies when the only matching grant is an explicit deny", async () => {
-const denyGrant: GrantRule = { ...grant("find"), effect: "deny" };
-    const grants = {
+    const denyGrant: GrantRule = { ...grant("find"), effect: "deny" };
+    const plane = createMemory({
+      config: askConfig,
       grantStore: createInMemoryGrantStore([denyGrant]),
       conditionRegistry: {},
-    };
-    const plane = createMemory({ config: askConfig, grants });
+    });
     await expect(
       plane.ask({ tenantId: TENANT, principalId: PRINCIPAL, query: "q" }),
     ).rejects.toBeInstanceOf(MemoryNotPermittedError);
@@ -761,11 +762,11 @@ describe("ask() — missing generate", () => {
   it("throws MemoryError 501 before find when generate is not wired", async () => {
     // Pointed at a nonexistent DB: if find ran first this would surface a
     // connection/driver error instead of the promised 501.
-    const grants = {
-grantStore: createInMemoryGrantStore([grant("find")]),
+    const plane = createMemory({
+      config: askConfig,
+      grantStore: createInMemoryGrantStore([grant("find")]),
       conditionRegistry: {},
-    };
-    const plane = createMemory({ config: askConfig, grants });
+    });
     try {
       await plane.ask({ tenantId: TENANT, principalId: PRINCIPAL, query: "q" });
       throw new Error("expected ask() to reject");
@@ -779,10 +780,6 @@ grantStore: createInMemoryGrantStore([grant("find")]),
 
 describe("ask() — allow path", () => {
   it("finds as the principal and synthesizes when grant allows and generate is wired", async () => {
-    const grants = {
-      grantStore: createInMemoryGrantStore([grant("find")]),
-      conditionRegistry: {},
-    };
     const generate = mock((messages: readonly ChatMessage[]) => {
       expect(messages[0]?.role).toBe("system");
       expect(messages[1]?.content).toContain("what is the answer?");
@@ -790,7 +787,12 @@ describe("ask() — allow path", () => {
       expect(messages[1]?.content).toContain("the relevant snippet");
       return Promise.resolve("Answer from context [1].");
     });
-    const plane = createMemory({ config: askConfig, grants, generate });
+    const plane = createMemory({
+      config: askConfig,
+      grantStore: createInMemoryGrantStore([grant("find")]),
+      conditionRegistry: {},
+      generate,
+    });
     // Stub find so this unit test never needs a live Postgres. ask() looks
     // up plane.find at call time, so reassignment is the wiring under test.
     plane.find = mock(() =>

@@ -49,7 +49,7 @@ export function caller(c: Context<TenantEnv>): {
  * These routes mount at `/api/memory/*`, outside the
  * `/api/tenants/:tenantId/*` prefix that Interchange's `createResolveTenant`
  * covers, so an unresolved context is the DEFAULT for a host that just calls
- * `mountMemory`. See the README for the middleware the host supplies.
+ * `createMemory({ app })`. See the README for the middleware the host supplies.
  */
 export function requirePrincipal(): MiddlewareHandler<TenantEnv> {
   return async (c, next) => {
