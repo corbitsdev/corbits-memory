@@ -172,8 +172,8 @@ Fresh databases apply the baseline migrations (`0001_extensions.sql` +
 
 1. No public plane/HTTP API accepts `visibility` mode or block list as security.
 2. Default add is owner-visible only (creator + owner tag).
-3. Principal B sees A’s doc only when host grant allows `find` on a tag present on the doc (or B is creator).
-4. Capability `memory`/`find` still required for find/ask/recent.
+3. Principal B sees A’s doc only when host grant allows `search` on a tag present on the doc (or B is creator).
+4. Capability `memory`/`search` still required for search/list.
 5. PRODUCT.md / MIGRATION.md / README describe grant tags, not mini-ACL.
 6. Engine + fakes enforce the algorithm; vendor adapters document principal-bucket limit.
 7. `bun run typecheck && bun run test` green.
