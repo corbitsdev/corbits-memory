@@ -1,5 +1,5 @@
 /**
- * Memory / vector plane config — the core engine behind add/find/recent.
+ * Memory / vector plane config — the core engine behind add/search/list.
  *
  * This is the low-level engine config consumed by the DB client and internal
  * services. The SDK's mount-level config (`MemoryConfig`, see

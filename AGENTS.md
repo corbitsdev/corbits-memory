@@ -21,9 +21,9 @@ CI runs `typecheck` + `test` — both must pass before any push.
 - `src/index.ts` — public surface: `createMemory` (optional `app` registers HTTP), `registerMemoryRoutes`
 
 - `src/mount-config.ts` / `src/config.ts` — mount config + engine config
-- `src/routes/` — Hono routes (`add`, `find`, `ask`, `recent`)
+- `src/routes/` — Hono routes (`add`, `search`, `list`)
 - `src/services/` — capture / search / transform internals (not public verbs)
-- `src/ports/` — `DocumentStore` / `SourceProvider` / `MemoryProvider` + fakes
+- `src/ports/` — `DocumentStore` / `SourceProvider` + fakes
 - `src/core/` — embed/rerank clients, merge, arktype schemas
 - `src/db/` + `migrations/` — Drizzle schema + SQL migrations (pgvector, `knowledge.*`)
 - `packages/` — removed; DocumentStore adapters and Linear tools are sibling packages

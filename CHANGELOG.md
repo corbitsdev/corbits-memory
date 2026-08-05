@@ -15,34 +15,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   `createMemory`, `loadMemoryConfig`, `runMemoryMigrations`, `Memory`,
   `MemoryConfig`, `MemoryError`. HTTP paths are under `/api/memory/`; grants are
-  `memory:add` / `memory:find`; access tags use `memory.owner:` / `memory.tenant:`
+  `memory:add` / `memory:search`; access tags use `memory.owner:` / `memory.tenant:`
   / `memory.space:`. Postgres schema name remains `knowledge`. See `MIGRATION.md`.
-- **Breaking:** memory plane surface is `add` / `find` / `ask` / `recent` with
-  `principalId` + `tenantId` only (`capture` / `search` / `timeline` and
-  `subjectId` / `scopeId` removed). See `MIGRATION.md`.
+- **Breaking:** memory plane surface is `add` / `search` / `list` with
+  `principalId` + `tenantId` only. Removed product verbs: `find` (→`search`),
+  `recent` (→`list`), `ask`, `remember`, `recall`, and any `MemoryProvider` /
+  `generate` path. Inference is host-owned. See `MIGRATION.md`.
 - **Breaking:** HTTP routes are `POST /api/memory/add`,
-  `POST /api/memory/find`, `POST /api/memory/ask`,
-  `GET /api/memory/recent`. Old paths are not mounted.
-- **Breaking:** grant actions are `add` and `find` (was `capture` / `search`).
-  `ask` and `recent` use the `find` grant. Capability resource is `memory`.
-- **Breaking:** `add` returns `{ documentId }`; find body uses `limit` (not `k`);
-  find wire uses `items` (not `hits`).
+  `POST /api/memory/search`, `GET /api/memory/list`. Old paths are not mounted.
+- **Breaking:** grant actions are `add` and `search` (was `capture` / `find` /
+  knowledge `search`). `list` uses the `search` grant. Capability resource is
+  `memory`. Document-tag checks use action `search`.
+- **Breaking:** `add` returns `{ documentId }`; search body uses `limit` (not `k`);
+  search wire uses `items` (not `hits`).
 - **Breaking:** document access is Interchange **grant tags** (`accessTags` +
   creator-always + host `GrantStore`), not the visibility-mode / block-list
   mini-ACL. Share sugar only mints tags. See `docs/AUTHZ-DOCUMENT-ACCESS.md`.
 - **Breaking:** Postgres baseline is two files (`0001_extensions` +
   `0002_knowledge_baseline`) with `access_tags` and no `visibility_*` columns.
   Fresh installs only — drop/recreate the knowledge schema on existing DBs.
-- **Breaking:** MemoryProvider side-channel option is `options.memoryProvider`
-  (was `options.memory`).
+- **Breaking:** `grantStore` + `conditionRegistry` are top-level `createMemory`
+  options (no nested `grants: { … }`).
 
 ### Added
 
 - Optional `TextExtractor` + `file` XOR `content` on `add`
 - `share` sugar on `add` (maps to access tags only: owner, tenant, peers)
 - `access_tags` on `knowledge.document` (baseline schema; Postgres schema name unchanged)
-- `POST /api/memory/ask` HTTP route
 - `MIGRATION.md` hard-cutover notes for in-repo consumers
+
+### Removed
+
+- Product `ask` / `remember` / `recall` and `MemoryProvider` side-channel
+- Host-injected `generate` on the plane (use host inference + `add` / `search`)
+- HTTP `POST /api/memory/ask`, `POST /api/memory/find`, `GET /api/memory/recent`
 
 ## [0.1.2] — 2026-07-31
 

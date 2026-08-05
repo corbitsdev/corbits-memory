@@ -67,21 +67,17 @@ trust model.
 
 `createMemory({ app })` adds, under the host app:
 
-
 - `POST /api/memory/add` — ingest a note (raw + derive).
-- `POST /api/memory/find` — hybrid retrieval: FTS + dense (pgvector) → RRF
+- `POST /api/memory/search` — hybrid retrieval: FTS + dense (pgvector) → RRF
   fusion → cross-encoder rerank → bounded authority/recency boosts → MMR;
   optional live `SourceProvider` merge (fail-soft).
-- `POST /api/memory/ask` — grant-checked as `memory:find`; retrieves as
-  the principal, grounds a prompt from hit snippets, calls host-injected
-  `generate`. Optional memory recall when `includeMemory` is true.
-- `GET /api/memory/recent` — recent documents for the caller's scope,
-  filtered with the same grant-tag access as local find (`canAccessDocument`).
+- `GET /api/memory/list` — recent documents for the caller's scope,
+  filtered with the same grant-tag access as local search (`canAccessDocument`).
 
-It also returns an in-process `Memory` (`add`, `find`, `ask`,
-`recent`, optional `remember` / `recall`). `ask()` is grant-checked in-process
-(callers bypass the HTTP `requireGrant` guard). The library owns no generation
-client; hosts wire `generate` to their inference layer.
+It also returns an in-process `Memory` (`add`, `search`, `list`, `close`).
+There is no product `ask` / `remember` / `recall` and no host-injected
+`generate` on the plane — inference is host-owned and ephemeral (call your
+model, then `add` / `search`).
 
 MCP is not part of this package — mount `@corbitsdev/hono-openapi-mcp` to expose
 these routes as MCP tools.
@@ -90,7 +86,8 @@ External ingestion (Linear, GitHub, …) is not a route here — the host
 authenticates the forwarder to Interchange and calls `plane.add` / a
 `SourceProvider` mapper, or mounts HTTP add after its own auth.
 
-Legacy paths `/capture`, `/search`, `/timeline` are not mounted (hard cutover).
+Legacy paths `/capture`, `/search` (old knowledge), `/timeline`, `/find`,
+`/ask`, `/recent` are not mounted (hard cutover).
 
 ## Provenance
 

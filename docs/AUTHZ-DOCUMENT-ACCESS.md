@@ -9,8 +9,8 @@
 | Layer | Owner | Mechanism |
 | --- | --- | --- |
 | Who is the caller? | Host (Interchange) | `principal` + `tenant` on context / plane args |
-| May they use memory at all? | Host grant store | `authorize(…, resource: "memory", action: "add" \| "find")` |
-| Which **documents** may they see? | Host grant store + tags on the document | `authorize(…, resource: <tag>, action: "find")` for any tag on the doc |
+| May they use memory at all? | Host grant store | `authorize(…, resource: "memory", action: "add" \| "search")` |
+| Which **documents** may they see? | Host grant store + tags on the document | `authorize(…, resource: <tag>, action: "search")` for any tag on the doc |
 
 There is **one** authorization system: `@intx/authz` + host `GrantStore`. Corbits Memory does not invent modes, allowlists, or block lists as a security boundary.
 
@@ -30,7 +30,7 @@ When the caller does not pass tags/share:
 1. Always tag: `memory.owner:<principalId>`
 2. No other tags → **owner-only by default**. The **creating** principal always
    sees their own docs (engine convenience). **Peers** need an explicit host
-   grant of `find` on that owner resource (or a matching pattern) — the engine
+   grant of `search` on that owner resource (or a matching pattern) — the engine
    never auto-grants tags to anyone.
 
 
@@ -49,13 +49,13 @@ Host issues grants such as:
 {
   principalId: "alice",
   resource: "memory.space:eng",
-  action: "find",
+  action: "search",
   effect: "allow",
   // …origin, etc.
 }
 ```
 
-Alice then sees any document tagged `memory.space:eng` (capability `memory`/`find` still required).
+Alice then sees any document tagged `memory.space:eng` (capability `memory`/`search` still required).
 
 Patterns work: a grant on `memory.space:*` matches `memory.space:eng` via `@intx/authz` `matchPattern`.
 

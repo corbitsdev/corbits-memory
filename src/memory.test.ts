@@ -372,7 +372,7 @@ describe("createMemory.find — grant-tag post-filter wiring", () => {
   });
 });
 
-describe("find/recent — limit bounds", () => {
+describe("search/list — limit bounds", () => {
   // These throw before any DB work, so a nonexistent URL is fine.
   it("find rejects limit below 1", async () => {
     const plane = createMemory({ config: wiringConfig });

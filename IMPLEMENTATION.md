@@ -12,17 +12,17 @@ src/
 
   mount-config.ts         # MemoryConfig + loadMemoryConfig() — the mount config
   config.ts               # EngineConfig — the core vector-plane config (db + embed + rerank)
-  memory.ts               # createMemory — add/find/ask/recent against store or pgvector
+  memory.ts               # createMemory — add/search/list against store or pgvector
   grant-tags.ts           # resolveAccessTags + canAccessDocument (host grants)
 
   log.ts                  # getLogger(["memory"]) from @intx/log
   migrations.ts           # runMemoryMigrations(url)
-  ports/                  # DocumentStore / SourceProvider / MemoryProvider + fakes
+  ports/                  # DocumentStore / SourceProvider + fakes
   routes/                 # the mounted routes
     mount.ts              # registerMemoryRoutes (HTTP)
 
     deps.ts               # RouteDeps, caller(c) (context identity), grantGuard
-    add.ts, find.ts, ask.ts, recent.ts
+    add.ts, search.ts, list.ts
   db/
     schema.ts             # Drizzle table defs (knowledge.* schema)
     client.ts             # createDb(config) -> { db (drizzle), sql (raw postgres-js) }
@@ -487,11 +487,11 @@ Each route is guarded with `grantGuard(deps, action)`, which applies the host's
 | Method + path | Grant action | Request body | Response |
 |---|---|---|---|
 | `POST /api/memory/add` | `add` | `{ title, text, access_tags?, share? }` | `200 { documentId }`; `400` on validation |
-| `POST /api/memory/find` | `find` | `{ query, limit?, kinds?, entity_ids? }` (limit 1–50; `kinds`/`entity_ids` narrow every retrieval channel — lexical and dense — to a document `kind` or linked entity id before fusion; unset or `[]` = unfiltered) | `200 { items[], evidence?, degraded? }`; `400` on bad input |
-| `POST /api/memory/ask` | `find` | `{ query, limit? }` (1–50) | `200 { text, citations[], evidence }`; `403` / `501` as plane errors |
-| `GET /api/memory/recent` | `find` | — | `200 { events: [{ at, title, source, tenantId, principalId }] }` — durable recent documents for the caller's scope, filtered with grant-tag access (`canAccessDocument`). One event per document (active live version). |
+| `POST /api/memory/search` | `search` | `{ query, limit?, kinds?, entity_ids? }` (limit 1–50; `kinds`/`entity_ids` narrow every retrieval channel — lexical and dense — to a document `kind` or linked entity id before fusion; unset or `[]` = unfiltered) | `200 { items[], evidence?, degraded? }`; `400` on bad input |
+| `GET /api/memory/list` | `search` | — | `200 { events: [{ at, title, source, tenantId, principalId }] }` — durable recent documents for the caller's scope, filtered with grant-tag access (`canAccessDocument`). One event per document (active live version). |
 
-`registerMemoryRoutes` and `createMemory({ app })` register the four HTTP routes. MCP is a separate package (`@corbitsdev/hono-openapi-mcp`).
+`registerMemoryRoutes` and `createMemory({ app })` register the three HTTP routes. MCP is a separate package (`@corbitsdev/hono-openapi-mcp`).
+There is no product `ask` / `remember` / `recall` HTTP or plane surface.
 
 
 ### Timeline wire fields (vs the old CaptureLog ring)

@@ -97,14 +97,13 @@ Claude Code / Codex / Workbench (clients)
 │  Host Interchange createApp                  │
 │  + createMemory({ app, … })         │
 
-│       grants: memory:add | memory:find │
+│       grants: memory:add | memory:search │
 │       documentStore: pgvector | host store │
 │                      | fake                │
-│       optional: sources, memoryProvider,     │
-│                 textExtractor                │
+│       optional: sources, textExtractor     │
 │         │  in-process                        │
 │         ▼                                    │
-│  Memory plane: add / find / ask / recent     │
+│  Memory plane: add / search / list           │
 │  → DocumentStore (sole durable backend)      │
 └──────────────────────────────────────────────┘
 ```
@@ -115,16 +114,16 @@ Memory does **not** ship a second ACL. Document access uses the host’s
 `@intx/authz` grant store — the same grants/roles as the rest of Interchange.
 
 1. **Capability** — may this principal use memory at all?
-   `authorize(…, resource: "memory", action: "add" | "find")`.
+   `authorize(…, resource: "memory", action: "add" | "search")`.
 2. **Document access** — each document carries **`accessTags`** (resource strings
    in grant-pattern space). A principal sees a document if they are the creator
-   **or** `authorize(…, resource: <tag>, action: "find")` allows for any tag on
+   **or** `authorize(…, resource: <tag>, action: "search")` allows for any tag on
    the document. Patterns (`memory.space:*`) work via `@intx/authz`.
 3. **Share sugars on add** — only mint tags (owner / tenant / peer owner tags /
    explicit tags). They do **not** invent visibility modes or block lists.
    **Host contract:** peers named in `share.principals` only see the doc if the
-   host has granted them `find` on their owner tag (or matching pattern) —
-   typically bootstrap every principal with `find` on `memory.owner:<self>`.
+   host has granted them `search` on their owner tag (or matching pattern) —
+   typically bootstrap every principal with `search` on `memory.owner:<self>`.
    Tag minting is not grant minting. See `docs/AUTHZ-DOCUMENT-ACCESS.md`.
 
 Default add is **owner-only** (`memory.owner:<principalId>` + creator rule).
@@ -141,22 +140,22 @@ from the host principal context, never the body):
 
 ```http
 POST /api/memory/add      { "title", "text", "access_tags"?, "share"? }
-POST /api/memory/find     { "query", "limit?", "kinds?", "entity_ids?", "sources?", "includeEvidence?" }
-POST /api/memory/ask      { "query", "limit?", "sources?", "includeMemory?" }
-GET  /api/memory/recent   ?limit=
+POST /api/memory/search   { "query", "limit?", "kinds?", "entity_ids?", "sources?", "includeEvidence?" }
+GET  /api/memory/list     ?limit=
 ```
 
-`kinds` / `entity_ids` on find narrow both lexical and dense channels before
+`kinds` / `entity_ids` on search narrow both lexical and dense channels before
 fusion (unset or `[]` = no filter).
 
-### Live sources and memory (trust)
+### Live sources (trust)
 
 - **Local documents** are grant-tagged; default engine evaluates tags via the
   host `GrantStore`. An injected `DocumentStore` owns enforcement for that mount.
-- **Live `SourceProvider` hits** merge into find/ask without grant tags. Auth is
+- **Live `SourceProvider` hits** merge into search without grant tags. Auth is
   the host token / connector scope. Treat live as enrichment; fail-soft.
-- **Memory** is opt-in recall (`includeMemory`, default false). Adapters must
-  key by injective tenant+principal encodings; ask never auto-writes memory.
+- **Inference is host-owned.** Core does not ship `ask` / `remember` / `recall`
+  or a `MemoryProvider` product path. Hosts call their model, then `add` /
+  `search`.
 
 ## Out of scope forever here
 
