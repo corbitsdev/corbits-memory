@@ -53,7 +53,7 @@ Missing grant → **403**.
 
 ```http
 POST /api/tenants/:tenantId/memory/add      { "title", "text", "access_tags"?, "share"? }
-POST /api/tenants/:tenantId/memory/search   { "query", "limit"? }
+POST /api/tenants/:tenantId/memory/search   { "query", "limit"?, "kinds"?, "entity_ids"?, "sources"?, "includeEvidence"? }
 GET  /api/tenants/:tenantId/memory/list     ?limit=
 ```
 
@@ -74,9 +74,18 @@ routes. No plane inject, no model-supplied identity.
 
 | Key | Meaning |
 | --- | --- |
-| `memoryBaseUrl` | Hub origin, e.g. `https://hub.example` |
-| `memoryTenantId` | Tenant path segment |
-| `memoryAuthToken` | Bearer token accepted by the hub for that principal |
+| `memoryBaseUrl` | Hub **origin** only, e.g. `https://hub.example` (no `/api/...` path) |
+| `memoryTenantId` | Tenant path segment (must match the principal’s tenant on the hub) |
+| `memoryAuthToken` | Bearer token the hub accepts for that agent principal |
+
+**Host checklist**
+
+1. Mount routes: `createMemory({ app, grantStore, … })` under the hub tenant tree.
+2. Grant the agent principal `memory:add` and/or `memory:search` (`list` uses `search`).
+3. For peer/space share visibility, also grant `search` on the relevant document tags (see `docs/AUTHZ-DOCUMENT-ACCESS.md`).
+4. Install factories on the workflow and set the three env keys above.
+5. Auth is **Bearer only** on the tool client — session cookies are not sent.
+6. Tool results are **JSON strings** (`stringTool`); pass `AbortSignal` if you need hang protection (no default client timeout).
 
 ```ts
 import { memoryAdd, memorySearch, memoryList } from "@corbits/memory/tools";

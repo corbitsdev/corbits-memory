@@ -172,6 +172,29 @@ describe("createMemoryHttpClient", () => {
     );
   });
 
+  test("clips long error response bodies", async () => {
+    const long = "e".repeat(800);
+    const { fetchMock } = makeFetchMock(() => ({
+      status: 500,
+      text: long,
+    }));
+    const client = createMemoryHttpClient({
+      baseUrl: BASE,
+      tenantId: TENANT,
+      authToken: TOKEN,
+      fetch: fetchMock,
+    });
+    try {
+      await client.list();
+      expect.unreachable("expected throw");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      expect(msg).toMatch(/memory HTTP 500:/);
+      expect(msg.length).toBeLessThan(600);
+      expect(msg.endsWith("…")).toBe(true);
+    }
+  });
+
   test("rejects invalid JSON on 2xx", async () => {
     const { fetchMock } = makeFetchMock(() => ({
       status: 200,

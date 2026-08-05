@@ -2,9 +2,8 @@
  * Shared request bodies for hub memory HTTP and defineTool factories.
  * Keep route validators and tool arg parsers on the same schemas.
  *
- * Note: GET list uses a string query param on the wire (`ListQuery` in
- * routes/list.ts); tools use numeric `ListArgs` below. Bounds are shared
- * via limits.ts — shapes intentionally differ.
+ * GET list uses a string query param on the wire (`ListQuery`); tools use
+ * numeric `ListArgs`. Bounds are shared via `limits.ts` and `parseListLimitString`.
  */
 import { type } from "arktype";
 
@@ -41,12 +40,38 @@ export const SearchRequest = type({
 
 export type SearchRequest = typeof SearchRequest.infer;
 
-/** Tool-arg shape for memory_list (numeric limit). Not the HTTP query schema. */
+/** HTTP query schema for GET /memory/list (string limit from the URL). */
+export const ListQuery = type({
+  "limit?": "string",
+});
+
+export type ListQuery = typeof ListQuery.infer;
+
+/** Tool-arg shape for memory_list (numeric limit after LLM coerce). */
 export const ListArgs = type({
   "limit?": type(`${LIST_LIMIT_MIN} <= number.integer <= ${LIST_LIMIT_MAX}`),
 });
 
 export type ListArgs = typeof ListArgs.infer;
+
+/**
+ * Parse a list `limit` query string into a bounded integer.
+ * Returns `undefined` for missing/empty; `null` for invalid/out-of-range.
+ */
+export function parseListLimitString(
+  raw: string | undefined,
+): number | undefined | null {
+  if (raw === undefined || raw === "") return undefined;
+  const n = Number(raw);
+  if (
+    !Number.isInteger(n) ||
+    n < LIST_LIMIT_MIN ||
+    n > LIST_LIMIT_MAX
+  ) {
+    return null;
+  }
+  return n;
+}
 
 /** Coerce LLM-stringified integers before arktype number.integer checks. */
 export function coerceOptionalLimitArg(

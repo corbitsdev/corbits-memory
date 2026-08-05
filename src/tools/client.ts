@@ -3,7 +3,11 @@
  *
  * Tools never touch the in-process plane — they only call
  * `/api/tenants/:tenantId/memory/*` with credentials from install env.
+ *
+ * Pass `signal` on each call (or via the tool runner) so a hung hub can be
+ * cancelled; this client does not invent a default timeout.
  */
+import type { AddRequest, SearchRequest } from "../http-bodies.ts";
 
 export type MemoryHttpConfig = {
   baseUrl: string;
@@ -12,25 +16,11 @@ export type MemoryHttpConfig = {
   fetch?: typeof globalThis.fetch;
 };
 
-export type MemoryAddBody = {
-  title: string;
-  text: string;
-  access_tags?: string[];
-  share?: {
-    tenant?: boolean;
-    principals?: string[];
-    tags?: string[];
-  };
-};
+/** Wire body for POST /memory/add — same shape as shared AddRequest. */
+export type MemoryAddBody = AddRequest;
 
-export type MemorySearchBody = {
-  query: string;
-  limit?: number;
-  kinds?: string[];
-  entity_ids?: string[];
-  sources?: string[];
-  includeEvidence?: boolean;
-};
+/** Wire body for POST /memory/search — same shape as shared SearchRequest. */
+export type MemorySearchBody = SearchRequest;
 
 export type MemoryHttpClient = {
   add(body: MemoryAddBody, signal?: AbortSignal): Promise<unknown>;
@@ -38,12 +28,21 @@ export type MemoryHttpClient = {
   list(limit?: number, signal?: AbortSignal): Promise<unknown>;
 };
 
+/** Cap hub error text embedded in tool errors (avoid huge/secret-ish dumps). */
+const MAX_ERROR_DETAIL_CHARS = 512;
+
 function stripTrailingSlashes(url: string): string {
   let out = url;
   while (out.endsWith("/")) {
     out = out.slice(0, -1);
   }
   return out;
+}
+
+function clipErrorDetail(text: string): string {
+  const t = text.trim();
+  if (t.length <= MAX_ERROR_DETAIL_CHARS) return t;
+  return `${t.slice(0, MAX_ERROR_DETAIL_CHARS)}…`;
 }
 
 export function createMemoryHttpClient(
@@ -84,7 +83,8 @@ export function createMemoryHttpClient(
 
     if (!res.ok) {
       const text = await res.text().catch(() => "");
-      const detail = text.trim() || res.statusText || "request failed";
+      const detail =
+        clipErrorDetail(text) || res.statusText || "request failed";
       throw new Error(`memory HTTP ${res.status}: ${detail}`);
     }
 
