@@ -1,6 +1,10 @@
 /**
  * Shared request bodies for hub memory HTTP and defineTool factories.
  * Keep route validators and tool arg parsers on the same schemas.
+ *
+ * Note: GET list uses a string query param on the wire (`ListQuery` in
+ * routes/list.ts); tools use numeric `ListArgs` below. Bounds are shared
+ * via limits.ts — shapes intentionally differ.
  */
 import { type } from "arktype";
 
@@ -37,6 +41,7 @@ export const SearchRequest = type({
 
 export type SearchRequest = typeof SearchRequest.infer;
 
+/** Tool-arg shape for memory_list (numeric limit). Not the HTTP query schema. */
 export const ListArgs = type({
   "limit?": type(`${LIST_LIMIT_MIN} <= number.integer <= ${LIST_LIMIT_MAX}`),
 });

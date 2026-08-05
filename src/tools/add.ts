@@ -13,7 +13,18 @@ function parseAddArgs(args: Record<string, unknown>): MemoryAddBody {
     body.access_tags = parsed.access_tags;
   }
   if (parsed.share !== undefined) {
-    body.share = parsed.share;
+    // Rebuild share field-by-field — arktype keeps undeclared nested keys.
+    const share: NonNullable<MemoryAddBody["share"]> = {};
+    if (parsed.share.tenant !== undefined) {
+      share.tenant = parsed.share.tenant;
+    }
+    if (parsed.share.principals !== undefined) {
+      share.principals = parsed.share.principals;
+    }
+    if (parsed.share.tags !== undefined) {
+      share.tags = parsed.share.tags;
+    }
+    body.share = share;
   }
   return body;
 }

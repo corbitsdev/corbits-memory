@@ -258,6 +258,38 @@ describe("memoryAdd factory", () => {
     expect(calls[0]!.url).toContain(`/tenants/${TENANT}/`);
   });
 
+  test("rebuilds share without nested extras", async () => {
+    const { calls, fetchMock } = makeFetchMock(() => ({
+      status: 200,
+      json: { documentId: "doc-share" },
+    }));
+    const bundle = memoryAdd(toolEnv({ memoryFetch: fetchMock }));
+    const result = await bundle.run(
+      {
+        id: "call-share",
+        name: "memory_add",
+        arguments: {
+          title: "note",
+          text: "hello",
+          share: {
+            tenant: true,
+            principalId: "nested-evil",
+            authToken: "should-not-wire",
+            tags: ["team:eng"],
+          },
+        },
+      },
+      new AbortController().signal,
+    );
+    expect(result.isError).toBeFalsy();
+    const body = JSON.parse(calls[0]!.body ?? "{}") as {
+      share?: Record<string, unknown>;
+    };
+    expect(body.share).toEqual({ tenant: true, tags: ["team:eng"] });
+    expect(body.share).not.toHaveProperty("principalId");
+    expect(body.share).not.toHaveProperty("authToken");
+  });
+
   test("rejects empty title", async () => {
     const { fetchMock } = makeFetchMock(() => ({
       status: 200,
@@ -330,6 +362,31 @@ describe("memorySearch factory", () => {
     );
     expect(bad.isError).toBe(true);
   });
+
+  test("strips adversarial identity args from search wire body", async () => {
+    const { calls, fetchMock } = makeFetchMock(() => ({
+      status: 200,
+      json: { items: [] },
+    }));
+    const bundle = memorySearch(toolEnv({ memoryFetch: fetchMock }));
+    const result = await bundle.run(
+      {
+        id: "call-search-adv",
+        name: "memory_search",
+        arguments: {
+          query: "q",
+          tenantId: "evil-tenant",
+          principalId: "evil-principal",
+          authToken: "nope",
+        },
+      },
+      new AbortController().signal,
+    );
+    expect(result.isError).toBeFalsy();
+    const body = JSON.parse(calls[0]!.body ?? "{}") as Record<string, unknown>;
+    expect(body).toEqual({ query: "q" });
+    expect(calls[0]!.url).toContain(`/tenants/${TENANT}/`);
+  });
 });
 
 describe("memoryList factory", () => {
@@ -360,6 +417,31 @@ describe("memoryList factory", () => {
     expect(result.isError).toBeFalsy();
     expect(calls[0]!.url).toContain("/memory/list?limit=10");
     expect(calls[0]!.url).not.toContain("principal");
+  });
+
+  test("ignores adversarial identity args on list", async () => {
+    const { calls, fetchMock } = makeFetchMock(() => ({
+      status: 200,
+      json: { events: [] },
+    }));
+    const bundle = memoryList(toolEnv({ memoryFetch: fetchMock }));
+    const result = await bundle.run(
+      {
+        id: "call-list-adv",
+        name: "memory_list",
+        arguments: {
+          limit: 3,
+          tenantId: "evil",
+          principalId: "evil",
+        },
+      },
+      new AbortController().signal,
+    );
+    expect(result.isError).toBeFalsy();
+    expect(calls[0]!.url).toBe(
+      `${BASE}/api/tenants/${TENANT}/memory/list?limit=3`,
+    );
+    expect(calls[0]!.url).not.toContain("evil");
   });
 
   test("HTTP error becomes isError tool result", async () => {
