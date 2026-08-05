@@ -39,12 +39,11 @@ function stubPlane(opts?: {
   askImpl?: KnowledgePlane["ask"];
 }) {
   const added: { title: string; tenantId: string; principalId: string }[] = [];
-  const searched: Array<
-    Pick<
-      Parameters<KnowledgePlane["find"]>[0],
-      "kinds" | "entityIds" | "limit"
-    >
-  > = [];
+  const searched: Array<{
+    kinds: string[] | undefined;
+    entityIds: string[] | undefined;
+    limit: number | undefined;
+  }> = [];
   const catalog = opts?.timelineCatalog ?? [];
   const plane: KnowledgePlane = {
     find: async (p) => {

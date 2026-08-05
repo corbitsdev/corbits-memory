@@ -126,7 +126,7 @@ export function filterTimelineRowsForPrincipal(
  * (the same helper search uses through `blockedDocumentIds`).
  *
  * One row per document (active live version), ordered by last_seen_at DESC.
- * Wire `source` is the document adapter (HTTP capture defaults to "mcp").
+ * Wire `source` is the document adapter (HTTP add defaults to "http").
  * Wire `principalId` is knowledge_version.created_by_principal_id.
  */
 export async function listTimelineEvents(

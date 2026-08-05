@@ -155,12 +155,18 @@ export function createFakeSourceProvider(
       const q = params.query.toLowerCase();
       const limit = params.limit ?? 8;
       return catalog
-        .filter(
-          (item) =>
-            item.adapter === id &&
-            (item.title.toLowerCase().includes(q) ||
-              item.snippet.toLowerCase().includes(q)),
-        )
+        .filter((item) => {
+          if (item.adapter !== id) return false;
+          // Fail-closed: seed rows may carry tenantId for tenancy tests.
+          const row = item as LiveSearchItem & { tenantId?: string };
+          if (row.tenantId !== undefined && row.tenantId !== params.tenantId) {
+            return false;
+          }
+          return (
+            item.title.toLowerCase().includes(q) ||
+            item.snippet.toLowerCase().includes(q)
+          );
+        })
         .slice(0, limit);
     },
   };

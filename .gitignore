@@ -11,3 +11,7 @@ coverage/
 .hub-data/
 .agent-state/
 tmp/
+
+# Dispatch orchestration scratch (local only)
+dispatch/
+

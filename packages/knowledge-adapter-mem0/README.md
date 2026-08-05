@@ -1,72 +1,89 @@
-# `@corbits/knowledge-adapter-mem0`
+# @corbits/knowledge-adapter-mem0
 
-Mem0-backed [`MemoryProvider`](https://github.com/corbitsdev/corbits-knowledge-engine) for `@corbits/knowledge-engine`.
+**Replaceable DocumentStore** for [@corbits/knowledge-engine](https://github.com/corbitsdev/corbits-knowledge-engine)
+backed by the [Mem0 Platform](https://docs.mem0.ai/) HTTP API.
 
-Pure HTTP (`fetch`) against the Mem0 Platform API — **no** `mem0ai` SDK dependency. Vendor code stays out of the knowledge-engine core.
+Pure `fetch` — **no** `mem0ai` / vendor SDK. Tenancy is enforced with a
+length-prefixed `user_id` (`mapUser`) so free-form ids cannot collide.
 
-## Identity mapping
+## Product path: DocumentStore
 
-Mem0 scopes memories by `user_id`. This adapter never sends a bare principal:
-
-```ts
-mapUser(tenantId, principalId) // → `${tenantId}::${principalId}`
-```
-
-Empty/missing `tenantId` or `principalId` throws. Same principal under two tenants gets two distinct Mem0 users.
-
-## Usage
+Mount Mem0 as `documentStore` so the plane routes `add` / `find` / `recent`
+(and `ask` via find) through this store — no Postgres / embed endpoints
+required. This is the product integration path (not `MemoryProvider` /
+`includeMemory`).
 
 ```ts
-import { createMem0MemoryProvider } from "@corbits/knowledge-adapter-mem0";
 import { createKnowledgePlane } from "@corbits/knowledge-engine";
+import { createMem0DocumentStore } from "@corbits/knowledge-adapter-mem0";
 
-const memory = createMem0MemoryProvider({
-  apiKey: process.env.MEM0_API_KEY!,
-  // baseUrl: "https://api.mem0.ai", // optional
-  // fetch: customFetch,             // optional (tests / proxies)
+const knowledge = createKnowledgePlane(undefined, grants, {
+  documentStore: createMem0DocumentStore({
+    apiKey: process.env.MEM0_API_KEY!,
+    // baseUrl: "https://api.mem0.ai", // optional
+  }),
+  generate: myGenerate, // required only for ask()
 });
 
-const plane = createKnowledgePlane(db, authz, {
-  documentStore,
-  memory,
+await knowledge.add({
+  tenantId,
+  principalId,
+  content: { title: "Prefs", text: "Prefers dark mode" },
 });
 
-await plane.remember({
-  tenantId: "acme",
-  principalId: "user-42",
-  text: "Prefers TypeScript strict mode",
-});
-
-// ask() recalls only when includeMemory: true
-const answer = await plane.ask({
-  tenantId: "acme",
-  principalId: "user-42",
-  query: "What language preferences do I have?",
-  includeMemory: true,
+const { items } = await knowledge.find({
+  tenantId,
+  principalId,
+  query: "preferences",
 });
 ```
 
-## Options
+Or via mount:
 
-| Option    | Required | Description                                      |
-| --------- | -------- | ------------------------------------------------ |
-| `apiKey`  | yes      | Mem0 API key (`Authorization: Token …`)          |
-| `baseUrl` | no       | API origin (default `https://api.mem0.ai`)       |
-| `fetch`   | no       | Injectable `fetch` for tests / custom transports |
-
-## HTTP surface
-
-| Op       | Method | Path                   |
-| -------- | ------ | ---------------------- |
-| remember | POST   | `/v3/memories/add/`    |
-| recall   | POST   | `/v3/memories/search/` |
-
-Search filters always include `user_id: mapUser(tenantId, principalId)`.
-
-## Tests
-
-```bash
-bun test
+```ts
+mountKnowledgeEngine(app, {
+  documentStore: createMem0DocumentStore({ apiKey }),
+  grants,
+  generate,
+});
 ```
 
-All tests use a mocked `fetch` — no live network.
+## Limitations (honest)
+
+| Area | Behavior |
+| --- | --- |
+| Isolation | **Principal-bucket only** via `mapUser(tenantId, principalId)`. Each principal has a private Mem0 `user_id`; docs are not shared across principals. |
+| Visibility ladder | `visibility` / `share` / `blockPrincipalIds` are **not** enforced by this adapter (metadata at best). For multi-principal or tenant-wide ACL, use the default pgvector store or a store that implements the ladder. |
+| `recent` | Always `[]` — Mem0 has no recent-feed API here. |
+| `options.memory` | **Never** mount this package as `options.memory`. That port is an ask side-channel; Mem0 as product backend is `documentStore` only. |
+
+## What is out of scope
+
+- **Not** a tools-shaped source (Linear-style live connectors stay separate).
+- **Not** the product path for `MemoryProvider` / `includeMemory`.
+- `createMem0MemoryProvider` remains exported for back-compat only; prefer
+  `createMem0DocumentStore`.
+
+## Tenant mapping
+
+```ts
+import { mapUser } from "@corbits/knowledge-adapter-mem0";
+
+mapUser("acme", "alice"); // "4:acme:5:alice"
+```
+
+Never pass bare `principalId` as Mem0 `user_id`.
+
+## HTTP surface (thin)
+
+| Verb   | Method | Path                     |
+| ------ | ------ | ------------------------ |
+| add    | POST   | `/v3/memories/add/`      |
+| find   | POST   | `/v3/memories/search/`   |
+| recent | —      | empty (API has no feed)  |
+
+Auth: `Authorization: Token <apiKey>`.
+
+## License
+
+LGPL-2.1-only (same as the knowledge engine).

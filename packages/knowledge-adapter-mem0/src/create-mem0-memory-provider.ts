@@ -1,5 +1,9 @@
+/**
+ * @deprecated Prefer createMem0DocumentStore and mount as documentStore.
+ * Thin remember/recall wrapper kept for back-compat only — not the product path.
+ */
 import { mapUser } from "./map-user.ts";
-import type { Mem0MemoryProviderOptions, MemoryProvider } from "./types.ts";
+import type { Mem0ClientOptions, MemoryProvider } from "./types.ts";
 
 const DEFAULT_BASE_URL = "https://api.mem0.ai";
 
@@ -17,12 +21,10 @@ async function readErrorBody(res: Response): Promise<string> {
 }
 
 /**
- * Create a MemoryProvider backed by the Mem0 Platform HTTP API (v3).
- *
- * Uses pure fetch — no mem0 SDK. Inject `fetch` in tests.
+ * @deprecated Use createMem0DocumentStore({ apiKey }) as options.documentStore.
  */
 export function createMem0MemoryProvider(
-  opts: Mem0MemoryProviderOptions,
+  opts: Mem0ClientOptions,
 ): MemoryProvider {
   if (typeof opts.apiKey !== "string" || opts.apiKey.trim() === "") {
     throw new Error(
@@ -56,7 +58,6 @@ export function createMem0MemoryProvider(
       );
     }
 
-    // 204 / empty body
     if (res.status === 204) return undefined;
     const text = await res.text();
     if (!text) return undefined;
@@ -73,7 +74,6 @@ export function createMem0MemoryProvider(
       const body: Record<string, unknown> = {
         messages: [{ role: "user", content: params.text }],
         user_id: userId,
-        // Host already decided the fact; store verbatim.
         infer: false,
       };
       if (params.metadata !== undefined) {
@@ -90,7 +90,6 @@ export function createMem0MemoryProvider(
         filters: { user_id: userId },
         top_k: topK,
       });
-
       return parseSearchResults(raw);
     },
   };

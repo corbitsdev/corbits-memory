@@ -20,9 +20,10 @@ const FindRequest = type({
   "limit?": "1 <= number.integer <= 50",
   "kinds?": "string[]",
   "entity_ids?": "string[]",
+  "sources?": "string[]",
+  "includeEvidence?": "boolean",
 });
 
-// includeEvidence is always true on HTTP so the wire reports evidence.
 const FindResponse = type({
   items: type({
     documentId: "string",
@@ -45,7 +46,8 @@ export function mountFindRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
       description:
         "`kinds`/`entity_ids` scope every retrieval channel (lexical and " +
         "dense) before results are fused, so every hit matches the " +
-        "requested kind/entity.",
+        "requested kind/entity. `sources` optionally restricts local + live " +
+        "channels; `includeEvidence` defaults true on the wire.",
       responses: {
         200: {
           description: "Ranked items with evidence",
@@ -56,23 +58,28 @@ export function mountFindRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
         400: { description: "Invalid query" },
         401: { description: "No principal on the request context" },
         403: { description: "Missing the knowledge:find grant" },
+        502: { description: "find failed" },
       },
     }),
     requirePrincipal(),
     grantGuard(deps, "find"),
     validator("json", FindRequest),
     async (c) => {
-      const { query, limit, kinds, entity_ids } = c.req.valid("json");
+      const { query, limit, kinds, entity_ids, sources, includeEvidence } =
+        c.req.valid("json");
       const { scopeId, subjectId } = caller(c);
       try {
         const result = await deps.knowledge.find({
           query,
           tenantId: scopeId,
           principalId: subjectId,
-          includeEvidence: true,
+          // Default true on HTTP so the wire always reports evidence unless
+          // the client explicitly opts out.
+          includeEvidence: includeEvidence ?? true,
           ...(limit !== undefined ? { limit } : {}),
           ...(kinds !== undefined ? { kinds } : {}),
           ...(entity_ids !== undefined ? { entityIds: entity_ids } : {}),
+          ...(sources !== undefined ? { sources } : {}),
         });
         return c.json(result);
       } catch (err) {

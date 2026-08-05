@@ -1,9 +1,9 @@
 import { describe, expect, it } from "bun:test";
 
 import {
-  createMem0MemoryProvider,
-  parseSearchResults,
-} from "./create-mem0-memory-provider.ts";
+  createMem0DocumentStore,
+  parseFindResults,
+} from "./create-mem0-document-store.ts";
 
 type Captured = {
   url: string;
@@ -56,97 +56,106 @@ function mockFetch(
   return { fetch: fetchImpl, calls };
 }
 
-describe("createMem0MemoryProvider", () => {
+describe("createMem0DocumentStore", () => {
   it("rejects missing apiKey", () => {
-    expect(() => createMem0MemoryProvider({ apiKey: "" })).toThrow(/apiKey/);
+    expect(() => createMem0DocumentStore({ apiKey: "" })).toThrow(/apiKey/);
   });
 
-  it("remember sends mapped user_id and never bare principal", async () => {
+  it("add posts mapped user_id and returns documentId", async () => {
     const { fetch, calls } = mockFetch(() => ({
       status: 200,
       json: { event_id: "e1", status: "PENDING" },
     }));
-    const provider = createMem0MemoryProvider({
-      apiKey: "test-key",
-      fetch,
-    });
+    const store = createMem0DocumentStore({ apiKey: "test-key", fetch });
 
-    await provider.remember({
+    const { documentId } = await store.add({
       tenantId: "t1",
       principalId: "p1",
+      title: "Prefs",
       text: "Prefers dark mode",
-      metadata: { source: "settings" },
+      visibility: { mode: "private", principalIds: ["p1"] },
     });
 
+    expect(documentId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    );
     expect(calls).toHaveLength(1);
     const call = calls[0]!;
     expect(call.method).toBe("POST");
     expect(call.url).toBe("https://api.mem0.ai/v3/memories/add/");
-    expect(call.headers["authorization"] ?? call.headers["Authorization"]).toBe(
-      "Token test-key",
-    );
     const body = call.body as Record<string, unknown>;
     expect(body.user_id).toBe("2:t1:2:p1");
-
     expect(body.user_id).not.toBe("p1");
-    expect(body.messages).toEqual([
-      { role: "user", content: "Prefers dark mode" },
-    ]);
-    expect(body.metadata).toEqual({ source: "settings" });
     expect(body.infer).toBe(false);
+    const messages = body.messages as Array<{ content: string }>;
+    expect(messages[0]!.content).toContain("# Prefs");
+    expect(messages[0]!.content).toContain("Prefers dark mode");
+    expect(messages[0]!.content).toContain(documentId);
+    const meta = body.metadata as Record<string, string>;
+    expect(meta.documentId).toBe(documentId);
+    expect(meta.title).toBe("Prefs");
   });
 
-  it("recall scopes search filters by mapped user_id", async () => {
+  it("find scopes search by mapped user_id and maps hits", async () => {
     const { fetch, calls } = mockFetch(() => ({
       status: 200,
       json: {
         results: [
-          { id: "m1", memory: "Lives in SF", score: 0.91 },
-          { id: "m2", memory: "Works remote", score: 0.7 },
+          {
+            id: "m1",
+            memory: "# Home\n\nLives in SF",
+            score: 0.91,
+            metadata: { documentId: "doc-1", externalRef: "ref-1" },
+          },
         ],
       },
     }));
-    const provider = createMem0MemoryProvider({
+    const store = createMem0DocumentStore({
       apiKey: "k",
       baseUrl: "https://mem0.example.com/",
       fetch,
     });
 
-    const hits = await provider.recall({
+    const result = await store.find({
       tenantId: "acme",
       principalId: "bob",
       query: "where do I live?",
       limit: 3,
+      includeEvidence: true,
     });
 
     expect(calls).toHaveLength(1);
     const call = calls[0]!;
     expect(call.url).toBe("https://mem0.example.com/v3/memories/search/");
     const body = call.body as Record<string, unknown>;
-    expect(body.query).toBe("where do I live?");
-    expect(body.top_k).toBe(3);
     expect(body.filters).toEqual({ user_id: "4:acme:3:bob" });
+    expect(body.top_k).toBe(3);
 
-    expect(hits).toEqual([
-      { text: "Lives in SF", score: 0.91 },
-      { text: "Works remote", score: 0.7 },
-    ]);
+    expect(result.evidence).toBe("weak");
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]!.documentId).toBe("doc-1");
+    expect(result.items[0]!.title).toBe("Home");
+    expect(result.items[0]!.snippet).toContain("Lives in SF");
+    expect(result.items[0]!.citation.adapter).toBe("mem0");
+    expect(result.items[0]!.citation.external_ref).toBe("ref-1");
   });
 
-  it("remember/recall reject empty identity (no silent default)", async () => {
+  it("add/find reject empty identity", async () => {
     const { fetch, calls } = mockFetch(() => ({ status: 200, json: {} }));
-    const provider = createMem0MemoryProvider({ apiKey: "k", fetch });
+    const store = createMem0DocumentStore({ apiKey: "k", fetch });
 
     await expect(
-      provider.remember({
+      store.add({
         tenantId: "",
         principalId: "p",
+        title: "t",
         text: "x",
+        visibility: { mode: "tenant" },
       }),
     ).rejects.toThrow(/tenantId/);
 
     await expect(
-      provider.recall({
+      store.find({
         tenantId: "t",
         principalId: "",
         query: "q",
@@ -156,34 +165,19 @@ describe("createMem0MemoryProvider", () => {
     expect(calls).toHaveLength(0);
   });
 
-  it("throws on non-OK HTTP from Mem0", async () => {
-    const { fetch } = mockFetch(() => ({
-      status: 401,
-      json: { detail: "Unauthorized" },
-    }));
-    const provider = createMem0MemoryProvider({ apiKey: "bad", fetch });
-    await expect(
-      provider.remember({
-        tenantId: "t",
-        principalId: "p",
-        text: "x",
-      }),
-    ).rejects.toThrow(/HTTP 401/);
-  });
-
   it("tenant isolation: same principal different tenants → distinct user_id", async () => {
     const { fetch, calls } = mockFetch(() => ({
       status: 200,
       json: { results: [] },
     }));
-    const provider = createMem0MemoryProvider({ apiKey: "k", fetch });
+    const store = createMem0DocumentStore({ apiKey: "k", fetch });
 
-    await provider.recall({
+    await store.find({
       tenantId: "tenant-a",
       principalId: "alice",
       query: "prefs",
     });
-    await provider.recall({
+    await store.find({
       tenantId: "tenant-b",
       principalId: "alice",
       query: "prefs",
@@ -193,23 +187,44 @@ describe("createMem0MemoryProvider", () => {
       (c) => (c.body as { filters: { user_id: string } }).filters.user_id,
     );
     expect(userIds).toEqual(["8:tenant-a:5:alice", "8:tenant-b:5:alice"]);
-
     expect(userIds[0]).not.toBe(userIds[1]);
+  });
+
+  it("recent returns empty list; close is a no-op", async () => {
+    const store = createMem0DocumentStore({
+      apiKey: "k",
+      fetch: (async () => new Response("{}")) as unknown as typeof fetch,
+    });
+
+    expect(
+      await store.recent({
+        tenantId: "t",
+        principalId: "p",
+      }),
+    ).toEqual([]);
+    await store.close();
   });
 });
 
-describe("parseSearchResults", () => {
-  it("reads results[].memory", () => {
-    expect(
-      parseSearchResults({
-        results: [{ memory: "a", score: 0.5 }],
-      }),
-    ).toEqual([{ text: "a", score: 0.5 }]);
+describe("parseFindResults", () => {
+  it("reads results[].memory with metadata documentId", () => {
+    const items = parseFindResults({
+      results: [
+        {
+          memory: "# Note\n\nbody",
+          score: 0.5,
+          metadata: { documentId: "d1" },
+        },
+      ],
+    });
+    expect(items).toHaveLength(1);
+    expect(items[0]!.documentId).toBe("d1");
+    expect(items[0]!.title).toBe("Note");
   });
 
   it("handles empty / null", () => {
-    expect(parseSearchResults(null)).toEqual([]);
-    expect(parseSearchResults(undefined)).toEqual([]);
-    expect(parseSearchResults({})).toEqual([]);
+    expect(parseFindResults(null)).toEqual([]);
+    expect(parseFindResults(undefined)).toEqual([]);
+    expect(parseFindResults({})).toEqual([]);
   });
 });

@@ -1,6 +1,6 @@
 /**
- * @corbits/knowledge-engine — a knowledge capture + search engine you mount
- * onto an Interchange hub.
+ * @corbits/knowledge-engine — a knowledge add / find / ask / recent engine you
+ * mount onto an Interchange hub.
  *
  * The host owns auth, tenancy, grants, and the process. This SDK reads the
  * request principal off the Interchange context and (optionally) taps the
@@ -58,6 +58,9 @@ export type {
   KnowledgePlane,
   KnowledgePlaneOptions,
   KnowledgeRecentParams,
+  KnowledgeRecallItem,
+  KnowledgeRecallParams,
+  KnowledgeRememberParams,
   KnowledgeShare,
   SearchHit,
   TextExtractor,
@@ -65,7 +68,7 @@ export type {
   VisibilitySpec,
 } from "./knowledge.ts";
 export { KnowledgeError, KnowledgeNotPermittedError } from "./knowledge.ts";
-// Ports (M2) — pluggable storage + live sources; MemoryProvider type stub for M3
+// Ports — pluggable storage, live sources, and optional memory
 export type {
   DocumentStore,
   DocumentStoreAddParams,
@@ -78,6 +81,7 @@ export type {
   MemoryProvider,
   SourceProvider,
 } from "./ports/types.ts";
+
 export {
   createFakeDocumentStore,
   createFakeMemoryProvider,
@@ -130,9 +134,12 @@ export type MountKnowledgeEngineOptions = {
   textExtractor?: TextExtractor;
   /** Override durable storage (default: engine pgvector store). */
   documentStore?: DocumentStore;
-  /** Live source connectors (merge wired in CL-5227). */
+  /** Live source connectors merged into find/ask (fail-soft). */
   sources?: SourceProvider[];
-  /** Memory port accepted for wiring; product in M3. */
+  /**
+   * Optional ask side-channel only (`includeMemory`). Not a DocumentStore
+   * replacement — vendor backends mount as `documentStore`.
+   */
   memory?: MemoryProvider;
 };
 

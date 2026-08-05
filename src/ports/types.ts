@@ -1,8 +1,11 @@
 /**
- * Port contracts for pluggable storage, live sources, and personal memory.
+ * Port contracts for pluggable storage, live sources, and optional personal memory.
  *
- * DocumentStore + SourceProvider are the M2 foundation. MemoryProvider is
- * wired into ask (includeMemory) and plane.remember/recall in M3.
+ * DocumentStore is the durable backend for add/find/recent (default: local
+ * pgvector). Hosts replace it with Mem0, Supermemory, or fakes — no dual store.
+ * SourceProvider is tools-shaped live connectors (e.g. Linear), not a store.
+ * MemoryProvider is an optional ask side-channel (includeMemory); not how you
+ * swap backends.
  */
 import type { VisibilitySpec } from "../core/schemas/document.ts";
 import type {
@@ -22,6 +25,10 @@ export type DocumentStoreAddParams = {
   blockPrincipalIds?: string[];
   attributes?: Record<string, string | number | boolean | null>;
   externalRef?: string;
+  /** Capture adapter id (default engine store uses `"http"`). */
+  adapter?: string;
+  /** Document kind (default engine store uses `"note"`). */
+  kind?: string;
 };
 
 export type DocumentStoreFindParams = {
@@ -30,6 +37,10 @@ export type DocumentStoreFindParams = {
   query: string;
   limit?: number;
   includeEvidence?: boolean;
+  /** Narrow local retrieval by document kind (unset/`[]` = no filter). */
+  kinds?: string[];
+  /** Narrow local retrieval by linked entity ids (unset/`[]` = no filter). */
+  entityIds?: string[];
 };
 
 export type DocumentStoreFindItem = {
@@ -66,8 +77,10 @@ export type DocumentStoreRecentEvent = {
 };
 
 /**
- * Durable local document plane. Default implementation is the engine's
- * pgvector store; hosts may inject a fake or alternate backend.
+ * Durable document plane. Default implementation is the engine's pgvector
+ * store. Hosts inject Mem0 / Supermemory / fakes via `options.documentStore`
+ * to replace local Postgres entirely — this is the only product path for
+ * swapping backends.
  */
 export type DocumentStore = {
   add(params: DocumentStoreAddParams): Promise<{ documentId: string }>;
@@ -80,7 +93,7 @@ export type DocumentStore = {
 
 /**
  * One live hit from a SourceProvider.searchLive call.
- * Dedupe key for merge is `adapter:externalRef` (CL-5227).
+ * Dedupe key for merge is `adapter:externalRef`.
  */
 export type LiveSearchItem = {
   adapter: string;
@@ -110,9 +123,9 @@ export type SourceProvider = {
 };
 
 /**
- * Personal memory port. Adapters implement this in packages/*;
- * core never imports vendor SDKs. Writes are host-owned (remember);
- * ask only recalls when includeMemory is true.
+ * Optional personal-memory side channel for ask(includeMemory). Not a
+ * DocumentStore replacement — Mem0/Supermemory product adapters implement
+ * DocumentStore, not this port.
  */
 export type MemoryProvider = {
   remember(params: {

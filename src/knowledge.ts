@@ -1,8 +1,8 @@
 /**
- * Knowledge plane backed by the engine's pgvector Postgres. Wraps the capture
- * and hybrid-search services directly — no HTTP hop.
+ * Knowledge plane: green surface add / find / ask / recent.
  *
- * Green surface: add / find / ask / recent.
+ * One product path — always store-backed. Default store is the engine's
+ * pgvector DocumentStore; hosts inject Mem0 / Supermemory / fakes the same way.
  */
 import { authorize } from "@intx/authz";
 
@@ -200,6 +200,8 @@ export type FindItem = {
   score: number;
   kind: string;
   citation: SearchHit["citation"];
+  /** ISO timestamp for merge recency when the store provides it. */
+  updatedAt?: string;
 };
 
 export type FindResult = {
@@ -373,16 +375,18 @@ export type KnowledgePlaneOptions = {
   textExtractor?: TextExtractor;
   /**
    * Override durable storage. When set, the plane does not open Postgres or
-   * call embed/rerank endpoints — useful for fakes and alternate backends.
+   * call embed/rerank endpoints — use for fakes and replaceable backends
+   * (Mem0, Supermemory). When omitted, the default engine DocumentStore is used.
    */
   documentStore?: DocumentStore;
   /**
-   * Live source connectors. Wired into find/ask merge in CL-5227; accepted
-   * here so mounts can declare them early.
+   * Live source connectors (tools-shaped). Merged into find/ask via
+   * MergeLocalLiveV1; not a DocumentStore replacement.
    */
   sources?: SourceProvider[];
   /**
-   * Memory port type accepted for mount wiring; remember/recall product is M3.
+   * Optional personal-memory side channel for ask(includeMemory).
+   * Not how you swap durable backends — use documentStore for that.
    */
   memory?: MemoryProvider;
 };
@@ -499,12 +503,13 @@ function resolveShareAndVisibility(params: KnowledgeAddParams): {
 /**
  * Build a knowledge plane.
  *
+ * One product path: every plane is store-backed. When `options.documentStore`
+ * is omitted, the default pgvector engine is wrapped as that store. Hosts
+ * inject Mem0 / Supermemory / fakes the same way — no second plane implementation.
+ *
  * - `grants` is required for `ask()` (in-process capability check). Standalone
- *   add/find callers may omit it — same as #8's out-of-band plane.
- * - Rerank config is validated at construction (same as mount) when using the
- *   default Postgres-backed store.
- * - Pass `options.documentStore` to skip Postgres entirely (fakes / overrides).
- *   When a store is provided, `config` may be omitted.
+ *   add/find callers may omit it.
+ * - Rerank config is validated at construction when using the default store.
  * - Pass `options.sources` for live SourceProviders; find/ask merge via
  *   MergeLocalLiveV1 (fail-soft, 800ms timeout, prefer-local dedupe).
  */
@@ -513,16 +518,18 @@ export function createKnowledgePlane(
   grants?: GrantConfig,
   options: KnowledgePlaneOptions = {},
 ): KnowledgePlane {
-  if (options.documentStore) {
-    return createPlaneFromStore(options.documentStore, grants, options);
-  }
-  if (!config) {
-    throw new KnowledgeError(
-      500,
-      "KnowledgeConfig is required when documentStore is not provided",
-    );
-  }
-  return createPlaneFromEngine(config, grants, options);
+  const store =
+    options.documentStore ??
+    (() => {
+      if (!config) {
+        throw new KnowledgeError(
+          500,
+          "KnowledgeConfig is required when documentStore is not provided",
+        );
+      }
+      return createEngineDocumentStore(config);
+    })();
+  return createPlaneFromStore(store, grants, options);
 }
 
 function wantsLocalChannel(sources: string[] | undefined): boolean {
@@ -543,6 +550,7 @@ function findItemsToMergeChannel(
     score: item.score,
     kind: item.kind,
     citation: item.citation,
+    ...(item.updatedAt !== undefined ? { updatedAt: item.updatedAt } : {}),
   }));
 }
 
@@ -613,6 +621,8 @@ async function collectLiveItems(params: {
 function mergeToFindResult(params: {
   localItems: FindItem[];
   localDegraded?: DegradeFlag[];
+  /** Hybrid evidence from the local channel when no live items were active. */
+  localEvidence?: HybridSearchResult["evidence"];
   liveItems: MergeChannelItem[];
   liveDegraded: DegradeFlag[];
   limit: number;
@@ -641,9 +651,22 @@ function mergeToFindResult(params: {
   ];
 
   if (params.includeEvidence) {
+    // Preserve hybrid strong/weak when live did not contribute hits; mixed or
+    // live-only merges stay conservatively "weak".
+    const liveContributed = params.liveItems.length > 0;
+    let evidence: HybridSearchResult["evidence"];
+    if (items.length === 0) {
+      evidence = "none";
+    } else if (!liveContributed && params.localEvidence) {
+      evidence = params.localEvidence;
+    } else if (!liveContributed) {
+      evidence = "weak";
+    } else {
+      evidence = "weak";
+    }
     return {
       items,
-      evidence: items.length === 0 ? "none" : "weak",
+      evidence,
       ...(degraded.length > 0 ? { degraded } : {}),
     };
   }
@@ -722,7 +745,7 @@ function makeRememberRecall(options: KnowledgePlaneOptions): {
   };
 }
 
-/** Plane backed by an injected DocumentStore (fake or host override). */
+/** Plane backed by a DocumentStore. Store owns tenancy and document ACL. */
 function createPlaneFromStore(
   store: DocumentStore,
   grants: GrantConfig | undefined,
@@ -735,6 +758,9 @@ function createPlaneFromStore(
   ): Promise<FindResult> {
     const limit = resolveFindLimit(params.limit);
     let localItems: FindItem[] = [];
+    let localDegraded: DegradeFlag[] | undefined;
+    let localEvidence: HybridSearchResult["evidence"] | undefined;
+
     if (wantsLocalChannel(params.sources)) {
       const local = await store.find({
         tenantId: params.tenantId,
@@ -742,6 +768,10 @@ function createPlaneFromStore(
         query: params.query,
         limit,
         includeEvidence: true,
+        ...(params.kinds !== undefined ? { kinds: params.kinds } : {}),
+        ...(params.entityIds !== undefined
+          ? { entityIds: params.entityIds }
+          : {}),
       });
       localItems = local.items.map((it) => ({
         documentId: it.documentId,
@@ -750,7 +780,10 @@ function createPlaneFromStore(
         score: it.score,
         kind: it.kind,
         citation: it.citation,
+        ...(it.updatedAt !== undefined ? { updatedAt: it.updatedAt } : {}),
       }));
+      localDegraded = local.degraded as DegradeFlag[] | undefined;
+      localEvidence = local.evidence;
     }
 
     const live = await collectLiveItems({
@@ -762,8 +795,26 @@ function createPlaneFromStore(
       filter: params.sources,
     });
 
+    // No live channel activity → preserve store evidence semantics.
+    if (
+      live.items.length === 0 &&
+      live.degraded.length === 0 &&
+      (options.sources ?? []).length === 0
+    ) {
+      if (params.includeEvidence) {
+        return {
+          items: localItems,
+          evidence: localEvidence ?? "none",
+          ...(localDegraded ? { degraded: localDegraded } : {}),
+        };
+      }
+      return { items: localItems };
+    }
+
     return mergeToFindResult({
       localItems,
+      ...(localDegraded !== undefined ? { localDegraded } : {}),
+      ...(localEvidence !== undefined ? { localEvidence } : {}),
       liveItems: live.items,
       liveDegraded: live.degraded,
       limit,
@@ -780,6 +831,12 @@ function createPlaneFromStore(
     },
 
     async ask(params) {
+      // Capability layer. Callers reaching the plane in-process bypass the
+      // HTTP surface's `requireGrant("knowledge", ...)` route guard, so the
+      // check has to live here — AUTH.md is explicit that the capability and
+      // data layers are independent and BOTH must allow. Per-document
+      // visibility (enforced inside the store) is not a substitute for "may
+      // this principal search at all".
       if (!grants) {
         throw new KnowledgeError(
           501,
@@ -795,6 +852,8 @@ function createPlaneFromStore(
         "find",
         grants.conditionRegistry,
       );
+      // `effect: null` means no grant matched at all — deny by default, same
+      // as an explicit deny. Only an explicit allow proceeds.
       if (decision.effect !== "allow") {
         const effect = decision.effect ?? "no-matching-grant";
         log.info(
@@ -806,6 +865,8 @@ function createPlaneFromStore(
         );
         throw new KnowledgeNotPermittedError();
       }
+      // Fail closed on missing generate *before* retrieval so a misconfigured
+      // host gets the promised 501 instead of paying for search.
       if (!options.generate) {
         throw new KnowledgeError(
           501,
@@ -884,19 +945,23 @@ function createPlaneFromStore(
       const { visibility, blockPrincipalIds } =
         resolveShareAndVisibility(params);
 
+      const externalRef =
+        params.externalRef ??
+        `knowledge:${params.tenantId}:${crypto.randomUUID()}`;
+
       return store.add({
         tenantId: params.tenantId,
         principalId: params.principalId,
         title,
         text,
         visibility,
+        externalRef,
         ...(blockPrincipalIds !== undefined ? { blockPrincipalIds } : {}),
         ...(params.attributes !== undefined
           ? { attributes: params.attributes }
           : {}),
-        ...(params.externalRef !== undefined
-          ? { externalRef: params.externalRef }
-          : {}),
+        ...(params.adapter !== undefined ? { adapter: params.adapter } : {}),
+        ...(params.kind !== undefined ? { kind: params.kind } : {}),
       });
     },
 
@@ -921,15 +986,11 @@ function createPlaneFromStore(
 }
 
 /**
- * Default plane: engine pgvector store + hybrid search.
+ * Default DocumentStore: engine pgvector + hybrid search + timeline.
+ * Owns construction-time rerank validation, FTS verification, and ACL
+ * block-list post-filter. The plane never opens Postgres itself.
  */
-function createPlaneFromEngine(
-  config: KnowledgeConfig,
-  grants: GrantConfig | undefined,
-  options: KnowledgePlaneOptions,
-): KnowledgePlane {
-  const memoryApi = makeRememberRecall(options);
-
+function createEngineDocumentStore(config: KnowledgeConfig): DocumentStore {
   // Catch a chunk-size / reranker-limit mismatch at construction time, rather
   // than silently on every find once the reranker starts rejecting batches.
   // Throws instead of warning: a mismatch means every rerank call for this
@@ -972,8 +1033,8 @@ function createPlaneFromEngine(
   );
 
   /**
-   * Hybrid retrieval + block-list post-filter. Shared by find() and ask().
-   * Returns the full HybridSearchResult so ask can synthesize from hits.
+   * Hybrid retrieval + block-list post-filter.
+   * Returns the full HybridSearchResult so evidence/degrade pass through.
    */
   async function retrieve(params: {
     tenantId: string;
@@ -1046,207 +1107,19 @@ function createPlaneFromEngine(
     }
   }
 
-  const plane: KnowledgePlane = {
-    async find(params) {
-      const limit = resolveFindLimit(params.limit);
-      let localItems: FindItem[] = [];
-      let localDegraded: DegradeFlag[] | undefined;
-      let localEvidence: HybridSearchResult["evidence"] | undefined;
-
-      if (wantsLocalChannel(params.sources)) {
-        const result = await retrieve({
-          tenantId: params.tenantId,
-          principalId: params.principalId,
-          query: params.query,
-          ...(limit !== undefined ? { k: limit } : {}),
-          ...(params.kinds !== undefined ? { kinds: params.kinds } : {}),
-          ...(params.entityIds !== undefined
-            ? { entityIds: params.entityIds }
-            : {}),
-        });
-        localItems = hitsToFindItems(result.hits);
-        localDegraded = result.degraded;
-        localEvidence = result.evidence;
-      }
-
-      const live = await collectLiveItems({
-        sources: options.sources,
-        query: params.query,
-        tenantId: params.tenantId,
-        principalId: params.principalId,
-        limit,
-        filter: params.sources,
-      });
-
-      // No live channel activity → preserve hybrid evidence semantics.
-      if (
-        live.items.length === 0 &&
-        live.degraded.length === 0 &&
-        (options.sources ?? []).length === 0
-      ) {
-        if (params.includeEvidence) {
-          return {
-            items: localItems,
-            evidence: localEvidence ?? "none",
-            ...(localDegraded ? { degraded: localDegraded } : {}),
-          };
-        }
-        return { items: localItems };
-      }
-
-      return mergeToFindResult({
-        localItems,
-        ...(localDegraded !== undefined ? { localDegraded } : {}),
-        liveItems: live.items,
-        liveDegraded: live.degraded,
-        limit,
-        ...(params.sources !== undefined ? { sources: params.sources } : {}),
-        ...(params.includeEvidence !== undefined
-          ? { includeEvidence: params.includeEvidence }
-          : {}),
-      });
-    },
-
-    async ask(params) {
-      // Capability layer. Callers reaching the plane in-process bypass the
-      // HTTP surface's `requireGrant("knowledge", ...)` route guard, so the
-      // check has to live here — AUTH.md is explicit that the capability and
-      // data layers are independent and BOTH must allow. Per-document
-      // visibility (enforced inside `find`) is not a substitute for "may
-      // this principal search at all".
-      // Same action as HTTP find/ask/recent: knowledge:find.
-      if (!grants) {
-        throw new KnowledgeError(
-          501,
-          "ask() requires a GrantConfig. Pass grants to " +
-            "createKnowledgePlane/mountKnowledgeEngine.",
-        );
-      }
-      const decision = await authorize(
-        grants.grantStore,
-        params.principalId,
-        params.tenantId,
-        "knowledge",
-        "find",
-        grants.conditionRegistry,
-      );
-      // `effect: null` means no grant matched at all — deny by default, same
-      // as an explicit deny. Only an explicit allow proceeds.
-      if (decision.effect !== "allow") {
-        // Interpolate into the message string: some sinks only render the
-        // template, not the structured context object (see src/log.ts).
-        const effect = decision.effect ?? "no-matching-grant";
-        log.info(
-          `ask: denied knowledge:find for ${params.principalId} (effect=${effect})`,
-          {
-            principalId: params.principalId,
-            effect,
-          },
-        );
-        throw new KnowledgeNotPermittedError();
-      }
-
-      // Fail closed on missing generate *before* retrieval so a misconfigured
-      // host gets the promised 501 instead of paying for hybrid search (or
-      // surfacing a DB error that masks the real problem).
-      if (!options.generate) {
-        throw new KnowledgeError(
-          501,
-          "ask() requires a `generate` function. Pass one to " +
-            "createKnowledgePlane/mountKnowledgeEngine, wired to your " +
-            "inference layer.",
-        );
-      }
-
-      // Find AS the asking principal — the per-document ACL boundary,
-      // including the block-list post-filter. includeEvidence so synthesis
-      // can report evidence; goes through plane.find so tests can stub it.
-      const findResult = await plane.find({
-        tenantId: params.tenantId,
-        principalId: params.principalId,
-        query: params.query,
-        includeEvidence: true,
-        ...(params.limit !== undefined ? { limit: params.limit } : {}),
-        ...(params.sources !== undefined ? { sources: params.sources } : {}),
-      });
-
-      const mem = await recallForAsk({
-        memory: options.memory,
-        includeMemory: params.includeMemory,
-        tenantId: params.tenantId,
-        principalId: params.principalId,
-        query: params.query,
-      });
-
-      const answer = await synthesizeAnswer(
-        params.query,
-        {
-          hits: findItemsToHits(findResult.items),
-          evidence: findResult.evidence ?? "none",
-        },
-        options.generate,
-        mem.texts,
-      );
-      const degraded: DegradeFlag[] = [
-        ...(findResult.degraded ?? []),
-        ...mem.degraded,
-      ];
-      return {
-        ...answer,
-        ...(degraded.length > 0 ? { degraded } : {}),
-      };
-    },
-
+  return {
     async add(params) {
       await ensureVerified();
 
-      const hasContent = params.content !== undefined;
-      const hasFile = params.file !== undefined;
-      if (hasContent === hasFile) {
-        throw new KnowledgeError(
-          400,
-          "provide exactly one of content or file",
-        );
-      }
-
-      let title: string;
-      let text: string;
-      if (params.content) {
-        title = params.content.title;
-        text = params.content.text;
-      } else {
-        const file = params.file!;
-        if (!options.textExtractor) {
-          throw new KnowledgeError(
-            400,
-            "file requires a textExtractor on the knowledge plane",
-          );
-        }
-        const extracted = await options.textExtractor.extract({
-          bytes: file.bytes,
-          ...(file.mimeType !== undefined ? { mimeType: file.mimeType } : {}),
-          ...(file.filename !== undefined ? { filename: file.filename } : {}),
-        });
-        text = extracted.text;
-        title =
-          file.title ??
-          extracted.title ??
-          file.filename ??
-          "untitled";
-      }
-
-      const { visibility, blockPrincipalIds } =
-        resolveShareAndVisibility(params);
-
-      const adapter = params.adapter ?? "mcp";
+      const adapter = params.adapter ?? "http";
       const externalRef =
         params.externalRef ??
         `knowledge:${params.tenantId}:${crypto.randomUUID()}`;
       const attributes: Record<string, string | number | boolean | null> = {
         ...(params.attributes ?? {}),
       };
-      if (blockPrincipalIds && blockPrincipalIds.length > 0) {
-        attributes["acl_block"] = JSON.stringify(blockPrincipalIds);
+      if (params.blockPrincipalIds && params.blockPrincipalIds.length > 0) {
+        attributes["acl_block"] = JSON.stringify(params.blockPrincipalIds);
       }
 
       const captureResult = await captureDocument(deps, {
@@ -1255,37 +1128,55 @@ function createPlaneFromEngine(
         occurredAt: new Date().toISOString(),
         document: {
           kind: params.kind ?? "note",
-          title,
+          title: params.title,
           externalRef,
-          visibility,
+          visibility: params.visibility,
           entityHints: [],
-          chunks: [{ ordinal: 0, text }],
+          chunks: [{ ordinal: 0, text: params.text }],
           actor: { kind: "human", principalId: params.principalId },
           contentHash: "", // recomputed canonically in adapt-and-plan
           ...(Object.keys(attributes).length > 0 ? { attributes } : {}),
         },
       });
-      // Both captured and noop return documentId — always surface it.
       return { documentId: captureResult.documentId };
     },
 
+    async find(params) {
+      const result = await retrieve({
+        tenantId: params.tenantId,
+        principalId: params.principalId,
+        query: params.query,
+        ...(params.limit !== undefined ? { k: params.limit } : {}),
+        ...(params.kinds !== undefined ? { kinds: params.kinds } : {}),
+        ...(params.entityIds !== undefined
+          ? { entityIds: params.entityIds }
+          : {}),
+      });
+      const items = hitsToFindItems(result.hits);
+      if (params.includeEvidence) {
+        return {
+          items,
+          evidence: result.evidence,
+          ...(result.degraded ? { degraded: result.degraded } : {}),
+        };
+      }
+      return {
+        items,
+        ...(result.degraded ? { degraded: result.degraded } : {}),
+      };
+    },
+
     async recent(params) {
-      const limit = resolveRecentLimit(params.limit);
       return listTimelineEvents({
         db,
         tenantId: params.tenantId,
         principalId: params.principalId,
-        ...(limit !== undefined ? { limit } : {}),
+        ...(params.limit !== undefined ? { limit: params.limit } : {}),
       });
     },
-
-    remember: memoryApi.remember,
-    recall: memoryApi.recall,
 
     async close() {
       await sql.end({ timeout: 5 });
     },
   };
-
-  return plane;
 }

@@ -1,135 +1,155 @@
 # Corbits Knowledge Engine — Product shape
 
-One product a team can run **without Workbench**: company brain for Claude Code,
-Codex, and any other client. Workbench is a client, not the owner of ingestion
-or auth.
+A **mountable knowledge plane** for Interchange hubs: durable documents, hybrid
+search, grounded ask, and optional live sources / personal memory. Workbench and
+coding agents are clients — not owners of ingestion or auth.
 
 ## Shape (locked)
 
-**`src/` is the `@corbits/knowledge-engine` SDK. Interchange is the hub — the
-SDK never creates one; it mounts onto yours. Nothing else ships in this repo.**
+**`src/` is the `@corbits/knowledge-engine` SDK.** Interchange is the hub — the
+SDK never creates one; it mounts onto yours.
 
-1. **Public surface**: `mountKnowledgeEngine(app, opts)` drops the knowledge
-   plane + routes onto an Interchange `createApp`;
-   `createKnowledgePlane(config)` builds the same plane without mounting HTTP
-   (CLI seeders, batch ingesters, tests);
-   `runKnowledgeMigrations(url)` applies the pgvector schema;
-   `loadKnowledgeConfig()` / `KnowledgeConfig` is the mount config.
-2. **The SDK authenticates nothing.** Identity is the request principal, read
-   off the Interchange context (`c.get("principal")`). Authorization uses the
-   host's grant store via Interchange's `authorize` / `createRequireGrant`. No API keys, no
-   sessions, no OAuth, no membership resolution — Interchange did all of that
-   before the request reached a mounted route.
-3. **Knowledge data plane runs in-process** against the host's knowledge/vector
-   Postgres. No second server, no HTTP hop.
+| Surface | Role |
+| --- | --- |
+| `mountKnowledgeEngine(app, opts)` | Plane + HTTP on an Interchange `createApp` |
+| `createKnowledgePlane(config, grants?, options?)` | Same plane without HTTP |
+| `runKnowledgeMigrations(url)` | Apply pgvector schema under Postgres `knowledge` |
+| `loadKnowledgeConfig()` | Mount config from env |
+
+### Green public plane (only these verbs)
+
+| Method | Meaning |
+| --- | --- |
+| `add` | Capture a document (`content` **xor** `file` + TextExtractor) |
+| `find` | Hybrid retrieval (+ optional live sources) |
+| `ask` | Grounded answer from find (+ optional memory) |
+| `recent` | Recent documents for the principal |
+
+Hard cutover: there is no `capture` / `search` / `timeline` export. HTTP paths
+and grants match the verbs: `POST /api/knowledge/add|find|ask`,
+`GET /api/knowledge/recent`; grants `knowledge:add` and `knowledge:find`
+(ask/recent share `find`).
+
+Identity on the plane is always **`principalId` + `tenantId`** (never
+`scopeId` / `subjectId`). HTTP routes never take body identity — they read
+`c.get("principal")` from Interchange context.
+
+### Ports (pluggable)
+
+| Port | Purpose |
+| --- | --- |
+| `DocumentStore` | **The** durable backend for add/find/recent (default: engine pgvector, wrapped as a DocumentStore). Replace with Mem0, Supermemory, or fakes — no Postgres required when overridden. The plane is always store-backed; there is no second engine-only path. |
+| `SourceProvider` | Optional **tools-shaped** live search (`searchLive`); merge is fail-soft. Not a store replacement. |
+| `MemoryProvider` | Optional ask side-channel only (`includeMemory`); **not** how you swap backends. |
+
+Mount options accept `documentStore`, `sources[]`, `memory`, plus in-package
+**fakes** so a host can mount with fakes only and exercise add/find/ask/recent
+without Postgres. Hosts that want Mem0 or Supermemory as the sole durable store
+pass that adapter as `documentStore` and omit `KnowledgeConfig`.
+
+**MergeLocalLiveV1** merges local DocumentStore + live SourceProviders: fail-soft
+per provider (timeout/error → degrade flags, never fail the request), dedupe by
+`adapter:externalRef`, optional `sources` filter (`local` + provider ids).
+
+**Memory side-channel:** `includeMemory` on `ask` defaults **false**. When true
+and a `MemoryProvider` is mounted, recall injects uncited personal context;
+failures degrade with `memory_unavailable` (docs-only). This is unrelated to
+using Mem0/Supermemory as the DocumentStore. Writes via `plane.remember` are
+host-owned — ask never auto-writes.
+
+### Adapter packages (same monorepo tree)
+
+| Package | Role |
+| --- | --- |
+| `@corbits/knowledge-adapter-mem0` | **DocumentStore** via Mem0 Platform HTTP; tenant key `mapUser` length-prefixed |
+| `@corbits/knowledge-adapter-supermemory` | **DocumentStore** via Supermemory HTTP; tenant key `containerTag` length-prefixed |
+
+Linear tools live in a **sibling repo** ([`@corbits/linear`](https://github.com/corbitsdev/corbits-linear)) — same tools shape as Granola, not a DocumentStore.
+
+Core never imports vendor SDKs. Adapters are pure-fetch; tenant-safe keys only.
+`MemoryProvider` factories in the mem0/supermemory packages are back-compat only.
+
+**Vendor store honesty:** Mem0/Supermemory adapters isolate by **principal
+bucket** (one Mem0 `user_id` / Supermemory `containerTag` per tenant+principal).
+They do **not** implement the multi-principal / tenant visibility ladder or
+block lists — those need the default pgvector store (or a store that enforces
+them). `recent` is empty on both adapters. Never mount them as
+`options.memory`.
 
 ### What is not in scope
 
-- No auth, no API keys, no OAuth, no webhook, no SPA, no standalone server.
-  Those belong to the host (a reference deployment lives in
-  `corbitsdev/examples`, not here).
-- Workbench is **not** required. Workbench / Claude Code / Codex are **clients**.
+- No auth, API keys, OAuth, webhooks, SPA, or standalone server in core.
+- No dual ACL / aspirational `source_acl` writes as a security boundary.
+- Workbench is a client, not required.
+- Linear / Granola / MCP tools are **not** DocumentStore replacements.
 
-**One Postgres for the SDK:** the knowledge / vector store (`pgvector`) — for
-capture, hybrid search, raw corpus, replay. The host's control-plane DB (auth,
-tenants, principals, grants, sessions) is entirely the host's concern.
+**Default durable store:** local Postgres via `KNOWLEDGE_DATABASE_URL` only (no
+`DATABASE_URL` fallback), tables under the **`knowledge`** schema. When
+`documentStore` is injected, Postgres is not opened. Cross-refs (`tenant_id`,
+`principal_id`) on the default store are plain `text` — no FKs into the host
+control plane.
 
 ```
 Claude Code / Codex / Workbench (clients)
-        │  authenticated by Interchange (session | API key | MCP OAuth)
-        │  body: content (+ optional acl) — never tenant/principal
+        │  authenticated by Interchange
         ▼
-┌──────────────────────────────────────────┐
-│  Host Interchange createApp              │
-│    resolves principal + tenant + grants  │
-│  + mountKnowledgeEngine(app, opts)       │
-│    or createKnowledgePlane(config)       │
-│    reads c.get("principal") from context │
-│    guards via host requireGrant(...)     │
-│         │  in-process                    │
-│         ▼                                │
-│  Knowledge plane (capture / search)      │
-│  store under scope_id + document ACL     │
-│  search: scope first, then ACL match     │
-│                                          │
-│  Knowledge / vector Postgres (pgvector)  │
-└──────────────────────────────────────────┘
+┌──────────────────────────────────────────────┐
+│  Host Interchange createApp                  │
+│  + mountKnowledgeEngine(app, opts)           │
+│       grants: knowledge:add | knowledge:find │
+│       documentStore: pgvector | Mem0 | SM |  │
+│                      fake                    │
+│       optional: sources, memory,             │
+│                 textExtractor                │
+│         │  in-process                        │
+│         ▼                                    │
+│  Knowledge plane: add / find / ask / recent  │
+│  → DocumentStore (sole durable backend)      │
+└──────────────────────────────────────────────┘
 ```
 
-## Identity and ACL
+## Identity and ACL ladder (honest)
 
-**The SDK does not authenticate.** Interchange authenticates the caller
-(session, API key, or MCP OAuth) and puts `principal` + `tenant` on the request
-context. Each mounted route reads identity from there:
-`scopeId = principal.tenantId`, `subjectId = principal.id`. Clients never send
-`tenant_id`/`principal_id` — the routes ignore body identity entirely.
+1. **Capability** — host grant store: may this principal `knowledge:add` or
+   `knowledge:find` at all?
+2. **Document visibility** — modes `private` | `principals` | `tenant`
+   (optional block list). Self-contained on the document row.
+3. **Share sugars on add** — map to existing visibility; no new ACL system.
 
-Access is gated by the host's grant system: pass `grants` (the same
-`{ grantStore, conditionRegistry }` you give `createApp`) to
-`mountKnowledgeEngine`. HTTP routes run `requireGrant("knowledge", <action>)`
-(`capture` for capture, `search` for search/timeline).
-`createKnowledgePlane` builds the same plane without routes — callers acting
-for a user must check the capability themselves (see README).
+There is **no** dual grant path and **no** second secret ACL. If a connector
+cannot prove a principal set, it must not write `tenant` visibility.
 
 ### On the wire
 
+HTTP bodies are a thin subset of the in-process plane (identity always comes
+from the host principal context, never the body):
+
 ```http
-POST /api/knowledge/capture     { "title", "text", "acl?" }
-POST /api/knowledge/search      { "query", "k?", "kinds?", "entity_ids?" }
-GET  /api/knowledge/timeline
+POST /api/knowledge/add      { "title", "text", "acl"? }
+POST /api/knowledge/find     { "query", "limit?", "kinds?", "entity_ids?", "sources?", "includeEvidence?" }
+POST /api/knowledge/ask      { "query", "limit?", "sources?", "includeMemory?" }
+GET  /api/knowledge/recent   ?limit=
 ```
 
-Requests are authenticated upstream by Interchange (however the host chose);
-the SDK routes assume a resolved principal on the context.
+`kinds` / `entity_ids` on find narrow both lexical and dense channels before
+fusion (unset or `[]` = no filter).
 
-`kinds`/`entity_ids` narrow both the lexical and dense/semantic legs of
-search before results are fused, so every hit matches the requested
-kind/entity. An empty array on either field is equivalent to omitting it (no
-filter), not "match nothing".
+Plane-only shapes (`content`/`file` XOR, `share` sugars, full `visibility`)
+are available via `createKnowledgePlane` / `plane.add`. HTTP `acl` maps to the
+document visibility ladder; `share` is plane sugar only.
 
-### Document ACL (who may surface on search/timeline) — set at capture
+### Live sources and memory (trust)
 
-Optional on capture; default is scope-wide (the company brain), or
-private-to-subject.
+- **Local documents** are the durable ACL plane (visibility + block). Engine
+  path enforces this; a host-supplied `DocumentStore` **owns** ACL for that
+  mount — the engine does not re-filter store results.
+- **Live `SourceProvider` hits** merge into find/ask without document-row ACL.
+  Auth is the host token / connector scope, not Interchange principal
+  visibility. Treat live as enrichment; fail-soft on timeout/error.
+- **Memory** is opt-in recall (`includeMemory`, default false). Adapters must
+  key by injective tenant+principal encodings; ask never auto-writes memory.
 
-```ts
-acl?: {
-  mode: "scope" | "tenant" | "private" | "allowlist"
-  allow?: string[] | { subjects?: string[] }   // subjects only for now
-  block?: string[] | { subjects?: string[] }
-}
-```
+## Out of scope forever here
 
-Search and timeline both filter by scope first, then apply the document ACL
-against the caller's subject. Block wins over allow. (Group/grant-based ACLs
-are rejected until membership lands.) Timeline reads durable document state —
-not a process-local capture ring — so ACL changes and restarts do not leak
-titles. Each timeline event's `source` is the document adapter (HTTP capture
-defaults to `"mcp"`; it is no longer hardcoded `"api"`), and `principalId` is
-the capturing actor on the active version (`created_by_principal_id`), not the
-caller of the timeline request.
-
-## Ingestion
-
-Ingestion is **capture** via the HTTP capture route, under the caller's context identity. (Expose it as an MCP tool with `@corbitsdev/hono-openapi-mcp`.)
-
-External events (Linear, GitHub, …) come in the same way: the host authenticates
-the forwarder to Interchange (e.g. an API key issued to the integration) and it
-calls `POST /api/knowledge/capture`, or the host calls `knowledge.capture()`
-directly from its own inbound handler. Vendor-payload mapping lives at the edge,
-not in the SDK.
-
-
-## Clients
-
-| Client | How it talks to it |
-| --- | --- |
-| Claude Code / Codex | MCP + OAuth (or API key) on the host |
-| Workbench | Generic tool client (not owner of ingest) |
-| Humans | Host app's UI (sign-in, timeline) |
-
-## Non-goals (this cut)
-
-- Workbench owning ingestion or tenancy for the company brain.
-- Client-supplied `tenant_id` / `principal_id` on the routes.
-- Shipping without Interchange as control plane.
+Auth, OAuth for Linear, Mem0/Supermemory account management, embedding models
+in-process, and any standalone process entrypoint.

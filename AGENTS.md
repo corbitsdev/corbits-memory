@@ -1,7 +1,7 @@
 # Agent guide — @corbits/knowledge-engine
 
-A library, not a service. `src/` is the whole product: a knowledge capture +
-search SDK that **mounts onto a host Interchange app**. There is no server,
+A library, not a service. `src/` is the whole product: a knowledge add / find /
+ask / recent SDK that **mounts onto a host Interchange app**. There is no server,
 port, or process entrypoint here, and there never should be.
 
 ## Commands
@@ -20,10 +20,12 @@ CI runs `typecheck` + `test` — both must pass before any push.
 
 - `src/index.ts` — public surface: `mountKnowledgeEngine`, `mountKnowledgeRoutes`, `createKnowledgePlane`
 - `src/mount-config.ts` / `src/config.ts` — mount config + engine config
-- `src/routes/` — Hono routes (capture, search, timeline)
-- `src/services/` — capture / search / transform logic
-- `src/core/` — embed/rerank clients, arktype schemas
-- `src/db/` + `migrations/` — Drizzle schema + SQL migrations (pgvector)
+- `src/routes/` — Hono routes (`add`, `find`, `ask`, `recent`)
+- `src/services/` — capture / search / transform internals (not public verbs)
+- `src/ports/` — `DocumentStore` / `SourceProvider` / `MemoryProvider` + fakes
+- `src/core/` — embed/rerank clients, merge, arktype schemas
+- `src/db/` + `migrations/` — Drizzle schema + SQL migrations (pgvector, `knowledge.*`)
+- `packages/` — optional DocumentStore adapters (`knowledge-adapter-mem0`, `knowledge-adapter-supermemory`); pure fetch, no vendor SDKs in core. Linear tools live in sibling `@corbits/linear`.
 
 ## Non-negotiable invariants
 

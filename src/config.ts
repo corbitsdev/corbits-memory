@@ -1,11 +1,11 @@
 /**
- * Knowledge / vector plane config — the core capture + search engine.
+ * Knowledge / vector plane config — the core engine behind add/find/recent.
  *
- * This is the low-level engine config consumed by the DB client and the
- * capture/search/transform services. The SDK's mount-level config
- * (`KnowledgeConfig`, see mount-config.ts) carries this as its `knowledge`
- * sub-object. There is no standalone server here — the SDK mounts onto a host
- * Interchange app, so there is no port, service token, or process entrypoint.
+ * This is the low-level engine config consumed by the DB client and internal
+ * services. The SDK's mount-level config (`KnowledgeConfig`, see
+ * mount-config.ts) carries this as its `knowledge` sub-object. There is no
+ * standalone server here — the SDK mounts onto a host Interchange app, so there
+ * is no port, service token, or process entrypoint.
  */
 export type EngineConfig = {
   databaseUrl: string;

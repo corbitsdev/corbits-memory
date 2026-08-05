@@ -14,6 +14,8 @@ import { caller, grantGuard, requirePrincipal } from "./deps.ts";
 const AskRequest = type({
   query: "string >= 1",
   "limit?": "1 <= number.integer <= 50",
+  "sources?": "string[]",
+  "includeMemory?": "boolean",
 });
 
 const AskResponse = type({
@@ -25,6 +27,7 @@ const AskResponse = type({
     citation: "unknown",
   }).array(),
   evidence: "'strong'|'weak'|'none'",
+  "degraded?": "string[]",
 });
 
 export function mountAskRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
@@ -52,7 +55,7 @@ export function mountAskRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
     grantGuard(deps, "find"),
     validator("json", AskRequest),
     async (c) => {
-      const { query, limit } = c.req.valid("json");
+      const { query, limit, sources, includeMemory } = c.req.valid("json");
       const { scopeId, subjectId } = caller(c);
       try {
         const result = await deps.knowledge.ask({
@@ -60,6 +63,8 @@ export function mountAskRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
           tenantId: scopeId,
           principalId: subjectId,
           ...(limit !== undefined ? { limit } : {}),
+          ...(sources !== undefined ? { sources } : {}),
+          ...(includeMemory !== undefined ? { includeMemory } : {}),
         });
         return c.json(result);
       } catch (err) {

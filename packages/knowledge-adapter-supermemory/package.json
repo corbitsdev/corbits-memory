@@ -1,7 +1,8 @@
 {
   "name": "@corbits/knowledge-adapter-supermemory",
   "version": "0.1.0",
-  "description": "Supermemory MemoryProvider adapter for Corbits Knowledge Engine (pure fetch, no vendor SDK)",
+  "description": "Supermemory DocumentStore adapter for Corbits Knowledge Engine (pure fetch, no vendor SDK)",
+
   "exports": {
     ".": "./src/index.ts"
   },
