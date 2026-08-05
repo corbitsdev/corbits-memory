@@ -79,9 +79,9 @@ Tag minting is **not** grant minting. For peer share to work in product:
 
 1. When Alice adds with `share: { principals: ["bob"] }`, the document is tagged
    `memory.owner:alice` and `memory.owner:bob`.
-2. Bob sees it only if the host has granted Bob `find` on `memory.owner:bob`
+2. Bob sees it only if the host has granted Bob `search` on `memory.owner:bob`
    (or a pattern that matches). **Recommended host bootstrap:** every principal
-   receives `find` (and optionally `add` side-effects as you prefer) on
+   receives `search` (and optionally `add` side-effects as you prefer) on
    `memory.owner:<self>` at signup, or a single pattern grant such as
    `memory.owner:*` only if that matches your tenancy model.
 3. Space/tenant tags work the same way: host must issue grants on
@@ -100,7 +100,7 @@ Deny is expressed as **absence of allow** (or an explicit deny grant in the host
 ### Capability (unchanged)
 
 ```ts
-authorize(grantStore, principalId, tenantId, "memory", "find"|"add")
+authorize(grantStore, principalId, tenantId, "memory", "search"|"add")
 // effect must be "allow"
 ```
 
@@ -111,7 +111,7 @@ function canSeeDocument(doc, principalId, grantStore, tenantId):
   if doc.createdByPrincipalId === principalId:
     return true  // creator
   for tag of doc.accessTags:
-    r = authorize(grantStore, principalId, tenantId, tag, "find")
+    r = authorize(grantStore, principalId, tenantId, tag, "search")
     if r.effect === "allow":
       return true
   return false
@@ -120,7 +120,7 @@ function canSeeDocument(doc, principalId, grantStore, tenantId):
 **SQL / store path:** prefer expand-then-filter:
 
 1. `collectGrants(principalId, tenantId)` once per request.
-2. Keep allow-grants whose `action` matches `find` (exact or pattern).
+2. Keep allow-grants whose `action` matches `search` (exact or pattern).
 3. Document is visible if creator **or** any `accessTags[i]` is matched by any allow grant resource pattern (`matchPattern(grant.resource, tag)`), and not denied by a more specific deny.
 
 This keeps evaluation inside Interchange authz semantics (specificity, conditions, deny).

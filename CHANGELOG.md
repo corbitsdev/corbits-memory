@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Interchange `defineTool` factories at `@corbits/memory/tools` (`memory_add`,
+  `memory_search`, `memory_list`) — HTTP clients for mounted hub routes with
+  install env `memoryBaseUrl` / `memoryTenantId` / `memoryAuthToken`. Declared
+  via `package.json` `interchange.tools` and `exports["./tools"]`.
+
 ### Changed
 
 - **Breaking:** package and public surface renamed from `@corbits/knowledge-engine`

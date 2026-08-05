@@ -487,13 +487,19 @@ Each route is guarded with `grantGuard(deps, action)`, which applies the host's
 | Method + path | Grant action | Request body | Response |
 |---|---|---|---|
 | `POST /api/tenants/:tenantId/memory/add` | `add` | `{ title, text, access_tags?, share? }` | `200 { documentId }`; `400` on validation |
-| `POST /api/tenants/:tenantId/memory/search` | `search` | `{ query, limit?, kinds?, entity_ids? }` (limit 1–50; `kinds`/`entity_ids` narrow every retrieval channel — lexical and dense — to a document `kind` or linked entity id before fusion; unset or `[]` = unfiltered) | `200 { items[], evidence?, degraded? }`; `400` on bad input |
-| `GET /api/tenants/:tenantId/memory/list` | `search` | — | `200 { events: [{ at, title, source, tenantId, principalId }] }` — durable recent documents for the caller's scope, filtered with grant-tag access (`canAccessDocument`). One event per document (active live version). |
+| `POST /api/tenants/:tenantId/memory/search` | `search` | `{ query, limit?, kinds?, entity_ids?, sources?, includeEvidence? }` (limit 1–50; `kinds`/`entity_ids`/`sources` narrow retrieval before fusion; unset or `[]` = unfiltered; `includeEvidence` adds a short evidence string when true) | `200 { items[], evidence?, degraded? }`; `400` on bad input |
+| `GET /api/tenants/:tenantId/memory/list` | `search` | query `?limit=` (1–100, string on the wire) | `200 { events: [{ at, title, source, tenantId, principalId }] }` — durable recent documents for the caller's scope, filtered with grant-tag access (`canAccessDocument`). One event per document (active live version). |
 
 `registerMemoryRoutes` and `createMemory({ app })` register the three HTTP routes.
-Agent tools are a host concern — mount `@corbitsdev/hono-openapi-mcp` (or any
-OpenAPI→tools bridge) against the same app. The plane surface is only
-`add` / `search` / `list` (plus `close`); inference stays on the host.
+Agent tools ship in this package as Interchange `defineTool` factories
+(`@corbits/memory/tools` / `interchange.tools`): thin HTTP clients that call the
+mounted routes with install env (`memoryBaseUrl`, `memoryTenantId`,
+`memoryAuthToken`). They do not import the plane. Host checklist: agent principal
+needs `memory:add` and/or `memory:search` grants; Bearer token only (no session
+cookie path); tool results are JSON strings; pass `AbortSignal` if you need hang
+protection — the client has no default timeout. OpenAPI→MCP remains an optional
+host bridge. The plane surface is only `add` / `search` / `list` (plus `close`);
+inference stays on the host.
 
 
 
@@ -518,8 +524,8 @@ Document access is Interchange authz — **not** a mini-ACL.
 - Write path: `resolveAccessTags` always writes `memory.owner:<caller>` and
   merges optional `accessTags` / share sugar (`tenant`, peer `principals`,
   explicit `tags`). Stored on `knowledge.document.access_tags`.
-- Read path (find + recent): `canAccessDocument` — creator always allowed;
-  otherwise `authorize(grantStore, principal, tenant, tag, "find")` for any
+- Read path (search + list): `canAccessDocument` — creator always allowed;
+  otherwise `authorize(grantStore, principal, tenant, tag, "search")` for any
   tag on the document.
 - SQL retrieval is **tenant-scoped only**. Document access is grant-tag
   post-filter in the plane (`canAccessDocument`); there is no SQL mini-ACL.

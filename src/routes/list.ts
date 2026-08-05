@@ -4,6 +4,7 @@ import { describeRoute, resolver, validator } from "hono-openapi";
 import { type } from "arktype";
 
 import { formatCaughtError, log } from "../log.ts";
+import { ListQuery, parseListLimitString } from "../http-bodies.ts";
 import {
   MemoryError,
   LIST_LIMIT_MAX,
@@ -11,10 +12,6 @@ import {
 } from "../memory.ts";
 import type { RouteDeps } from "./deps.ts";
 import { caller, grantGuard, requirePrincipal } from "./deps.ts";
-
-const ListQuery = type({
-  "limit?": "string",
-});
 
 const ListResponse = type({
   events: type({
@@ -25,19 +22,6 @@ const ListResponse = type({
     principalId: "string",
   }).array(),
 });
-
-function parseLimit(raw: string | undefined): number | undefined {
-  if (raw === undefined || raw === "") return undefined;
-  const n = Number(raw);
-  if (
-    !Number.isInteger(n) ||
-    n < LIST_LIMIT_MIN ||
-    n > LIST_LIMIT_MAX
-  ) {
-    return undefined;
-  }
-  return n;
-}
 
 export function mountListRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
   app.get(
@@ -65,11 +49,8 @@ export function mountListRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
     async (c) => {
       const { scopeId, subjectId } = caller(c);
       const rawLimit = c.req.valid("query").limit;
-      if (
-        rawLimit !== undefined &&
-        rawLimit !== "" &&
-        parseLimit(rawLimit) === undefined
-      ) {
+      const parsedLimit = parseListLimitString(rawLimit);
+      if (parsedLimit === null) {
         return c.json(
           {
             error: `limit must be an integer from ${LIST_LIMIT_MIN} to ${LIST_LIMIT_MAX}`,
@@ -77,7 +58,7 @@ export function mountListRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
           400,
         );
       }
-      const limit = parseLimit(rawLimit);
+      const limit = parsedLimit;
       try {
         const events = await deps.memory.list({
           tenantId: scopeId,

@@ -5,9 +5,9 @@ Memory for [Interchange](https://github.com/corbitsdev) hubs: **add**, **search*
 
 Mount it on the hub. Routes land under `/api/tenants/:tenantId/memory/*`, so
 the hub’s existing `createResolveTenant` middleware supplies principal + tenant
-— same as workflows, assets, and agents. Agents and ingestion modules call those
-routes (tools / OpenAPI→MCP, or in-process from a host worker). That’s the
-product.
+— same as workflows, assets, and agents. Workflow agents install the package’s
+`defineTool` factories; ingestion modules call the same routes or the in-process
+plane. That’s the product.
 
 Requires Bun 1.2+.
 
@@ -20,7 +20,7 @@ bun add git+https://github.com/corbitsdev/corbits-memory.git
 ```
 
 Peer stack you already have on an Interchange hub: `@intx/authz`, `@intx/hub-api`,
-`hono`.
+`hono`. Agent tools also need `@intx/agent` (declared as a direct dependency).
 
 ## Mount (≈5 lines)
 
@@ -53,17 +53,54 @@ Missing grant → **403**.
 
 ```http
 POST /api/tenants/:tenantId/memory/add      { "title", "text", "access_tags"?, "share"? }
-POST /api/tenants/:tenantId/memory/search   { "query", "limit"? }
+POST /api/tenants/:tenantId/memory/search   { "query", "limit"?, "kinds"?, "entity_ids"?, "sources"?, "includeEvidence"? }
 GET  /api/tenants/:tenantId/memory/list     ?limit=
 ```
 
-## Who calls the routes
+## Workflow agent tools
 
-1. **Agent tools** — routes are OpenAPI-described (`hono-openapi`). On the host,
-   mount `@corbitsdev/hono-openapi-mcp` (or any OpenAPI→tools bridge) so agents
-   get tools that hit the memory paths under Interchange auth.
-2. **Ingestion modules** — host workers that already resolved identity call the
-   same plane in-process (no HTTP hop):
+This package exports Interchange `defineTool` factories at
+`@corbits/memory/tools` (also `package.json` → `interchange.tools`). Each tool
+is a thin HTTP client: install credentials in agent env, call the mounted hub
+routes. No plane inject, no model-supplied identity.
+
+| Factory id | Tool name | HTTP |
+| --- | --- | --- |
+| `@corbits/memory/add` | `memory_add` | `POST …/memory/add` |
+| `@corbits/memory/search` | `memory_search` | `POST …/memory/search` |
+| `@corbits/memory/list` | `memory_list` | `GET …/memory/list` |
+
+**Env keys** (declared on each factory’s `requires`):
+
+| Key | Meaning |
+| --- | --- |
+| `memoryBaseUrl` | Hub **origin** only, e.g. `https://hub.example` (no `/api/...` path) |
+| `memoryTenantId` | Tenant path segment (must match the principal’s tenant on the hub) |
+| `memoryAuthToken` | Bearer token the hub accepts for that agent principal |
+
+**Host checklist**
+
+1. Mount routes: `createMemory({ app, grantStore, … })` under the hub tenant tree.
+2. Grant the agent principal `memory:add` and/or `memory:search` (`list` uses `search`).
+3. For peer/space share visibility, also grant `search` on the relevant document tags (see `docs/AUTHZ-DOCUMENT-ACCESS.md`).
+4. Install factories on the workflow and set the three env keys above.
+5. Auth is **Bearer only** on the tool client — session cookies are not sent.
+6. Tool results are **JSON strings** (`stringTool`); pass `AbortSignal` if you need hang protection (no default client timeout).
+
+```ts
+import { memoryAdd, memorySearch, memoryList } from "@corbits/memory/tools";
+
+// On a workflow / agent definition — install like any open tool package:
+// tools: [memoryAdd, memorySearch, memoryList]
+// and supply memoryBaseUrl / memoryTenantId / memoryAuthToken in agent env.
+```
+
+OpenAPI→MCP remains available as an alternative host bridge; the shipped
+`defineTool`s are the primary install path for workflow agents.
+
+## Ingestion (in-process)
+
+Host workers that already resolved identity can call the plane without HTTP:
 
 ```ts
 await memory.add({
