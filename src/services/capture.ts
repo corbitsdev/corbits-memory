@@ -1,4 +1,3 @@
-import { type } from "arktype";
 import { createHash } from "node:crypto";
 import { and, desc, eq } from "drizzle-orm";
 import type { Db, RawSql } from "../db/client.ts";
@@ -28,8 +27,9 @@ import type {
 import type { KnowledgeEdgeHint } from "../core/schemas/entity-edge.ts";
 import { createRawSqlClient } from "../core/embed-sql.ts";
 import { activateEmbedModel } from "../core/embed-model-registry.ts";
-import { EmbedClientConfigSchema, type EmbedClientConfig } from "../core/embed-client.ts";
+import type { EmbedClientConfig } from "../core/embed-client.ts";
 import { embedChunks, type EmbeddableChunk } from "../core/embed-worker.ts";
+import { toEmbedClientConfig } from "../core/engine-client-config.ts";
 
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 
@@ -462,21 +462,10 @@ async function captureInTransaction(
   );
 }
 
-// Built from the engine's own operator-configured embed endpoint — a trusted
-// URL, the same as KNOWLEDGE_DATABASE_URL.
-function toEmbedClientConfig(embed: EngineConfig["embed"]): EmbedClientConfig {
-  const candidate = {
-    baseUrl: embed.baseUrl,
-    modelId: embed.model,
-    apiStyle: embed.apiStyle,
-    ...(embed.apiKey !== undefined ? { apiKey: embed.apiKey } : {}),
-  };
-  const parsed = EmbedClientConfigSchema(candidate);
-  if (parsed instanceof type.errors) {
-    throw new Error(`Invalid embed client config: ${parsed.summary}`);
-  }
-  return parsed;
-}
+// Re-exported so tests can assert the capture path resolves its embed
+// client config through the one shared mapping (see engine-client-config.ts)
+// rather than a capture-local duplicate that could drop fields like timeoutMs.
+export { toEmbedClientConfig };
 
 // Embeds a version's freshly-inserted chunks and stores their vectors, after
 // the derivation transaction has already committed. Best-effort in the
