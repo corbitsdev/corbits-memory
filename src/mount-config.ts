@@ -64,12 +64,14 @@ export function loadMemoryConfig(): MemoryConfig {
         model: requireEnv("EMBED_MODEL"),
         apiStyle: optionalEnv("EMBED_API_STYLE") ?? "openai",
         apiKey: optionalEnv("EMBED_API_KEY"),
+        timeoutMs: optionalIntEnv("EMBED_TIMEOUT_MS"),
       },
       rerank: {
         baseUrl: optionalEnv("RERANK_BASE_URL"),
         model: optionalEnv("RERANK_MODEL"),
         apiKey: optionalEnv("RERANK_API_KEY"),
         maxDocChars: optionalIntEnv("RERANK_MAX_DOC_CHARS"),
+        timeoutMs: optionalIntEnv("RERANK_TIMEOUT_MS"),
       },
     },
   };

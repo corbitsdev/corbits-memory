@@ -113,12 +113,14 @@ const wiringConfig: MemoryConfig = {
       model: "m",
       apiStyle: "openai",
       apiKey: undefined,
+      timeoutMs: undefined,
     },
     rerank: {
       baseUrl: undefined,
       model: undefined,
       apiKey: undefined,
       maxDocChars: undefined,
+      timeoutMs: undefined,
     },
   },
 };
@@ -145,6 +147,7 @@ function baseConfig(
         model: "m",
         apiStyle: "openai",
         apiKey: undefined,
+        timeoutMs: undefined,
       },
       rerank,
     },
@@ -163,6 +166,7 @@ describe("createMemory — construction validation", () => {
           model: "bge-reranker-base",
           apiKey: undefined,
           maxDocChars: 5_000,
+          timeoutMs: undefined,
         }),
       }),
     ).toThrow(RerankConfigError);

@@ -26,6 +26,9 @@ export type EngineConfig = {
     model: string;
     apiStyle: string;
     apiKey: string | undefined;
+    // Per-request timeout override (EMBED_TIMEOUT_MS). `undefined` means
+    // "use embed-client.ts's own default" — must NOT be defaulted here.
+    timeoutMs: number | undefined;
   };
   rerank: {
     baseUrl: string | undefined;
@@ -40,5 +43,8 @@ export type EngineConfig = {
     // single constant is exactly how a small-model budget got applied to
     // the default model's much larger context window.
     maxDocChars: number | undefined;
+    // Per-request timeout override (RERANK_TIMEOUT_MS). `undefined` means
+    // "use rerank-client.ts's own default" — must NOT be defaulted here.
+    timeoutMs: number | undefined;
   };
 };

@@ -672,6 +672,7 @@ function toEmbedClientConfig(embed: EngineConfig["embed"]): EmbedClientConfig {
     modelId: embed.model,
     apiStyle: embed.apiStyle as EmbedClientConfig["apiStyle"],
     ...(embed.apiKey !== undefined ? { apiKey: embed.apiKey } : {}),
+    ...(embed.timeoutMs !== undefined ? { timeoutMs: embed.timeoutMs } : {}),
   };
 }
 
@@ -693,6 +694,9 @@ export function toRerankClientConfig(
     ...(rerank.apiKey !== undefined ? { apiKey: rerank.apiKey } : {}),
     ...(rerank.maxDocChars !== undefined
       ? { maxDocChars: rerank.maxDocChars }
+      : {}),
+    ...(rerank.timeoutMs !== undefined
+      ? { timeoutMs: rerank.timeoutMs }
       : {}),
   };
 }
