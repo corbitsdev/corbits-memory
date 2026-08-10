@@ -62,6 +62,15 @@ export {
   LIST_LIMIT_MAX,
 } from "./memory.ts";
 
+// Installer discovery — grant *requirements* (not live grants)
+export {
+  MEMORY_CAPABILITY_IDS,
+  MEMORY_GRANT_REQUIREMENTS,
+  type MemoryGrantRequirement,
+  type MemoryGrantSource,
+  type MemoryGrantSurface,
+} from "./grant-requirements.ts";
+
 // Ports — pluggable storage and live sources
 export type {
   DocumentStore,

@@ -18,3 +18,12 @@ export {
   type MemoryToolEnv,
 } from "./client.ts";
 
+/** Re-export installer grant requirements (same as package root). */
+export {
+  MEMORY_CAPABILITY_IDS,
+  MEMORY_GRANT_REQUIREMENTS,
+  type MemoryGrantRequirement,
+  type MemoryGrantSource,
+  type MemoryGrantSurface,
+} from "../grant-requirements.ts";
+

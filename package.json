@@ -10,7 +10,21 @@
     "./distiller": "./src/distiller/index.ts"
   },
   "interchange": {
-    "tools": "./src/tools/index.ts"
+    "tools": "./src/tools/index.ts",
+    "grantRequirements": [
+      {
+        "resource": "memory",
+        "action": "add",
+        "source": "tenant",
+        "surfaces": ["tools", "distiller", "routes"]
+      },
+      {
+        "resource": "memory",
+        "action": "search",
+        "source": "tenant",
+        "surfaces": ["tools", "distiller", "routes"]
+      }
+    ]
   },
   "license": "LGPL-2.1-only",
   "type": "module",

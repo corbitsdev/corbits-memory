@@ -96,10 +96,19 @@ const { workflow, generatorAgentId } = createResidentDistiller({
 
 ## Grant manifest (process principal)
 
+Installer discovery (not live grants):
+
+- `package.json` → `interchange.grantRequirements`
+- typed SSOT: `MEMORY_GRANT_REQUIREMENTS` / `MEMORY_CAPABILITY_IDS` from
+  `@corbits/memory` (or `@corbits/memory/tools`)
+
+Minimum capabilities:
+
 - `memory:add` (claim or note writes)
 - `memory:search` (corroboration + feed if using backfill)
 
-Copy `accessTags` from the source onto claim writes — never mint broader tags.
+Deploy materializes these onto the workflow principal. Copy `accessTags` from
+the source onto claim writes — never mint broader tags.
 
 ## Out of scope
 
