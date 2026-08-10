@@ -8,7 +8,7 @@ and wire shapes. For the "why standalone" / boundaries story, read
 
 ```
 src/
-  index.ts                # createMemory / registerMemoryRoutes
+  index.ts                # createMemory / registerMemoryRoutes + distiller re-exports
 
   mount-config.ts         # MemoryConfig + loadMemoryConfig() — the mount config
   config.ts               # EngineConfig — the core vector-plane config (db + embed + rerank)
@@ -23,6 +23,13 @@ src/
 
     deps.ts               # RouteDeps, caller(c) (context identity), grantGuard
     add.ts, search.ts, list.ts, feed.ts
+  tools/                  # Interchange defineTool factories (HTTP clients)
+    add.ts, search.ts, list.ts, feed.ts, client.ts, install.ts
+  distiller/              # Resident distiller (CL-5869) — workflow + tick helpers
+    index.ts              # createResidentDistiller, runDistillTick, buildDistilledClaim
+    workflow.ts           # defineWorkflow + defineAgent with memory tools
+    tick.ts               # imperative distill tick (host injects distill())
+    claim.ts              # pure claim body / gate / cursor helpers
   db/
     schema.ts             # Drizzle table defs (memory.* schema)
     client.ts             # createDb(config) -> { db (drizzle), sql (raw postgres-js) }
@@ -32,6 +39,7 @@ src/
     timeline.ts           # listTimelineEvents — durable recent docs + grant-tag filter
     transform.ts          # transform_config CRUD + runTransform (replay)
     feed.ts               # capture feed cursor pull (CL-5868)
+    retention.ts          # deprecate / tombstone / sweep ephemeral (CL-5871)
     share-grants.ts       # peer grant materialization on share (CL-5873)
   core/                   # framework-agnostic (chunking, embed/rerank, merge, schemas)
 # DocumentStore adapters / tools live as sibling packages (not in this tree):

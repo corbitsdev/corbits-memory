@@ -85,6 +85,18 @@ Minimum capabilities for the distiller principal:
 
 Copy `accessTags` from each feed entry onto writes — never mint broader tags.
 
+## Manual integration checklist (dev hub)
+
+When a hub + memory mount is available:
+
+1. Deploy `createResidentDistiller({ inference })` (or cron `runDistillTick`).
+2. Capture ~20 mixed notes (human + agent) via `memory_add`.
+3. Confirm feed pages with `exclude_generator=resident-distiller`.
+4. Confirm distilled claims appear with `attribution.provenance=inferred`,
+   `generatorAgentId=resident-distiller`, and `derivedFrom` set.
+5. Restart mid-cursor — next tick resumes from persisted `nextCursor`.
+6. Inject one poison entry — cursor still advances; no stuck feed.
+
 ## Out of scope
 
 - Host deploy pipeline / secrets
