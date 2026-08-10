@@ -39,7 +39,7 @@ export const memoryAdd = defineMemoryHttpTool({
   id: "@corbits/memory/add",
   name: "memory_add",
   description:
-    "Store a note in tenant memory. Returns { documentId }. " +
+    "Store a note in tenant memory. Returns { documentId, versionId }. " +
     "Identity is the authenticated principal on the hub; do not " +
     "pass tenant or principal ids.",
   inputSchema: {

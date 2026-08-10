@@ -86,7 +86,7 @@ export function createFakeDocumentStore(): DocumentStore {
         row.externalRef = params.externalRef;
       }
       docs.push(row);
-      return { documentId };
+      return { documentId, versionId: `fake_ver_${seq}` };
     },
 
     async appendAccessTags(documentId, tags) {

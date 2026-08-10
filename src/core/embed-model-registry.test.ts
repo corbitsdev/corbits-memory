@@ -2,6 +2,7 @@ import { describe, expect, it, mock } from "bun:test";
 import type { EmbedClientConfig } from "./embed-client.ts";
 import {
   activateEmbedModel,
+  activateEmbedModelByKey,
   computeModelKey,
   cosineDistanceExpr,
   DimsOutOfBoundsError,
@@ -315,6 +316,53 @@ describe("activateEmbedModel (split)", () => {
     );
     expect(updateQuery).toBeDefined();
     expect(updateQuery?.sql).toContain("updated_at = now()");
+  });
+
+  it("ensure then activate does not leave only-ready when activate follows", async () => {
+    const { client, queries } = createMockClient();
+    await ensureEmbedModel(client, "tenant-1", baseConfig, fixtureFetch(768));
+    const ensureQueries = queries.length;
+    await activateEmbedModel(client, "tenant-1", baseConfig, fixtureFetch(768));
+    // activate always issues the status UPDATE after ensure work
+    expect(
+      queries.slice(ensureQueries).some((q) => q.sql.includes("SET status = 'active'")),
+    ).toBe(true);
+  });
+});
+
+describe("activateEmbedModelByKey", () => {
+  it("issues UPDATE by model_key without probing the embed endpoint", async () => {
+    const modelKey = "abcdef0123456789";
+    const queries: Array<{ sql: string; params: readonly unknown[] }> = [];
+    const client: EmbedRegistrySqlClient = {
+      query: (sql, params) => {
+        queries.push({ sql, params });
+        return Promise.resolve([
+          { model_key: modelKey, model_id: "text-embed-3", dims: 768 },
+        ]);
+      },
+    };
+    const result = await activateEmbedModelByKey(client, "tenant-1", modelKey);
+    expect(result.modelKey).toBe(modelKey);
+    expect(result.dims).toBe(768);
+    expect(queries[0]?.sql).toContain("SET status = 'active'");
+    expect(queries[0]?.params).toEqual(["tenant-1", modelKey]);
+  });
+
+  it("throws when the registry row is missing", async () => {
+    const client: EmbedRegistrySqlClient = {
+      query: () => Promise.resolve([]),
+    };
+    await expect(
+      activateEmbedModelByKey(client, "tenant-1", "abcdef0123456789"),
+    ).rejects.toThrow(/no embed_model row/);
+  });
+
+  it("rejects an invalid model_key format", async () => {
+    const client: EmbedRegistrySqlClient = { query: () => Promise.resolve([]) };
+    await expect(
+      activateEmbedModelByKey(client, "tenant-1", "not-a-key"),
+    ).rejects.toThrow(/invalid modelKey/);
   });
 });
 

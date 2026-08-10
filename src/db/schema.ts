@@ -236,6 +236,8 @@ export const transformRun = memorySchema.table(
     completedAt: timestamp("completed_at"),
     /** Generation tag assigned to the prior live corpus on promote (for demote). */
     archivedLiveGeneration: text("archived_live_generation"),
+    /** Pre-promote active embed model_key (for demote dense restore). */
+    archivedLiveModelKey: text("archived_live_model_key"),
     promotedAt: timestamp("promoted_at"),
   },
   (t) => [

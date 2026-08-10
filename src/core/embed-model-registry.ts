@@ -255,6 +255,43 @@ export async function resolveActiveEmbedTable(
 }
 
 /**
+ * Promote an already-registered embed model to the tenant's active dense
+ * target by `model_key` only (no embed endpoint probe). Used by demote to
+ * restore the pre-promote live model without needing baseUrl/modelId.
+ *
+ * Throws if the registry row is missing — demote must not silently leave
+ * dense search on the promoted model.
+ */
+export async function activateEmbedModelByKey(
+  client: EmbedRegistrySqlClient,
+  tenantId: string,
+  modelKey: string,
+): Promise<ActiveEmbedTable> {
+  if (!/^[a-f0-9]{16}$/.test(modelKey)) {
+    throw new Error(`activateEmbedModelByKey: invalid modelKey "${modelKey}"`);
+  }
+  const rows = await client.query(
+    `UPDATE "memory"."embed_model"
+     SET status = 'active', updated_at = now()
+     WHERE tenant_id = $1 AND model_key = $2
+     RETURNING model_key, model_id, dims`,
+    [tenantId, modelKey],
+  );
+  const row = rows[0];
+  if (!row) {
+    throw new Error(
+      `activateEmbedModelByKey: no embed_model row for tenant=${tenantId} model_key=${modelKey}`,
+    );
+  }
+  return {
+    tableName: embeddingTableName(modelKey),
+    dims: row.dims as number,
+    modelId: row.model_id as string,
+    modelKey,
+  };
+}
+
+/**
  * Resolve any registered embed table by model_key (active or ready).
  * Used when searching a non-live generation whose transform_config embeds
  * with a model that is not the tenant's active one.

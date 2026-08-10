@@ -252,8 +252,10 @@ Two write paths (CL-5872):
 `resolveEmbedTableByModelKey` against the owning transform config's embed
 `model_key` — ready or active — so staged generations never steal live.
 
-Optional `archived_live_generation` on `transform_run` records which generation
-held live rows before promote (for demote/rollback).
+Optional `archived_live_generation` and `archived_live_model_key` on
+`transform_run` record which generation and dense model held live rows before
+promote (for demote/rollback of both corpus and dense search).
+
 
 ### Dynamic per-model vector tables: `memory_embedding_<key>`
 Not in `db/schema.ts` (no fixed shape — dimensionality varies by model) and
@@ -467,7 +469,7 @@ search); otherwise it throws `MemorySearchInputError` (400).
     entity edges; `toHit` builds the wire `SearchHit` (citation/open-target
     resolution via `openTarget`, mapping known adapters — `artifact`, `task`,
     `workflow_run`, `mail` — to a deep-linkable `{type, id}`, else a generic
-    `{type: "knowledge", id: documentId}`).
+    `{type: "memory", id: documentId}`).
 11. **Evidence** — `deriveHybridEvidence`: `"none"` if zero hits; `"weak"` if
     the lexical channel contributed zero rows (a dense-only result never
     reports `"strong"`); otherwise `deriveEvidence` on the lexical rows —
@@ -511,12 +513,14 @@ writes to. A `transform_config` is a named/versioned recipe
 
 **Promote / demote (staged cutover):**
 
-- `promoteGeneration` — swaps `status` so the staged generation becomes
-  `active` under `generation = 'live'` semantics for search (prior live is
-  archived; `archived_live_generation` records the previous id for rollback).
-  Optionally activates the generation's embed model so live dense matches
-  the promoted embeddings.
-- `demoteGeneration` — restores the archived live generation.
+- `promoteGeneration` — requires `status = 'completed'`. Snapshots the
+  pre-promote active `model_key`, activates the staged embed model, then
+  swaps generation tags (`live` → archive, staged → `live`). Records
+  `archived_live_generation` + `archived_live_model_key` for demote. If the
+  version swap fails after activate, re-activates the prior model_key.
+- `demoteGeneration` — re-activates `archived_live_model_key` (fail-closed if
+  the registry row is gone), then restores archive → live and staged corpus
+  back onto the run generation.
 
 Plane methods (engine DocumentStore only): `createTransformConfig`,
 `listTransformConfigs`, `runTransform`, `promoteGeneration`,

@@ -96,8 +96,14 @@ export type DocumentStoreListEvent = {
  * to replace local Postgres entirely — this is the only product path for
  * swapping backends.
  */
+export type DocumentStoreAddResult = {
+  documentId: string;
+  /** Active version written (or existing active on noop). */
+  versionId: string;
+};
+
 export type DocumentStore = {
-  add(params: DocumentStoreAddParams): Promise<{ documentId: string }>;
+  add(params: DocumentStoreAddParams): Promise<DocumentStoreAddResult>;
   search(params: DocumentStoreSearchParams): Promise<DocumentStoreSearchResult>;
   list(params: DocumentStoreListParams): Promise<DocumentStoreListEvent[]>;
   close(): Promise<void>;

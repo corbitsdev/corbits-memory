@@ -115,7 +115,7 @@ describe("createMemoryHttpClient", () => {
   test("POSTs add under tenant path with Bearer auth", async () => {
     const { calls, fetchMock } = makeFetchMock(() => ({
       status: 200,
-      json: { documentId: "doc-1" },
+      json: { documentId: "doc-1", versionId: "ver-1" },
     }));
     const client = createMemoryHttpClient({
       baseUrl: `${BASE}///`,
@@ -124,7 +124,7 @@ describe("createMemoryHttpClient", () => {
       fetch: fetchMock,
     });
     const out = await client.add({ title: "t", text: "body" });
-    expect(out).toEqual({ documentId: "doc-1" });
+    expect(out).toEqual({ documentId: "doc-1", versionId: "ver-1" });
     expect(calls).toHaveLength(1);
     const c = calls[0]!;
     expect(c.method).toBe("POST");
@@ -233,7 +233,7 @@ describe("memoryAdd factory", () => {
   test("happy path: body has no identity fields", async () => {
     const { calls, fetchMock } = makeFetchMock(() => ({
       status: 200,
-      json: { documentId: "doc-9" },
+      json: { documentId: "doc-9", versionId: "ver-9" },
     }));
     const bundle = memoryAdd(toolEnv({ memoryFetch: fetchMock }));
     expect(bundle.definitions.map((d) => d.name)).toEqual(["memory_add"]);
@@ -246,7 +246,7 @@ describe("memoryAdd factory", () => {
       new AbortController().signal,
     );
     expect(result.isError).toBeFalsy();
-    expect(result.content).toBe(JSON.stringify({ documentId: "doc-9" }));
+    expect(result.content).toBe(JSON.stringify({ documentId: "doc-9", versionId: "ver-9" }));
     const body = JSON.parse(calls[0]!.body ?? "{}") as Record<string, unknown>;
     expect(body).not.toHaveProperty("tenantId");
     expect(body).not.toHaveProperty("principalId");

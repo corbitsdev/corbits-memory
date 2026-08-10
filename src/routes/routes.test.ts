@@ -50,7 +50,7 @@ function stubPlane(opts?: {
         tenantId: p.tenantId,
         principalId: p.principalId,
       });
-      return { documentId: "doc-stub" };
+      return { documentId: "doc-stub", versionId: "ver-stub" };
     },
     list: async (p) => {
       return catalog
@@ -168,8 +168,9 @@ describe("memory HTTP routes", () => {
       jsonPost({ title: "t", text: "body" }),
     );
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { documentId: string };
+    const body = (await res.json()) as { documentId: string; versionId: string };
     expect(body.documentId).toBe("doc-stub");
+    expect(body.versionId).toBe("ver-stub");
     expect(added).toEqual([
       { title: "t", tenantId: TENANT, principalId: PRINCIPAL },
     ]);

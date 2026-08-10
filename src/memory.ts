@@ -163,7 +163,7 @@ export type MemoryAddParams = MemoryIdentity & {
   attributes?: Record<string, string | number | boolean | null>;
 };
 
-export type MemoryAddResult = { documentId: string };
+export type MemoryAddResult = { documentId: string; versionId: string };
 
 export type SearchItem = {
   documentId: string;
@@ -717,7 +717,7 @@ function createPlaneFromStore(
             tenantId: params.tenantId,
             sharedByPrincipalId: params.principalId,
             documentId: result.documentId,
-            sourceVersionId: result.documentId,
+            sourceVersionId: result.versionId,
             share: params.share ?? {},
           });
         } else {
@@ -987,7 +987,10 @@ function createEngineDocumentStore(config: MemoryConfig): {
               : {}),
           },
         });
-        return { documentId: captureResult.documentId };
+        return {
+          documentId: captureResult.documentId,
+          versionId: captureResult.versionId,
+        };
       },
 
       async appendAccessTags(documentId, tags) {

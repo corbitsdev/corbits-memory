@@ -60,6 +60,7 @@ export {
 export type {
   DocumentStore,
   DocumentStoreAddParams,
+  DocumentStoreAddResult,
   DocumentStoreSearchItem,
   DocumentStoreSearchParams,
   DocumentStoreSearchResult,
@@ -113,10 +114,12 @@ export {
 // Embed model registry (ensure vs activate)
 export {
   activateEmbedModel,
+  activateEmbedModelByKey,
   ensureEmbedModel,
   resolveActiveEmbedTable,
   resolveEmbedTableByModelKey,
 } from "./core/embed-model-registry.ts";
+
 
 // Migrations
 export { runMemoryMigrations } from "./migrations.ts";

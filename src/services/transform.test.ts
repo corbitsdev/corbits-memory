@@ -1,6 +1,9 @@
 import { describe, expect, it } from "bun:test";
 import { type } from "arktype";
-import { buildRerankClientConfig } from "./transform.ts";
+import {
+  buildRerankClientConfig,
+  isPromotableRunStatus,
+} from "./transform.ts";
 import { TransformConfigParamsSchema } from "../core/schemas/transform.ts";
 
 describe("buildRerankClientConfig", () => {
@@ -28,6 +31,14 @@ describe("buildRerankClientConfig", () => {
       apiStyle: "cohere",
       model: "rerank-v3",
     });
+  });
+});
+
+describe("isPromotableRunStatus", () => {
+  it("allows only completed runs", () => {
+    expect(isPromotableRunStatus("completed")).toBe(true);
+    expect(isPromotableRunStatus("running")).toBe(false);
+    expect(isPromotableRunStatus("failed")).toBe(false);
   });
 });
 

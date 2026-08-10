@@ -23,7 +23,7 @@ import { EmbedClientConfigSchema, type EmbedClientConfig } from "../core/embed-c
 import type { RerankClientConfig } from "../core/rerank-client.ts";
 import { deriveFromRawCapture, type CaptureInput } from "./capture.ts";
 import { LIVE_GENERATION } from "../core/generation.ts";
-import { activateEmbedModel } from "../core/embed-model-registry.ts";
+import { activateEmbedModel, activateEmbedModelByKey, resolveActiveEmbedTable } from "../core/embed-model-registry.ts";
 import { createRawSqlClient } from "../core/embed-sql.ts";
 
 export class TransformConfigNotFoundError extends Error {
@@ -55,6 +55,7 @@ export interface TransformRunRow {
   createdAt: Date;
   completedAt: Date | null;
   archivedLiveGeneration: string | null;
+  archivedLiveModelKey: string | null;
   promotedAt: Date | null;
 }
 
@@ -172,6 +173,7 @@ async function loadTransformRun(
     createdAt: row.createdAt,
     completedAt: row.completedAt,
     archivedLiveGeneration: row.archivedLiveGeneration ?? null,
+    archivedLiveModelKey: row.archivedLiveModelKey ?? null,
     promotedAt: row.promotedAt ?? null,
   };
 }
@@ -474,15 +476,27 @@ export class TransformPromoteError extends Error {
 }
 
 /**
+ * True when a transform_run may be promoted to live. Exported for unit tests.
+ * Only completed runs are promotable — failed/running leave a partial corpus.
+ */
+export function isPromotableRunStatus(
+  status: TransformRunRow["status"],
+): status is "completed" {
+  return status === "completed";
+}
+
+/**
  * Promote a completed staged generation to live.
  *
- * 1. Move current `live` versions to a unique archive generation (prior intact).
- * 2. Move staged generation versions onto `live`.
- * 3. Activate the run's embed model so dense search targets the promoted corpus.
- * 4. Record archive tag + promoted_at on the run for demote.
+ * 1. Snapshot the current active embed model_key (for demote restore).
+ * 2. Activate the run's embed model first so a failed activate leaves versions
+ *    untouched (brief dense mismatch window is preferred over committed corpus
+ *    with no matching dense table).
+ * 3. Swap generations: live → archive tag, staged → live.
+ * 4. Record archive tag + prior model_key + promoted_at for demote.
  *
  * Does not delete versions. Demote reverses the generation swap and re-activates
- * the prior live embed model when still registered.
+ * the prior live embed model when recorded.
  */
 export async function promoteGeneration(
   deps: { db: Db; sql: RawSql; config: EngineConfig },
@@ -513,59 +527,83 @@ export async function promoteGeneration(
       `generation ${input.generation} is already promoted`,
     );
   }
-  if (run.status === "running") {
+  if (!isPromotableRunStatus(run.status as TransformRunRow["status"])) {
     throw new TransformPromoteError(
-      `generation ${input.generation} is still running`,
+      `generation ${input.generation} is not completed (status=${run.status})`,
     );
   }
 
   const configRow = await loadTransformConfig(deps.db, run.configId);
   const embed = buildEmbedClientConfig(configRow.params.embed, deps.config.embed);
   const archiveGen = `archive_${run.id}_${Date.now()}`;
-
-  await deps.db.transaction(async (tx) => {
-    // 1) archive current live
-    await tx
-      .update(memoryVersion)
-      .set({ generation: archiveGen })
-      .where(
-        and(
-          eq(memoryVersion.tenantId, input.tenantId),
-          eq(memoryVersion.generation, LIVE_GENERATION),
-        ),
-      );
-    // 2) promote staged → live
-    await tx
-      .update(memoryVersion)
-      .set({ generation: LIVE_GENERATION })
-      .where(
-        and(
-          eq(memoryVersion.tenantId, input.tenantId),
-          eq(memoryVersion.generation, input.generation),
-        ),
-      );
-    // 3) bookkeeping — generation column stays the original run id for lookup;
-    //    versions now live under 'live'. Search by generation=runId after
-    //    promote finds nothing (expected); demote restores.
-    await tx
-      .update(transformRun)
-      .set({
-        archivedLiveGeneration: archiveGen,
-        promotedAt: new Date(),
-      })
-      .where(eq(transformRun.id, run.id));
-  });
-
-  // Activate embed outside the txn — DDL/network, not version rows.
   const client = createRawSqlClient(deps.sql);
+
+  // Snapshot prior active model before we flip dense search.
+  const priorActive = await resolveActiveEmbedTable(client, input.tenantId);
+  const priorModelKey = priorActive?.modelKey ?? null;
+
+  // Activate staged embed first — if this fails, versions stay put.
   await activateEmbedModel(client, input.tenantId, embed);
+
+  try {
+    await deps.db.transaction(async (tx) => {
+      // 1) archive current live
+      await tx
+        .update(memoryVersion)
+        .set({ generation: archiveGen })
+        .where(
+          and(
+            eq(memoryVersion.tenantId, input.tenantId),
+            eq(memoryVersion.generation, LIVE_GENERATION),
+          ),
+        );
+      // 2) promote staged → live
+      await tx
+        .update(memoryVersion)
+        .set({ generation: LIVE_GENERATION })
+        .where(
+          and(
+            eq(memoryVersion.tenantId, input.tenantId),
+            eq(memoryVersion.generation, input.generation),
+          ),
+        );
+      // 3) bookkeeping — generation column stays the original run id for lookup;
+      //    versions now live under 'live'. Search by generation=runId after
+      //    promote finds nothing (expected); demote restores.
+      await tx
+        .update(transformRun)
+        .set({
+          archivedLiveGeneration: archiveGen,
+          archivedLiveModelKey: priorModelKey,
+          promotedAt: new Date(),
+        })
+        .where(eq(transformRun.id, run.id));
+    });
+  } catch (err) {
+    // Version swap failed after dense activate — restore prior dense target.
+    if (priorModelKey) {
+      try {
+        await activateEmbedModelByKey(client, input.tenantId, priorModelKey);
+      } catch (restoreErr) {
+        log.warn(
+          "promoteGeneration: failed to restore prior embed model after version swap error",
+          {
+            priorModelKey,
+            error: formatCaughtError(restoreErr),
+          },
+        );
+      }
+    }
+    throw err;
+  }
 
   return loadTransformRun(deps.db, run.id);
 }
 
 /**
  * Demote a previously promoted generation: swap archive back to live and
- * move the demoted live corpus back onto the run's generation tag.
+ * move the demoted live corpus back onto the run's generation tag. Restores
+ * the pre-promote active embed model when one was recorded.
  */
 export async function demoteGeneration(
   deps: { db: Db; sql: RawSql; config: EngineConfig },
@@ -594,6 +632,20 @@ export async function demoteGeneration(
   }
 
   const archiveGen = run.archivedLiveGeneration;
+  const priorModelKey = run.archivedLiveModelKey ?? null;
+  const client = createRawSqlClient(deps.sql);
+
+  // Restore prior dense target first so a missing model_key fails closed
+  // before we rewrite generation tags.
+  if (priorModelKey) {
+    try {
+      await activateEmbedModelByKey(client, input.tenantId, priorModelKey);
+    } catch (err) {
+      throw new TransformPromoteError(
+        `cannot demote: failed to restore prior embed model ${priorModelKey}: ${formatCaughtError(err)}`,
+      );
+    }
+  }
 
   await deps.db.transaction(async (tx) => {
     // live (promoted) → back to run generation
@@ -620,15 +672,11 @@ export async function demoteGeneration(
       .update(transformRun)
       .set({
         archivedLiveGeneration: null,
+        archivedLiveModelKey: null,
         promotedAt: null,
       })
       .where(eq(transformRun.id, run.id));
   });
-
-  // Note: demote does not auto-activate a prior embed model — the host may
-  // re-activate via a subsequent live capture or explicit promote of another run.
-  // Live dense search continues against whichever model is currently active;
-  // vectors for restored live versions remain in their original embed tables.
 
   return loadTransformRun(deps.db, run.id);
 }

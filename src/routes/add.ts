@@ -13,6 +13,7 @@ import { caller, grantGuard, requirePrincipal } from "./deps.ts";
 
 const AddResponse = type({
   documentId: "string",
+  versionId: "string",
 });
 
 export function mountAddRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
@@ -57,14 +58,14 @@ export function mountAddRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
       }
 
       try {
-        const { documentId } = await deps.memory.add({
+        const result = await deps.memory.add({
           content: { title, text },
           tenantId: scopeId,
           principalId: subjectId,
           ...(accessTags !== undefined ? { accessTags } : {}),
           ...(share !== undefined ? { share } : {}),
         });
-        return c.json({ documentId });
+        return c.json({ documentId: result.documentId, versionId: result.versionId });
       } catch (err) {
         if (err instanceof MemoryError) {
           return c.json(

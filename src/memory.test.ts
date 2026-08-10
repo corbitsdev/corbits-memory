@@ -514,7 +514,7 @@ async function freshPlane(opts?: {
       principalId: PRINCIPAL,
       content: { title: "T", text: "body" },
     });
-    expect(result).toEqual({ documentId: "kdoc_captured" });
+    expect(result).toEqual({ documentId: "kdoc_captured", versionId: "kver_1" });
     await plane.close();
   });
 
@@ -534,7 +534,7 @@ async function freshPlane(opts?: {
       principalId: PRINCIPAL,
       content: { title: "T", text: "body" },
     });
-    expect(result).toEqual({ documentId: "kdoc_noop" });
+    expect(result).toEqual({ documentId: "kdoc_noop", versionId: "kver_1" });
     await plane.close();
   });
 
