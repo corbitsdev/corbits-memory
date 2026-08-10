@@ -34,7 +34,7 @@ import {
   DEFAULT_OVERFETCH_MULTIPLIER,
   fuseRrf,
   normalizeScoresToUnit,
-  recencyBoostMultiplier,
+  temporalRecencyMultiplier,
   RECENCY_HALF_LIFE_MS,
   toRankedCandidates,
   type DegradeFlag,
@@ -128,6 +128,10 @@ export interface CandidateRow {
   // The version's stored 0..1 authority score (computed at capture time;
   // never recomputed here).
   authority: number;
+  // Temporal ranking class + validity (docs/TEMPORAL.md). Defaults applied
+  // when a row predates the temporal migration (should not happen after 0004).
+  temporalClass: "event" | "deadline" | "state" | "lesson";
+  validUntil: Date | null;
 }
 
 export function snippet(text: string, maxLen = 240): string {
@@ -399,6 +403,8 @@ export async function fetchLexicalCandidates(
       rank: rankExpr,
       occurredAt: memoryVersion.occurredAt,
       authority: memoryVersion.authority,
+      temporalClass: memoryVersion.temporalClass,
+      validUntil: memoryVersion.validUntil,
     })
     .from(memoryChunk)
     .innerJoin(
@@ -527,7 +533,8 @@ export async function fetchDenseCandidates(
            kv.version AS version, kv.status AS status, kd.title AS title, kd.kind AS kind,
            kd.adapter AS adapter, kd.external_ref AS external_ref,
            kv.created_by_kind AS created_by_kind, kv.generator_agent_id AS generator_agent_id,
-           c.text AS snippet_text, kv.occurred_at AS occurred_at, kv.authority AS authority
+           c.text AS snippet_text, kv.occurred_at AS occurred_at, kv.authority AS authority,
+           kv.temporal_class AS temporal_class, kv.valid_until AS valid_until
     FROM ${activeTable.tableName} e
     JOIN "memory"."chunk" c ON c.id = e.chunk_id
     JOIN "memory"."version" kv ON kv.id = c.version_id
@@ -589,6 +596,10 @@ export async function fetchDenseCandidates(
     rank: 0,
     occurredAt: new Date(row["occurred_at"] as string),
     authority: row["authority"] as number,
+    temporalClass: (row["temporal_class"] as CandidateRow["temporalClass"]) ?? "event",
+    validUntil: row["valid_until"]
+      ? new Date(row["valid_until"] as string)
+      : null,
   }));
 }
 
@@ -651,7 +662,13 @@ function applyBoosts(
   return rows.map((row, index) => {
     const normScore = normalized[index] ?? 0;
     const authorityMult = authorityBoostMultiplier(row.authority);
-    const recencyMult = recencyBoostMultiplier(row.occurredAt, now, recencyHalfLifeMs);
+    const recencyMult = temporalRecencyMultiplier({
+      temporalClass: row.temporalClass,
+      occurredAt: row.occurredAt,
+      validUntil: row.validUntil,
+      now,
+      halfLifeMs: recencyHalfLifeMs,
+    });
     return { row, finalScore: normScore * authorityMult * recencyMult };
   });
 }

@@ -10,6 +10,7 @@
 import { and, desc, eq, sql } from "drizzle-orm";
 import type { ConditionRegistry, GrantStore } from "@intx/authz";
 import { canAccessDocument } from "../grant-tags.ts";
+import { LIVE_GENERATION } from "../core/generation.ts";
 
 import type { Db } from "../db/client.ts";
 import { memoryDocument, memoryVersion } from "../db/schema.ts";
@@ -31,6 +32,11 @@ export type ListTimelineParams = {
   /** Host grant store — required for non-creator document access. */
   grants?: GrantStore;
   conditionRegistry?: ConditionRegistry;
+  /**
+   * Replay-generation tag. Defaults to live so staged replay versions never
+   * appear in the default timeline (matches hybrid search).
+   */
+  generation?: string;
 };
 
 export type TimelineRow = {
@@ -53,6 +59,20 @@ const MAX_LIMIT = 100;
  */
 export function timelineWhere(tenantId: string) {
   return eq(memoryDocument.tenantId, tenantId);
+}
+
+/**
+ * Active-version join for timeline: status + generation (live by default).
+ * Exported so tests can assert the generation predicate without a live DB.
+ */
+export function activeTimelineVersionJoin(
+  generation: string = LIVE_GENERATION,
+) {
+  return and(
+    eq(memoryVersion.documentId, memoryDocument.id),
+    eq(memoryVersion.status, "active"),
+    eq(memoryVersion.generation, generation),
+  );
 }
 
 /**
@@ -108,6 +128,7 @@ export async function filterTimelineRows(
 
 /**
  * List recent document events for a tenant, filtered by grant-tag access.
+ * Only active versions in the requested generation (default live) appear.
  */
 export async function listTimelineEvents(
   params: ListTimelineParams,
@@ -117,6 +138,7 @@ export async function listTimelineEvents(
     MAX_LIMIT,
   );
   const fetchLimit = Math.min(limit * TIMELINE_OVERFETCH, MAX_LIMIT * TIMELINE_OVERFETCH);
+  const generation = params.generation ?? LIVE_GENERATION;
 
   const rows = await params.db
     .select({
@@ -129,13 +151,7 @@ export async function listTimelineEvents(
       accessTags: memoryDocument.accessTags,
     })
     .from(memoryDocument)
-    .innerJoin(
-      memoryVersion,
-      and(
-        eq(memoryVersion.documentId, memoryDocument.id),
-        eq(memoryVersion.status, "active"),
-      ),
-    )
+    .innerJoin(memoryVersion, activeTimelineVersionJoin(generation))
     .where(timelineWhere(params.tenantId))
     .orderBy(desc(memoryVersion.occurredAt))
     .limit(fetchLimit);

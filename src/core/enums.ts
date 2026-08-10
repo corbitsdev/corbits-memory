@@ -50,6 +50,18 @@ export type LineageClass = (typeof LINEAGE_CLASSES)[number];
 export const PROVENANCE_MODES = ["stated", "inferred", "unknown"] as const;
 export type ProvenanceMode = (typeof PROVENANCE_MODES)[number];
 
+/**
+ * Temporal ranking class stored on knowledge.version.temporal_class.
+ * See docs/TEMPORAL.md.
+ */
+export const TEMPORAL_CLASSES = [
+  "event",
+  "deadline",
+  "state",
+  "lesson",
+] as const;
+export type TemporalClass = (typeof TEMPORAL_CLASSES)[number];
+
 /** Build an arktype union string from a const string array. */
 export function arktypeStringUnion(
   values: readonly string[],

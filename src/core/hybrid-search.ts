@@ -155,3 +155,41 @@ export function recencyBoostMultiplier(
   const decay = Math.pow(2, -ageMs / halfLifeMs);
   return clampBoostMultiplier(BOOST_BASE + BOOST_SPAN * decay);
 }
+
+// How far ahead of valid_until a deadline starts ramping urgency (neutral
+// before this window; approaches the boost ceiling at the deadline).
+export const DEADLINE_LOOKAHEAD_MS = 7 * 24 * 60 * 60 * 1000;
+
+export type TemporalRecencyInput = {
+  temporalClass: "event" | "deadline" | "state" | "lesson";
+  occurredAt: Date;
+  validUntil: Date | null;
+  now: Date;
+  halfLifeMs?: number;
+};
+
+/**
+ * Recency prior by temporal class (docs/TEMPORAL.md):
+ * - event: exponential decay from occurred_at (existing half-life)
+ * - deadline: neutral far out; urgency ramp in lookahead before valid_until;
+ *   floor after expiry (still history-retrievable, not deleted)
+ * - state / lesson: no decay while active (superseded rows are status-filtered)
+ */
+export function temporalRecencyMultiplier(input: TemporalRecencyInput): number {
+  const halfLifeMs = input.halfLifeMs ?? RECENCY_HALF_LIFE_MS;
+  switch (input.temporalClass) {
+    case "event":
+      return recencyBoostMultiplier(input.occurredAt, input.now, halfLifeMs);
+    case "state":
+    case "lesson":
+      return 1.0;
+    case "deadline": {
+      if (input.validUntil === null) return 1.0;
+      const remaining = input.validUntil.getTime() - input.now.getTime();
+      if (remaining <= 0) return BOOST_MULTIPLIER_MIN;
+      if (remaining >= DEADLINE_LOOKAHEAD_MS) return 1.0;
+      const urgency = 1 - remaining / DEADLINE_LOOKAHEAD_MS;
+      return clampBoostMultiplier(1.0 + BOOST_SPAN * urgency * 0.5);
+    }
+  }
+}

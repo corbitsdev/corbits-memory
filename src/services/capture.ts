@@ -92,6 +92,18 @@ function deriveProvenance(plan: CapturePlan): string {
   return plan.document.provenance ?? "stated";
 }
 
+function deriveTemporalClass(plan: CapturePlan): string {
+  if (plan.document.temporalClass) return plan.document.temporalClass;
+  // Distilled claims default to state ranking; raw captures to event.
+  if ((plan.document.provenance ?? "stated") === "inferred") return "state";
+  return "event";
+}
+
+function parseOptionalDate(value: string | undefined): Date | null {
+  if (!value) return null;
+  return new Date(value);
+}
+
 async function insertVersion(
   tx: Tx,
   input: CaptureInput,
@@ -125,6 +137,9 @@ async function insertVersion(
     hasSocialSignal: authoritySignals.hasSocialSignal,
     sourceClass: deriveLineageClass(plan),
     provenance: deriveProvenance(plan),
+    temporalClass: deriveTemporalClass(plan),
+    validFrom: parseOptionalDate(plan.document.validFrom),
+    validUntil: parseOptionalDate(plan.document.validUntil),
     rawCaptureId: opts.rawCaptureId,
     generation: opts.generation,
   });

@@ -75,6 +75,10 @@ export const memoryVersion = memorySchema.table(
     // How content was obtained: stated (asserted), inferred (derived claim),
     // unknown (legacy / unset). Orthogonal to created_by_kind and source_class.
     provenance: text("provenance").notNull().default("unknown"),
+    // Ranking temporal class + optional validity window (docs/TEMPORAL.md).
+    temporalClass: text("temporal_class").notNull().default("event"),
+    validFrom: timestamp("valid_from"),
+    validUntil: timestamp("valid_until"),
     rawCaptureId: text("raw_capture_id").references(() => rawCapture.id),
     // Replay-generation tag — 'live' for the normal /capture path; a replay tags every
     // version it writes with its own transform_run id instead, so a replayed

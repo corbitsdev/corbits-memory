@@ -59,6 +59,7 @@ describe("MemoryVersionSchema", () => {
       created_by_kind: "human",
       provenance: "stated",
       source_class: "native",
+      temporal_class: "event",
     };
     const out = MemoryVersionSchema(fixture);
     expect(out instanceof type.errors ? out.summary : out).toEqual(fixture);
@@ -82,6 +83,7 @@ describe("MemoryVersionSchema", () => {
       created_by_kind: "human",
       provenance: "stated",
       source_class: "native",
+      temporal_class: "event",
     });
     expect(out instanceof type.errors).toBe(true);
   });

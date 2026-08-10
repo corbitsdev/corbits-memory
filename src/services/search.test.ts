@@ -26,6 +26,8 @@ function candidate(overrides: Partial<CandidateRow> = {}): CandidateRow {
     rank: 1,
     occurredAt: new Date("2026-01-01T00:00:00Z"),
     authority: 0.5,
+    temporalClass: "event",
+    validUntil: null,
     ...overrides,
   };
 }

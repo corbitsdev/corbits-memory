@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   BOOST_MULTIPLIER_MAX,
   BOOST_MULTIPLIER_MIN,
+  DEADLINE_LOOKAHEAD_MS,
   MAX_BATCH_QUERIES,
   RECENCY_HALF_LIFE_MS,
   authorityBoostMultiplier,
@@ -11,6 +12,7 @@ import {
   isBatchQueriesWithinBound,
   normalizeScoresToUnit,
   recencyBoostMultiplier,
+  temporalRecencyMultiplier,
   toRankedCandidates,
 } from "./hybrid-search.ts";
 
@@ -192,5 +194,82 @@ describe("recencyBoostMultiplier", () => {
       BOOST_MULTIPLIER_MAX,
       10,
     );
+  });
+});
+
+describe("temporalRecencyMultiplier", () => {
+  const now = new Date("2026-07-20T00:00:00.000Z");
+
+  test("event matches recencyBoostMultiplier", () => {
+    const oneHalfLifeAgo = new Date(now.getTime() - RECENCY_HALF_LIFE_MS);
+    expect(
+      temporalRecencyMultiplier({
+        temporalClass: "event",
+        occurredAt: oneHalfLifeAgo,
+        validUntil: null,
+        now,
+      }),
+    ).toBeCloseTo(recencyBoostMultiplier(oneHalfLifeAgo, now), 10);
+  });
+
+  test("state and lesson are neutral regardless of age", () => {
+    const old = new Date("2020-01-01T00:00:00.000Z");
+    for (const temporalClass of ["state", "lesson"] as const) {
+      expect(
+        temporalRecencyMultiplier({
+          temporalClass,
+          occurredAt: old,
+          validUntil: null,
+          now,
+        }),
+      ).toBe(1.0);
+    }
+  });
+
+  test("deadline far out is neutral", () => {
+    const far = new Date(now.getTime() + DEADLINE_LOOKAHEAD_MS * 2);
+    expect(
+      temporalRecencyMultiplier({
+        temporalClass: "deadline",
+        occurredAt: now,
+        validUntil: far,
+        now,
+      }),
+    ).toBe(1.0);
+  });
+
+  test("deadline at expiry approaches the urgency ceiling (~1.3)", () => {
+    const almostDue = new Date(now.getTime() + 1);
+    const mult = temporalRecencyMultiplier({
+      temporalClass: "deadline",
+      occurredAt: now,
+      validUntil: almostDue,
+      now,
+    });
+    expect(mult).toBeGreaterThan(1.25);
+    expect(mult).toBeLessThanOrEqual(BOOST_MULTIPLIER_MAX);
+  });
+
+  test("expired deadline falls to the boost floor (still retrievable)", () => {
+    const past = new Date(now.getTime() - 1000);
+    expect(
+      temporalRecencyMultiplier({
+        temporalClass: "deadline",
+        occurredAt: now,
+        validUntil: past,
+        now,
+      }),
+    ).toBe(BOOST_MULTIPLIER_MIN);
+  });
+
+  test("deadline with null validUntil is neutral", () => {
+    expect(
+      temporalRecencyMultiplier({
+        temporalClass: "deadline",
+        occurredAt: now,
+        validUntil: null,
+        now,
+      }),
+    ).toBe(1.0);
   });
 });

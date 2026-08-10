@@ -3,6 +3,7 @@ import {
   CreatedByKindSchema,
   LineageClassSchema,
   ProvenanceModeSchema,
+  TemporalClassSchema,
 } from "./document.ts";
 import { MemoryEdgeHintSchema } from "./entity-edge.ts";
 import { AuthoritySourceClassSchema } from "../authority.ts";
@@ -81,6 +82,9 @@ export const AdaptedDocumentSchema = type({
   "hasSocialSignal?": "boolean",
   "lineageClass?": LineageClassSchema,
   "provenance?": ProvenanceModeSchema,
+  "temporalClass?": TemporalClassSchema,
+  "validFrom?": "string",
+  "validUntil?": "string",
   contentHash: "string",
 });
 export type AdaptedDocument = typeof AdaptedDocumentSchema.infer;

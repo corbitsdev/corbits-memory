@@ -2,6 +2,7 @@ import { type } from "arktype";
 import {
   LINEAGE_CLASSES,
   PROVENANCE_MODES,
+  TEMPORAL_CLASSES,
   arktypeStringUnion,
 } from "../enums.ts";
 
@@ -23,6 +24,12 @@ export const ProvenanceModeSchema = type(
 );
 export type ProvenanceMode = typeof ProvenanceModeSchema.infer;
 
+export const TemporalClassSchema = type(
+  arktypeStringUnion(TEMPORAL_CLASSES) as
+    "'event'|'deadline'|'state'|'lesson'",
+);
+export type TemporalClass = typeof TemporalClassSchema.infer;
+
 // The stable logical row for a captured source, deduped on (tenant_id,
 // adapter, external_ref). Document access is grant tags only.
 export const MemoryDocumentSchema = type({
@@ -41,6 +48,9 @@ export type MemoryDocument = typeof MemoryDocumentSchema.infer;
 
 // The versioned body of a document. Chunks belong to a version_id, never
 // reused across versions.
+// occurred_at is effective time the content refers to (event time / state
+// effective time / deadline establishment). ingested_at is when the plane
+// learned it. Validity window is optional (deadline/state claims).
 export const MemoryVersionSchema = type({
   id: "string",
   tenant_id: "string",
@@ -59,5 +69,8 @@ export const MemoryVersionSchema = type({
   "generator_agent_id?": "string",
   provenance: ProvenanceModeSchema,
   source_class: LineageClassSchema,
+  temporal_class: TemporalClassSchema,
+  "valid_from?": "string | null",
+  "valid_until?": "string | null",
 });
 export type MemoryVersion = typeof MemoryVersionSchema.infer;

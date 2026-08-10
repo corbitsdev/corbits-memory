@@ -218,6 +218,19 @@ Ranking priors (`AdaptedDocument.sourceClass`: `native|thread|channel|call|recor
 
 A derived claim is a normal version with `provenance: inferred`, `lineageClass: derived`, and a `derived_from` edge to the source version (or document). Core never runs inference; it only accepts the shape.
 
+### Temporal model
+
+See `docs/TEMPORAL.md`. On `memory.version`:
+
+| Column | Role |
+| --- | --- |
+| `occurred_at` | Effective time the content refers to |
+| `ingested_at` | When the plane learned it (no separate `asserted_at`) |
+| `temporal_class` | `event` \| `deadline` \| `state` \| `lesson` — ranking prior |
+| `valid_from` / `valid_until` | Optional validity window |
+
+Search multiplies fused scores by `temporalRecencyMultiplier` (class-aware). Timeline and search both filter `generation` (default live) so replay rows never leak into live views.
+
 ### `memory_embed_model`
 Per-tenant registry of which embed model is currently active, and the
 dimensionality it was discovered at (`discoverModelDims`/`probeEmbedDims` —
