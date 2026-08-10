@@ -1,31 +1,40 @@
-# Resident distiller
+# Process helpers (distiller)
 
-First-class on-ramp so a Corbits app can add memory **and** keep it distilled
-without a sibling package.
+Default product path is **add → ingest elements → process** in one host
+pipeline (`PRODUCT.md`). Mechanical ingest (raw → chunk → embed) already runs
+inside `memory.add` on the default store.
 
-## Quick start (Interchange workflow)
+This package’s distiller exports are **optional process helpers** for when
+you need LLM claim extraction **outside** that single pipeline:
 
-```ts
-import { createResidentDistiller } from "@corbits/memory/distiller";
-// or: import { createResidentDistiller } from "@corbits/memory";
+- multi-writer: other agents also `add` and you want a backfill worker
+- replay / catch-up over a cursor
+- fail-soft polish decoupled from the write that ingested the raw note
 
-const { workflow, generatorAgentId } = createResidentDistiller({
-  inference: {
-    sources: [{ provider: "openai", model: "gpt-4.1-mini" }],
-  },
-  // optional: cron: "*/5 * * * *", id, agentId, systemPrompt, extraTools
-});
+They are **not** the primary “how memory is ingested” story.
 
-// Deploy `workflow` with host workflow-deploy.
-// Env for tools: memoryBaseUrl, memoryTenantId, memoryAuthToken
-// Grant the distiller principal: memory:search + memory:add (feed via search grant)
+## Preferred: process in the same ingest workflow
+
+```text
+onTrigger / host job
+  1. receive source event (or fetch)
+  2. memory_add          // ingest elements
+  3. process (optional)  // claims / links — same body or child step
 ```
 
-The agent is preloaded with `memory_feed`, `memory_add`, and `memory_search`.
-System prompt encodes loop-safety (`exclude_generator` = `generatorAgentId`),
-access-tag copy (never widen), and fail-soft poison handling.
+No feed cursor required: the workflow already has the payload. Host injects
+inference; tools only need `memory_add` / `memory_search` (and grants).
 
-## Quick start (imperative — any scheduler)
+Helpers still useful in-process:
+
+| Export | Use |
+| --- | --- |
+| `buildDistilledClaim` | Wire body with `generator_agent_id`, `provenance=inferred`, `derived_from` |
+| `RESIDENT_DISTILLER_AGENT_ID` | Stable generator id if you write claims |
+
+## Optional: multi-writer / backfill (`runDistillTick`)
+
+When other writers also `add`, drain new versions with the capture feed:
 
 ```ts
 import { runDistillTick } from "@corbits/memory/distiller";
@@ -57,48 +66,44 @@ cursor = result.nextCursor; // persist
 Inference is **always injected** (`distill` callback or host agent sources).
 The package never embeds a model.
 
-## Helpers
+## Optional: schedule workflow scaffold (`createResidentDistiller`)
 
-| Export | Use |
-| --- | --- |
-| `buildDistilledClaim` | Wire body with `generator_agent_id`, `provenance=inferred`, `derived_from` |
-| `shouldProcessFeedEntry` | Skip own generator writes (defense in depth) |
-| `resolveNextCursor` | Fail-soft cursor advance after poison |
-| `RESIDENT_DISTILLER_AGENT_ID` | Default `"resident-distiller"` |
+Scaffold for hosts that still want a deployed agent with memory tools +
+system prompt (loop-safety, access-tag copy). Prefer wiring **process next to
+add** in your ingest workflow; use this for backfill-style residency only.
 
-## Substrate (already on the plane)
+```ts
+import { createResidentDistiller } from "@corbits/memory/distiller";
+
+const { workflow, generatorAgentId } = createResidentDistiller({
+  inference: {
+    sources: [{ provider: "openai", model: "gpt-4.1-mini" }],
+  },
+});
+// Deploy only if you need a multi-writer pull consumer — not default ingest.
+```
+
+## Substrate (plane)
 
 | Piece | Where |
 | --- | --- |
-| Capture feed (exactly-once cursor) | `memory.feed` / `GET …/memory/feed` — [FEED.md](./FEED.md) |
+| Ingest on add | capture path — raw + chunks + embed |
+| Capture feed (cursor) | `memory.feed` — [FEED.md](./FEED.md) (backfill / multi-writer) |
 | Claim identity on add | `generator_agent_id`, `provenance`, `lineage_class`, `derived_from` |
 | Wire attribution on search | `SearchItem.attribution` |
 | Retention / forgetting | [RETENTION.md](./RETENTION.md) |
-| Tools | `@corbits/memory/tools` — `memoryAdd`, `memoryFeed`, `memorySearch`, `memoryList` |
+| Tools | `@corbits/memory/tools` |
 
-## Grant manifest (host)
+## Grant manifest (process principal)
 
-Minimum capabilities for the distiller principal:
+- `memory:add` (claim or note writes)
+- `memory:search` (corroboration + feed if using backfill)
 
-- `memory:search` (covers feed pull under the same capability family hosts use today)
-- `memory:add` (claim writes)
-
-Copy `accessTags` from each feed entry onto writes — never mint broader tags.
-
-## Manual integration checklist (dev hub)
-
-When a hub + memory mount is available:
-
-1. Deploy `createResidentDistiller({ inference })` (or cron `runDistillTick`).
-2. Capture ~20 mixed notes (human + agent) via `memory_add`.
-3. Confirm feed pages with `exclude_generator=resident-distiller`.
-4. Confirm distilled claims appear with `attribution.provenance=inferred`,
-   `generatorAgentId=resident-distiller`, and `derivedFrom` set.
-5. Restart mid-cursor — next tick resumes from persisted `nextCursor`.
-6. Inject one poison entry — cursor still advances; no stuck feed.
+Copy `accessTags` from the source onto claim writes — never mint broader tags.
 
 ## Out of scope
 
 - Host deploy pipeline / secrets
-- Push outbox (feed remains pull-only)
+- Push outbox (optional later; not required if process is in-pipeline)
+- Core-owned ingest workflow process (host owns that)
 - Automatic supports/contradicts edge minting beyond `derived_from` on add

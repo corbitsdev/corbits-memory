@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Product narrative:** default path is **add → ingest elements → process**
+  (one host pipeline). Pull feed + `createResidentDistiller` are optional
+  multi-writer / backfill process helpers, not the primary ingest story.
+  See `PRODUCT.md`, `docs/DISTILLER.md`, `docs/FEED.md`.
 - **Breaking:** Postgres schema renamed from `knowledge` to **`memory`**. Fresh
   installs only — drop/recreate the old schema (or rename) on existing DBs.
   Citation `open.type` is now `"memory"`.

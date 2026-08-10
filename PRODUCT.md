@@ -4,9 +4,27 @@ Memory for Interchange hubs: durable documents, hybrid search, recent list.
 
 **You mount it on the hub (~5 lines). That exposes protected routes. Agents
 and ingestion modules call those routes.** Workbench and coding agents are
-clients — not owners of auth. Inference stays host-injected; the package ships
-add/search/list **and** an optional resident distiller so apps can opt into
-continuous distillation with a few lines (`docs/DISTILLER.md`).
+clients — not owners of auth. Inference stays host-injected.
+
+## Default pipeline (locked)
+
+```text
+add  →  ingest elements  →  process (optional)
+```
+
+| Stage | Meaning | Where |
+| --- | --- | --- |
+| **add** | Something arrives (agent tool, host job, webhook body) | Caller → `memory.add` / `POST …/memory/add` |
+| **ingest elements** | Normalize → raw capture → chunks / edges → embed → search-ready | Default `DocumentStore` capture path (sync on `add`) |
+| **process** | Optional brain work: classify, claims, links, forget | Host workflow / injected inference — same run as ingest when possible |
+
+Preferred host shape: **one ingest workflow** receives the event, calls `add`
+(ingest elements), then runs process steps in the same body (or a child step).
+No pull feed required on that path — the workflow already has the payload.
+
+**Pull feed + resident distiller** are optional: multi-writer backfill, replay,
+or polish when other code also `add`s outside the ingest workflow. See
+`docs/DISTILLER.md` and `docs/FEED.md`.
 
 ## Shape (locked)
 
@@ -20,22 +38,22 @@ never creates one; it mounts onto yours.
 | `runMemoryMigrations(url)` | Apply pgvector schema |
 | `registerMemoryRoutes` | Low-level HTTP only (optional) |
 | `@corbits/memory/tools` | Interchange tools (`memory_add` / `search` / `list` / `feed`) |
-| `@corbits/memory/distiller` | `createResidentDistiller` workflow + `runDistillTick` |
+| `@corbits/memory/distiller` | Optional process helpers: `runDistillTick`, `createResidentDistiller` |
 
 ### Verbs
 
 | Method | HTTP | Grant | Meaning |
 | --- | --- | --- | --- |
-| `add` | `POST /api/tenants/:tenantId/memory/add` | `memory:add` | Capture a document |
+| `add` | `POST /api/tenants/:tenantId/memory/add` | `memory:add` | Ingest: capture + derive (chunk/embed on default store) |
 | `search` | `POST /api/tenants/:tenantId/memory/search` | `memory:search` | Hybrid retrieval (+ optional live sources); hits may include additive `attribution` |
 | `list` | `GET /api/tenants/:tenantId/memory/list` | `memory:search` | Recent documents for the principal |
-| `feed` | `GET /api/tenants/:tenantId/memory/feed` | `memory:search` | Cursor pull of new live versions (distiller) |
+| `feed` | `GET /api/tenants/:tenantId/memory/feed` | `memory:search` | Cursor pull of new live versions (optional multi-writer / backfill) |
 
 Engine-only plane helpers (no HTTP yet): transform/replay, retention
 (`deprecateVersion` / `tombstoneDocument` / … — see `docs/RETENTION.md`),
-share-grant materialization. Distiller is first-class:
+share-grant materialization. Process helpers:
 `createResidentDistiller` / `runDistillTick` (`docs/DISTILLER.md`) — host
-injects inference; package ships the workflow + tick helpers.
+injects inference; not the default ingest path.
 
 Identity is always **`principalId` + `tenantId`** on the plane. HTTP routes
 never take body identity — they read `c.get("principal")` from Interchange
@@ -44,7 +62,7 @@ context.
 ### How it is used
 
 ```
-Agent / ingestion module
+Agent / host ingest workflow
         │  tool call or host worker
         │  → POST|GET /api/tenants/:tenantId/memory/*
         │  authenticated by Interchange (session | API key | MCP OAuth)
@@ -67,8 +85,10 @@ Agent / ingestion module
    workflow with env credentials (`memoryBaseUrl`, `memoryTenantId`,
    `memoryAuthToken`). Tools HTTP-call the mounted routes; identity is the
    hub-authenticated principal. OpenAPI→MCP remains an optional host bridge.
-3. **Ingestion** — host modules (webhooks, batch jobs) call the routes or the
-   returned plane with a resolved principal.
+3. **Ingestion** — preferred: one host workflow (or module) does
+   **add → ingest elements → process**. Mechanical ingest is inside `add` on
+   the default store; process (claims / links) is host-injected inference in
+   the same pipeline when you want a company brain.
 
 ### Ports
 
@@ -85,6 +105,7 @@ stores, Linear tools. Core never imports vendor SDKs.
 - No auth, API keys, OAuth, webhooks, SPA, or standalone server in core.
 - No answer/generation endpoint — host owns inference.
 - Workbench is a client, not required.
+- Core does not run the ingest workflow process — the host does.
 
 **Default durable store:** Postgres via `DATABASE_URL`, tables under the
 **`memory`** schema. When
