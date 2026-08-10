@@ -7,14 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
+### Changed
 
+- **Breaking:** Postgres schema renamed from `knowledge` to **`memory`**. Fresh
+  installs only — drop/recreate the old schema (or rename) on existing DBs.
+  Citation `open.type` is now `"memory"`.
+- **Breaking:** env var is `DATABASE_URL` (was `KNOWLEDGE_DATABASE_URL`); pass
+  `memory.databaseUrl` on config as an alternative. No deprecated alias.
 - Interchange `defineTool` factories at `@corbits/memory/tools` (`memory_add`,
   `memory_search`, `memory_list`) — HTTP clients for mounted hub routes with
   install env `memoryBaseUrl` / `memoryTenantId` / `memoryAuthToken`. Declared
   via `package.json` `interchange.tools` and `exports["./tools"]`.
 
-### Changed
+### Previously
 
 - **Breaking:** package and public surface renamed from `@corbits/knowledge-engine`
   to `@corbits/memory`. Public APIs: `createMemory` (optional `app` registers HTTP),

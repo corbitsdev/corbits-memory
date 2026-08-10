@@ -9,7 +9,8 @@ plane and the protected routes that read and write it.
 The store was detachable from a larger backend, then mountable:
 
 - No memory table has a foreign key into any control-plane table — cross-refs
-  (`tenant_id`, `principal_id`, source refs) are plain `text`.
+  (`tenant_id`, `principal_id`, source refs) are plain `text`. Tables live in
+  the **`memory`** schema (same Postgres URL as the host is fine).
 - Embedding and reranking go out as plain HTTP to configured model endpoints.
 - Document access is Interchange grant tags on the row (`accessTags` + creator),
   not a private ACL engine inside this package.

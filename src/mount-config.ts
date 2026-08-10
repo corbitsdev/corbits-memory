@@ -49,7 +49,11 @@ function optionalIntEnv(name: string): number | undefined {
 
 /**
  * Build a config from environment variables — a convenience for env-driven
- * deploys. Hosts may also construct `MemoryConfig` programmatically.
+ * deploys. Hosts may also construct `MemoryConfig` programmatically (pass
+ * `memory.databaseUrl` directly — no env required).
+ *
+ * Database URL resolution for env-driven loads: DATABASE_URL — same Postgres
+ * as the host is fine; tables live under the `memory` schema, not public.
  */
 export function loadMemoryConfig(): MemoryConfig {
   return {
