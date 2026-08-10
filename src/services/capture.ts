@@ -26,7 +26,7 @@ import type {
 } from "../core/schemas/adapted-document.ts";
 import type { MemoryEdgeHint } from "../core/schemas/entity-edge.ts";
 import { createRawSqlClient } from "../core/embed-sql.ts";
-import { activateEmbedModel } from "../core/embed-model-registry.ts";
+import { activateEmbedModel, ensureEmbedModel } from "../core/embed-model-registry.ts";
 import type { EmbedClientConfig } from "../core/embed-client.ts";
 import { embedChunks, type EmbeddableChunk } from "../core/embed-worker.ts";
 import { toEmbedClientConfig } from "../core/engine-client-config.ts";
@@ -516,35 +516,38 @@ export { toEmbedClientConfig };
 
 // Embeds a version's freshly-inserted chunks and stores their vectors, after
 // the derivation transaction has already committed. Best-effort in the
-// fullest sense: ANY failure here — including activateEmbedModel's dims-probe
-// network call, not just embedChunks' own client-error/rejected-chunk cases —
-// is caught, logged, and swallowed. The chunk rows are already durable, and a
-// later re-embed pass can pick up anything left unembedded (mirrors
-// embed-worker.ts's pending-chunk contract, just invoked eagerly here instead
-// of by polling). Returns whether embedding degraded so the caller can surface
-// it. Shared by the live /capture path and a replay — the only difference
-// between them is which `EmbedClientConfig` is passed in.
+// fullest sense: ANY failure here — including ensure/activateEmbedModel's
+// dims-probe network call, not just embedChunks' own client-error/rejected-
+// chunk cases — is caught, logged, and swallowed. The chunk rows are already
+// durable, and a later re-embed pass can pick up anything left unembedded
+// (mirrors embed-worker.ts's pending-chunk contract, just invoked eagerly
+// here instead of by polling). Returns whether embedding degraded so the
+// caller can surface it.
+//
+// `promoteActive` (default true): live capture activates the model so dense
+// search targets it. Replay must pass false so ensureEmbedModel only creates
+// the table without flipping the tenant's active embed model (CL-5872).
 async function embedInsertedChunksWithConfig(
   sql: RawSql,
   tenantId: string,
   chunks: EmbeddableChunk[],
   embedClientConfig: EmbedClientConfig,
+  opts: { promoteActive?: boolean } = {},
 ): Promise<{ degraded: boolean }> {
   if (chunks.length === 0) return { degraded: false };
 
   try {
     const client = createRawSqlClient(sql);
+    const promoteActive = opts.promoteActive !== false;
 
-    const activeTable = await activateEmbedModel(
-      client,
-      tenantId,
-      embedClientConfig,
-    );
+    const table = promoteActive
+      ? await activateEmbedModel(client, tenantId, embedClientConfig)
+      : await ensureEmbedModel(client, tenantId, embedClientConfig);
 
     const result = await embedChunks(
       client,
       tenantId,
-      activeTable,
+      table,
       chunks,
       embedClientConfig,
     );
@@ -646,6 +649,8 @@ export async function deriveFromRawCapture(
     input.tenantId,
     txResult.insertedChunks,
     derivation.embed,
+    // Replay never flips the tenant's active embed model.
+    { promoteActive: false },
   );
 
   return {

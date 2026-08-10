@@ -11,8 +11,11 @@ import {
 import { createRawSqlClient } from "../core/embed-sql.ts";
 import {
   cosineDistanceExpr,
+  computeModelKey,
   EMBED_TABLE_NAME_PATTERN,
   resolveActiveEmbedTable,
+  resolveEmbedTableByModelKey,
+  type ActiveEmbedTable,
 } from "../core/embed-model-registry.ts";
 import { embedTexts, type EmbedClientConfig } from "../core/embed-client.ts";
 import {
@@ -430,15 +433,11 @@ interface FetchDenseCandidatesArgs extends ChannelFilterFields {
   principalId: string | null;
   query: string;
   overfetchLimit: number;
-  // Defaults to 'live' — see fetchLexicalCandidates' generation note. NOTE:
-  // this filters the chunk/version join, not which per-model embedding
-  // TABLE is queried — resolveActiveEmbedTable picks the tenant's single
-  // most-recently-activated model regardless of generation, so a replay run
-  // that activates a DIFFERENT embed model than the live one currently uses
-  // becomes the tenant's active table for every generation's dense channel,
-  // including live's. Scoping activation itself per-generation is out of
-  // the replay pipeline's scope; callers should reuse the live embed model in a
-  // transform_config unless they intend that tradeoff.
+  // Defaults to 'live' — see fetchLexicalCandidates' generation note.
+  // Dense table resolution is generation-aware: live uses the tenant's
+  // active embed model; a replay generation uses the model_key implied by
+  // the embed client config passed in (from that run's transform_config),
+  // which may be only `ready` and must not require status='active'.
   generation?: string | undefined;
 }
 
@@ -484,7 +483,20 @@ export async function fetchDenseCandidates(
   if (query === "") return null;
 
   const embedSqlClient = createRawSqlClient(rawSql);
-  const activeTable = await resolveActiveEmbedTable(embedSqlClient, tenantId);
+  let activeTable: ActiveEmbedTable | null;
+  if (generation === LIVE_GENERATION) {
+    activeTable = await resolveActiveEmbedTable(embedSqlClient, tenantId);
+  } else {
+    const modelKey = computeModelKey(
+      embedClientConfig.baseUrl,
+      embedClientConfig.modelId,
+    );
+    activeTable = await resolveEmbedTableByModelKey(
+      embedSqlClient,
+      tenantId,
+      modelKey,
+    );
+  }
   if (!activeTable) return null;
 
   if (!EMBED_TABLE_NAME_PATTERN.test(activeTable.tableName)) {
@@ -603,20 +615,32 @@ export async function fetchDenseCandidates(
   }));
 }
 
-// Vectors for the MMR diversity pass, pulled from the tenant's ACTIVE
-// per-model embedding table (never a superseded or inactive model's
-// table). `pgvector` returns its column as text; the text form (`[1,2,3]`)
-// is valid JSON, so `JSON.parse` is the exact inverse of the
-// `JSON.stringify` the capture/embed pipeline writes on ingest.
+// Vectors for the MMR diversity pass, pulled from the generation-scoped
+// embedding table (active model for live; model_key for a replay generation).
 async function fetchChunkVectors(
   rawSql: RawSql,
   tenantId: string,
   chunkIds: readonly string[],
+  embedClientConfig: EmbedClientConfig,
+  generation: string = LIVE_GENERATION,
 ): Promise<Map<string, number[]>> {
   if (chunkIds.length === 0) return new Map();
 
   const embedSqlClient = createRawSqlClient(rawSql);
-  const activeTable = await resolveActiveEmbedTable(embedSqlClient, tenantId);
+  let activeTable: ActiveEmbedTable | null;
+  if (generation === LIVE_GENERATION) {
+    activeTable = await resolveActiveEmbedTable(embedSqlClient, tenantId);
+  } else {
+    const modelKey = computeModelKey(
+      embedClientConfig.baseUrl,
+      embedClientConfig.modelId,
+    );
+    activeTable = await resolveEmbedTableByModelKey(
+      embedSqlClient,
+      tenantId,
+      modelKey,
+    );
+  }
   if (!activeTable) return new Map();
 
   if (!EMBED_TABLE_NAME_PATTERN.test(activeTable.tableName)) {
@@ -760,7 +784,7 @@ export async function hybridSearch(
   const resolvedTuning =
     generation === LIVE_GENERATION
       ? null
-      : await resolveGenerationSearchParams(db, generation);
+      : await resolveGenerationSearchParams(db, generation, config.embed);
 
   const authorityWeight = resolvedTuning?.authorityWeight ?? AUTHORITY_WEIGHT;
   const recencyHalfLifeMs =
@@ -788,7 +812,8 @@ export async function hybridSearch(
     generation,
   });
 
-  const embedClientConfig = toEmbedClientConfig(config.embed);
+  const embedClientConfig =
+    resolvedTuning?.embed ?? toEmbedClientConfig(config.embed);
   const rerankConfig = resolvedTuning?.rerank ?? toRerankClientConfig(config.rerank);
 
   let denseRows: CandidateRow[] = [];
@@ -904,6 +929,8 @@ export async function hybridSearch(
         rawSql,
         tenantId,
         boosted.map((b) => b.row.chunkId),
+        embedClientConfig,
+        generation,
       );
 
       const mmrItems: MmrItem[] = boosted.map((b) => ({

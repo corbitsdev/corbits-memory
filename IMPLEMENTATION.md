@@ -232,14 +232,28 @@ See `docs/TEMPORAL.md`. On `memory.version`:
 Search multiplies fused scores by `temporalRecencyMultiplier` (class-aware). Timeline and search both filter `generation` (default live) so replay rows never leak into live views.
 
 ### `memory_embed_model`
-Per-tenant registry of which embed model is currently active, and the
-dimensionality it was discovered at (`discoverModelDims`/`probeEmbedDims` —
-dims are **never** hard-coded, always probed live against the endpoint).
-Unique on `(tenant_id, model_key)`, where `model_key` is
-`sha256(baseUrl|modelId).slice(0,16)` (`computeModelKey`). "Active" means the
-most-recently-`updated_at` row with `status = 'active'` for that tenant
-(`resolveActiveEmbedTable`) — there is no per-generation embed-model scoping
-(see "Known limitation" under Raw + replay below).
+Per-tenant registry of embed models and their discovered dimensionality
+(`discoverModelDims`/`probeEmbedDims` — dims are **never** hard-coded, always
+probed live against the endpoint). Unique on `(tenant_id, model_key)`, where
+`model_key` is `sha256(baseUrl|modelId).slice(0,16)` (`computeModelKey`).
+
+Two write paths (CL-5872):
+
+- **`ensureEmbedModel`** — upserts the registry row with `status = 'ready'`,
+  creates the per-model table + indexes. **Never** flips the tenant's active
+  dense table. Used by staged `runTransform` when the config's embed model
+  differs from live.
+- **`activateEmbedModel`** — `ensure` then `UPDATE … SET status = 'active'`.
+  Used only by the **live capture** path and by **`promoteGeneration`** when
+  cutover should make the generation's embed model serve live dense search.
+
+"Active" for live dense search is the most-recently-`updated_at` row with
+`status = 'active'` (`resolveActiveEmbedTable`). Replay dense search uses
+`resolveEmbedTableByModelKey` against the owning transform config's embed
+`model_key` — ready or active — so staged generations never steal live.
+
+Optional `archived_live_generation` on `transform_run` records which generation
+held live rows before promote (for demote/rollback).
 
 ### Dynamic per-model vector tables: `memory_embedding_<key>`
 Not in `db/schema.ts` (no fixed shape — dimensionality varies by model) and
@@ -403,9 +417,11 @@ search); otherwise it throws `MemorySearchInputError` (400).
    `kinds` and/or `entityIds` (via a sub-select against `memory_edge`).
    Overfetches up to `overfetchLimit` rows, non-deduped, per-chunk.
 3. **Dense channel** — `fetchDenseCandidates`: embeds the query
-   (`embedTexts`), resolves the tenant's single active embedding table
-   (`resolveActiveEmbedTable` — **not** generation-scoped, see limitation
-   below), runs a raw-SQL cosine-distance ANN query via `cosineDistanceExpr`
+   (`embedTexts`), resolves the dense table:
+   - live generation → `resolveActiveEmbedTable` (tenant active model)
+   - staged generation → `resolveEmbedTableByModelKey` for the transform
+     config's embed model (ready or active; never activates)
+   runs a raw-SQL cosine-distance ANN query via `cosineDistanceExpr`
    (`e.embedding <=> $vector` up to 2000 dims, or the matching
    `(e.embedding::halfvec(N)) <=> $vector::halfvec(N)` expression above that
    so the halfvec HNSW index is used)
@@ -481,28 +497,30 @@ writes to. A `transform_config` is a named/versioned recipe
    own trust boundary, never a blind `JSON.parse`), then calls
    `deriveFromRawCapture` with the config's own chunker
    (`chunkTokenRecursive` with the config's caps) and embed client config,
-   targeting the run's `generation` — never the live one.
+   targeting the run's `generation` — never the live one. Embed tables are
+   **ensured** (`ensureEmbedModel`), never activated, so live dense search is
+   untouched until an explicit promote.
 5. On completion, updates the run row: `status: 'completed'`, `rawCount`,
    `versionCount`. On any exception mid-loop, catches it, logs it, and marks
    the run `'failed'` with `error` set — `runTransform` itself never throws
    to its caller; callers always get a run summary.
 6. `resolveGenerationSearchParams` is how `hybridSearch` later maps a
    generation back to its config's search-tuning knobs (authority weight,
-   recency half-life, MMR λ, overfetch, rerank config).
+   recency half-life, MMR λ, overfetch, rerank config) **and** dense
+   `modelKey` for generation-scoped table resolution.
 
-**Documented limitation — per-generation embed-model isolation does not
-exist.** `resolveActiveEmbedTable` picks the tenant's single
-most-recently-`updated_at` active model, with no `generation` argument at
-all. If a replay's `transform_config.embed` points at a *different*
-`(baseUrl, modelId)` than the live capture path currently uses, running that
-replay makes its model the tenant's active dense-channel table for **every**
-generation's search, including live's, from that point forward. The `search.ts`
-comment on `fetchDenseCandidatesArgs.generation` states this explicitly;
-`transform.ts`'s replay test in `e2e.integration.test.ts` sidesteps it by
-reusing the exact same embed endpoint/model as the live capture. Scoping
-activation per-generation is out of scope for the current replay-pipeline
-implementation — callers replaying under a different embed model should do
-so knowing it will flip the tenant's live dense channel too.
+**Promote / demote (staged cutover):**
+
+- `promoteGeneration` — swaps `status` so the staged generation becomes
+  `active` under `generation = 'live'` semantics for search (prior live is
+  archived; `archived_live_generation` records the previous id for rollback).
+  Optionally activates the generation's embed model so live dense matches
+  the promoted embeddings.
+- `demoteGeneration` — restores the archived live generation.
+
+Plane methods (engine DocumentStore only): `createTransformConfig`,
+`listTransformConfigs`, `runTransform`, `promoteGeneration`,
+`demoteGeneration` on `Memory`. Custom/fake stores omit these methods.
 
 
 ## Mounted routes
@@ -529,8 +547,26 @@ mounted routes with install env (`memoryBaseUrl`, `memoryTenantId`,
 needs `memory:add` and/or `memory:search` grants; Bearer token only (no session
 cookie path); tool results are JSON strings; pass `AbortSignal` if you need hang
 protection — the client has no default timeout. OpenAPI→MCP remains an optional
-host bridge. The plane surface is only `add` / `search` / `list` (plus `close`);
-inference stays on the host.
+host bridge. The plane surface is `add` / `search` / `list` / `close`, plus
+optional transform methods when backed by the engine DocumentStore
+(`createTransformConfig`, `listTransformConfigs`, `runTransform`,
+`promoteGeneration`, `demoteGeneration`). Inference stays on the host.
+
+### Share materialization (CL-5873)
+
+`share.principals` on `add` still mints owner tags, and when the host grant
+store implements `WritableGrantStore.putGrant`:
+
+1. Appends `memory.doc:<documentId>` to the document's `access_tags`.
+2. Writes one allow/`search` grant per peer on that resource, origin
+   `system`, with `conditions.memoryShare` audit payload.
+3. `resolveGrantConfig` merges `MEMORY_SHARE_CONDITION_REGISTRY` so those
+   condition keys are not fail-closed-skipped by `@intx/authz`.
+
+Without a writable store: tags only + warn log (peers need host grants).
+Audience widening uses `splitAudienceWiden` (write-narrow-then-widen) and
+`shareWidenReceipt` on version attributes after source-owner approval.
+Ask-on-read remains design-only (fail-closed).
 
 
 

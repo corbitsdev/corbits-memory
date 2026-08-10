@@ -74,6 +74,50 @@ export {
   createFakeSourceProvider,
 } from "./ports/fakes.ts";
 
+export type { WritableGrantStore } from "./ports/writable-grant-store.ts";
+export {
+  createInMemoryWritableGrantStore,
+  isWritableGrantStore,
+} from "./ports/writable-grant-store.ts";
+
+// Share materialization (CL-5873)
+export {
+  buildShareGrants,
+  documentTag,
+  materializeShareGrants,
+  MEMORY_SHARE_CONDITION_KEY,
+  MEMORY_SHARE_CONDITION_REGISTRY,
+  shareWidenReceipt,
+  splitAudienceWiden,
+  type MaterializeShareGrantsInput,
+  type MemoryShareCondition,
+  type ShareWidenReceipt,
+} from "./services/share-grants.ts";
+
+
+// Transform / replay surface (CL-5872)
+export {
+  createTransformConfig,
+  demoteGeneration,
+  listTransformConfigs,
+  promoteGeneration,
+  resolveGenerationSearchParams,
+  runTransform,
+  TransformConfigNotFoundError,
+  TransformPromoteError,
+  type GenerationSearchParams,
+  type TransformConfigRow,
+  type TransformRunRow,
+} from "./services/transform.ts";
+
+// Embed model registry (ensure vs activate)
+export {
+  activateEmbedModel,
+  ensureEmbedModel,
+  resolveActiveEmbedTable,
+  resolveEmbedTableByModelKey,
+} from "./core/embed-model-registry.ts";
+
 // Migrations
 export { runMemoryMigrations } from "./migrations.ts";
 

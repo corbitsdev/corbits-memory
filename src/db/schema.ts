@@ -234,6 +234,9 @@ export const transformRun = memorySchema.table(
     error: text("error"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     completedAt: timestamp("completed_at"),
+    /** Generation tag assigned to the prior live corpus on promote (for demote). */
+    archivedLiveGeneration: text("archived_live_generation"),
+    promotedAt: timestamp("promoted_at"),
   },
   (t) => [
     uniqueIndex("transform_run_generation_uniq").on(t.generation),

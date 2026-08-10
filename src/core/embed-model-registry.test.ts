@@ -8,9 +8,11 @@ import {
   discoverModelDims,
   EMBED_TABLE_NAME_PATTERN,
   embeddingTableName,
+  ensureEmbedModel,
   type EmbedRegistrySqlClient,
   HALFVEC_INDEX_MAX_DIMS,
   resolveActiveEmbedTable,
+  resolveEmbedTableByModelKey,
   VECTOR_INDEX_MAX_DIMS,
 } from "./embed-model-registry.ts";
 
@@ -272,6 +274,69 @@ describe("resolveActiveEmbedTable", () => {
       tableName: `"memory"."embedding_${modelKey}"`,
       dims: 768,
       modelId: baseConfig.modelId,
+      modelKey,
     });
+  });
+});
+
+describe("ensureEmbedModel", () => {
+  it("inserts with status='ready' (never active) so live dense search is untouched", async () => {
+    const { client, queries } = createMockClient();
+    await ensureEmbedModel(client, "tenant-1", baseConfig, fixtureFetch(768));
+
+    const insertQuery = queries.find((q) =>
+      q.sql.includes('INSERT INTO "memory"."embed_model"'),
+    );
+    expect(insertQuery?.sql).toContain("'ready'");
+    expect(insertQuery?.sql).not.toContain("'active'");
+
+    // No UPDATE ... SET status='active' issued by ensure.
+    expect(
+      queries.some((q) => q.sql.includes("SET status = 'active'")),
+    ).toBe(false);
+  });
+
+  it("still creates the per-model table + indexes (table usable on replay)", async () => {
+    const { client, queries } = createMockClient();
+    const result = await ensureEmbedModel(client, "tenant-1", baseConfig, fixtureFetch(768));
+    const createTableQuery = queries.find((q) => q.sql.includes("CREATE TABLE IF NOT EXISTS"));
+    expect(createTableQuery?.sql).toContain(result.tableName);
+    expect(queries.some((q) => q.sql.includes("USING hnsw"))).toBe(true);
+  });
+});
+
+describe("activateEmbedModel (split)", () => {
+  it("ensures then issues UPDATE ... SET status='active', updated_at=now()", async () => {
+    const { client, queries } = createMockClient();
+    await activateEmbedModel(client, "tenant-1", baseConfig, fixtureFetch(768));
+
+    const updateQuery = queries.find((q) =>
+      q.sql.includes("SET status = 'active'"),
+    );
+    expect(updateQuery).toBeDefined();
+    expect(updateQuery?.sql).toContain("updated_at = now()");
+  });
+});
+
+describe("resolveEmbedTableByModelKey", () => {
+  it("returns null when no row for this model_key", async () => {
+    const client: EmbedRegistrySqlClient = { query: () => Promise.resolve([]) };
+    expect(await resolveEmbedTableByModelKey(client, "tenant-1", "abcdef0123456789")).toBeNull();
+  });
+
+  it("returns the table info regardless of status (ready or active)", async () => {
+    const modelKey = "abcdef0123456789";
+    const client: EmbedRegistrySqlClient = {
+      query: () =>
+        Promise.resolve([{ model_key: modelKey, model_id: "m", dims: 512 }]),
+    };
+    const result = await resolveEmbedTableByModelKey(client, "tenant-1", modelKey);
+    expect(result?.dims).toBe(512);
+    expect(result?.tableName).toBe(`"memory"."embedding_${modelKey}"`);
+  });
+
+  it("rejects an invalid model_key format", async () => {
+    const client: EmbedRegistrySqlClient = { query: () => Promise.resolve([]) };
+    expect(() => resolveEmbedTableByModelKey(client, "tenant-1", "not-a-key")).toThrow();
   });
 });

@@ -101,6 +101,15 @@ export type DocumentStore = {
   search(params: DocumentStoreSearchParams): Promise<DocumentStoreSearchResult>;
   list(params: DocumentStoreListParams): Promise<DocumentStoreListEvent[]>;
   close(): Promise<void>;
+  /**
+   * Append access tags after insert (used by share materialization to stamp
+   * `memory.doc:<id>` once the document id is known). Optional — stores that
+   * omit it leave peer share grants without a matching tag (fail-closed).
+   */
+  appendAccessTags?(
+    documentId: string,
+    tags: readonly string[],
+  ): Promise<void>;
 };
 
 /**

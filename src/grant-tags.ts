@@ -6,7 +6,8 @@
  * - Capability checks (add/search on `memory`) live on the HTTP mount.
  * - Document access: creator always sees own docs; otherwise any `accessTag`
  *   that `authorize(…, tag, "search")` allows.
- * - Share sugars only mint tags — they never write grants.
+ * - Share sugars mint tags; peer grants are materialized separately when the
+ *   host provides a WritableGrantStore (see services/share-grants.ts).
  */
 import { authorize } from "@intx/authz";
 import type { ConditionRegistry, GrantStore } from "@intx/authz";

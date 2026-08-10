@@ -27,6 +27,25 @@ import {
   type TimelineEvent,
 } from "./services/timeline.ts";
 import {
+  createTransformConfig,
+  demoteGeneration,
+  listTransformConfigs,
+  promoteGeneration,
+  runTransform,
+  type TransformConfigRow,
+  type TransformRunRow,
+} from "./services/transform.ts";
+import {
+  documentTag,
+  materializeShareGrants,
+  MEMORY_SHARE_CONDITION_REGISTRY,
+} from "./services/share-grants.ts";
+
+import {
+  isWritableGrantStore,
+} from "./ports/writable-grant-store.ts";
+import type { TransformConfigParams, TransformScope } from "./core/schemas/transform.ts";
+import {
   LIVE_TIMEOUT_MS,
   mergeLocalLiveV1,
   withTimeout,
@@ -137,7 +156,8 @@ export type MemoryAddParams = MemoryIdentity & {
    */
   accessTags?: string[];
   /**
-   * Share sugar — only mints tags (tenant / peer owners / explicit tags).
+   * Share sugar — mints tags, and when the host grant store is writable,
+   * materializes peer grants on `memory.doc:<id>` (CL-5873).
    */
   share?: ShareSugar;
   attributes?: Record<string, string | number | boolean | null>;
@@ -182,6 +202,30 @@ export type Memory = {
   add(params: MemoryAddParams): Promise<MemoryAddResult>;
   list(params: MemoryListParams): Promise<TimelineEvent[]>;
   close(): Promise<void>;
+  /**
+   * Transform / replay surface (engine DocumentStore only). Present when the
+   * plane was built with engine config; absent on custom/fake stores.
+   * Calling through a stub that omits these is a TypeScript error; runtime
+   * throws MemoryError(501) only if a partial implementation is forced.
+   */
+  createTransformConfig?(input: {
+    tenantId: string;
+    name: string;
+    params: TransformConfigParams;
+  }): Promise<TransformConfigRow>;
+  listTransformConfigs?(tenantId: string): Promise<TransformConfigRow[]>;
+  runTransform?(input: {
+    configId: string;
+    scope?: TransformScope;
+  }): Promise<TransformRunRow>;
+  promoteGeneration?(input: {
+    tenantId: string;
+    generation: string;
+  }): Promise<TransformRunRow>;
+  demoteGeneration?(input: {
+    tenantId: string;
+    generation: string;
+  }): Promise<TransformRunRow>;
 };
 
 export type { TimelineEvent };
@@ -220,9 +264,14 @@ export function resolveGrantConfig(
   options: Pick<MemoryOptions, "grantStore" | "conditionRegistry">,
 ): GrantConfig | undefined {
   if (!options.grantStore) return undefined;
+  // Merge memoryShare evaluator under host keys so share grants with
+  // conditions are not fail-closed-skipped by @intx/authz.
   return {
     grantStore: options.grantStore,
-    conditionRegistry: options.conditionRegistry ?? {},
+    conditionRegistry: {
+      ...MEMORY_SHARE_CONDITION_REGISTRY,
+      ...(options.conditionRegistry ?? {}),
+    },
   };
 }
 
@@ -327,6 +376,8 @@ export function createMemory(options: MemoryOptions = {}): Memory {
     ...(grantStore !== undefined ? { grantStore } : {}),
     ...(conditionRegistry !== undefined ? { conditionRegistry } : {}),
   });
+
+  let transformDeps: EngineTransformDeps | undefined;
   const store =
     documentStore ??
     (() => {
@@ -336,8 +387,11 @@ export function createMemory(options: MemoryOptions = {}): Memory {
           "config is required when documentStore is not provided",
         );
       }
-      return createEngineDocumentStore(config);
+      const engine = createEngineDocumentStore(config);
+      transformDeps = engine.deps;
+      return engine.store;
     })();
+
   return createPlaneFromStore(
     store,
     grants,
@@ -345,6 +399,7 @@ export function createMemory(options: MemoryOptions = {}): Memory {
       ...(textExtractor ? { textExtractor } : {}),
       ...(sources ? { sources } : {}),
     },
+    transformDeps,
   );
 }
 
@@ -507,6 +562,7 @@ function createPlaneFromStore(
   store: DocumentStore,
   grants: GrantConfig | undefined,
   options: MemoryOptions,
+  transformDeps?: EngineTransformDeps,
 ): Memory {
   async function searchMerged(
     params: MemorySearchParams,
@@ -628,7 +684,7 @@ function createPlaneFromStore(
         params.externalRef ??
         `memory:${params.tenantId}:${crypto.randomUUID()}`;
 
-      return store.add({
+      const result = await store.add({
         tenantId: params.tenantId,
         principalId: params.principalId,
         title,
@@ -641,6 +697,38 @@ function createPlaneFromStore(
         ...(params.adapter !== undefined ? { adapter: params.adapter } : {}),
         ...(params.kind !== undefined ? { kind: params.kind } : {}),
       });
+
+      // Share materialization (CL-5873): stamp document-scoped tag + write
+      // peer grants when the host store is writable. Tag mint alone is not
+      // enough for peers without host bootstrap grants on owner tags.
+      const peers = params.share?.principals;
+      if (peers && peers.length > 0) {
+        const docTag = documentTag(result.documentId);
+        if (store.appendAccessTags) {
+          await store.appendAccessTags(result.documentId, [docTag]);
+        } else {
+          log.warn(
+            "memory.add: share.principals set but DocumentStore has no appendAccessTags; peer grants may not match",
+            { documentId: result.documentId },
+          );
+        }
+        if (isWritableGrantStore(grants?.grantStore)) {
+          await materializeShareGrants(grants.grantStore, {
+            tenantId: params.tenantId,
+            sharedByPrincipalId: params.principalId,
+            documentId: result.documentId,
+            sourceVersionId: result.documentId,
+            share: params.share ?? {},
+          });
+        } else {
+          log.warn(
+            "memory.add: share.principals set without WritableGrantStore; tags only (peers need host grants)",
+            { documentId: result.documentId },
+          );
+        }
+      }
+
+      return result;
     },
 
     async list(params) {
@@ -659,17 +747,76 @@ function createPlaneFromStore(
     async close() {
       await store.close();
     },
+
+    async createTransformConfig(input) {
+      if (!transformDeps) {
+        throw new MemoryError(
+          501,
+          "transform APIs require the engine DocumentStore",
+        );
+      }
+      return createTransformConfig({ db: transformDeps.db }, input);
+    },
+
+    async listTransformConfigs(tenantId) {
+      if (!transformDeps) {
+        throw new MemoryError(
+          501,
+          "transform APIs require the engine DocumentStore",
+        );
+      }
+      return listTransformConfigs({ db: transformDeps.db }, tenantId);
+    },
+
+    async runTransform(input) {
+      if (!transformDeps) {
+        throw new MemoryError(
+          501,
+          "transform APIs require the engine DocumentStore",
+        );
+      }
+      return runTransform(transformDeps, input);
+    },
+
+    async promoteGeneration(input) {
+      if (!transformDeps) {
+        throw new MemoryError(
+          501,
+          "transform APIs require the engine DocumentStore",
+        );
+      }
+      return promoteGeneration(transformDeps, input);
+    },
+
+    async demoteGeneration(input) {
+      if (!transformDeps) {
+        throw new MemoryError(
+          501,
+          "transform APIs require the engine DocumentStore",
+        );
+      }
+      return demoteGeneration(transformDeps, input);
+    },
   };
 
   return plane;
 }
+
+type EngineTransformDeps = {
+  db: Db;
+  sql: RawSql;
+  config: EngineConfig;
+};
 
 /**
  * Default DocumentStore: engine pgvector + hybrid search + timeline.
  * Owns construction-time rerank validation, FTS verification, and grant-tag
  * post-filter for document access. The plane never opens Postgres itself.
  */
-function createEngineDocumentStore(config: MemoryConfig): DocumentStore {
+function createEngineDocumentStore(config: MemoryConfig): {
+  store: DocumentStore;
+  deps: EngineTransformDeps;
+} {
   // Catch a chunk-size / reranker-limit mismatch at construction time, rather
   // than silently on every find once the reranker starts rejecting batches.
   // Throws instead of warning: a mismatch means every rerank call for this
@@ -812,80 +959,100 @@ function createEngineDocumentStore(config: MemoryConfig): DocumentStore {
   }
 
   return {
-    async add(params) {
-      await ensureVerified();
+    store: {
+      async add(params) {
+        await ensureVerified();
 
-      const adapter = params.adapter ?? "http";
-      const externalRef =
-        params.externalRef ??
-        `memory:${params.tenantId}:${crypto.randomUUID()}`;
-      const accessTags = params.accessTags ?? [ownerTag(params.principalId)];
+        const adapter = params.adapter ?? "http";
+        const externalRef =
+          params.externalRef ??
+          `memory:${params.tenantId}:${crypto.randomUUID()}`;
+        const accessTags = params.accessTags ?? [ownerTag(params.principalId)];
 
-      const captureResult = await captureDocument(deps, {
-        tenantId: params.tenantId,
-        adapter,
-        occurredAt: new Date().toISOString(),
-        document: {
-          kind: params.kind ?? "note",
-          title: params.title,
-          externalRef,
-          accessTags,
-          entityHints: [],
-          chunks: [{ ordinal: 0, text: params.text }],
-          actor: { kind: "human", principalId: params.principalId },
-          contentHash: "", // recomputed canonically in adapt-and-plan
-          ...(params.attributes !== undefined
-            ? { attributes: params.attributes }
+        const captureResult = await captureDocument(deps, {
+          tenantId: params.tenantId,
+          adapter,
+          occurredAt: new Date().toISOString(),
+          document: {
+            kind: params.kind ?? "note",
+            title: params.title,
+            externalRef,
+            accessTags,
+            entityHints: [],
+            chunks: [{ ordinal: 0, text: params.text }],
+            actor: { kind: "human", principalId: params.principalId },
+            contentHash: "", // recomputed canonically in adapt-and-plan
+            ...(params.attributes !== undefined
+              ? { attributes: params.attributes }
+              : {}),
+          },
+        });
+        return { documentId: captureResult.documentId };
+      },
+
+      async appendAccessTags(documentId, tags) {
+        if (tags.length === 0) return;
+        // Union into existing access_tags array (postgres text[]).
+        await sql`
+          UPDATE "memory"."document"
+          SET access_tags = (
+            SELECT ARRAY(
+              SELECT DISTINCT t
+              FROM unnest(
+                COALESCE(access_tags, '{}'::text[]) || ${[...tags]}::text[]
+              ) AS t
+            )
+          )
+          WHERE id = ${documentId}
+        `;
+      },
+
+      async search(params) {
+        const result = await retrieve({
+          tenantId: params.tenantId,
+          principalId: params.principalId,
+          query: params.query,
+          ...(params.limit !== undefined ? { k: params.limit } : {}),
+          ...(params.kinds !== undefined ? { kinds: params.kinds } : {}),
+          ...(params.entityIds !== undefined
+            ? { entityIds: params.entityIds }
             : {}),
-        },
-      });
-      return { documentId: captureResult.documentId };
-    },
-
-    async search(params) {
-      const result = await retrieve({
-        tenantId: params.tenantId,
-        principalId: params.principalId,
-        query: params.query,
-        ...(params.limit !== undefined ? { k: params.limit } : {}),
-        ...(params.kinds !== undefined ? { kinds: params.kinds } : {}),
-        ...(params.entityIds !== undefined
-          ? { entityIds: params.entityIds }
-          : {}),
-        ...(params.grants !== undefined ? { grants: params.grants } : {}),
-        ...(params.conditionRegistry !== undefined
-          ? { conditionRegistry: params.conditionRegistry }
-          : {}),
-      });
-      const items = hitsToSearchItems(result.hits);
-      if (params.includeEvidence) {
+          ...(params.grants !== undefined ? { grants: params.grants } : {}),
+          ...(params.conditionRegistry !== undefined
+            ? { conditionRegistry: params.conditionRegistry }
+            : {}),
+        });
+        const items = hitsToSearchItems(result.hits);
+        if (params.includeEvidence) {
+          return {
+            items,
+            evidence: result.evidence,
+            ...(result.degraded ? { degraded: result.degraded } : {}),
+          };
+        }
         return {
           items,
-          evidence: result.evidence,
           ...(result.degraded ? { degraded: result.degraded } : {}),
         };
-      }
-      return {
-        items,
-        ...(result.degraded ? { degraded: result.degraded } : {}),
-      };
-    },
+      },
 
-    async list(params) {
-      return listTimelineEvents({
-        db,
-        tenantId: params.tenantId,
-        principalId: params.principalId,
-        ...(params.limit !== undefined ? { limit: params.limit } : {}),
-        ...(params.grants !== undefined ? { grants: params.grants } : {}),
-        ...(params.conditionRegistry !== undefined
-          ? { conditionRegistry: params.conditionRegistry }
-          : {}),
-      });
-    },
+      async list(params) {
+        return listTimelineEvents({
+          db,
+          tenantId: params.tenantId,
+          principalId: params.principalId,
+          ...(params.limit !== undefined ? { limit: params.limit } : {}),
+          ...(params.grants !== undefined ? { grants: params.grants } : {}),
+          ...(params.conditionRegistry !== undefined
+            ? { conditionRegistry: params.conditionRegistry }
+            : {}),
+        });
+      },
 
-    async close() {
-      await sql.end({ timeout: 5 });
+      async close() {
+        await sql.end({ timeout: 5 });
+      },
     },
+    deps,
   };
 }

@@ -89,6 +89,14 @@ export function createFakeDocumentStore(): DocumentStore {
       return { documentId };
     },
 
+    async appendAccessTags(documentId, tags) {
+      const row = docs.find((d) => d.documentId === documentId);
+      if (!row) return;
+      const set = new Set(row.accessTags);
+      for (const t of tags) set.add(t);
+      row.accessTags = [...set];
+    },
+
     async search(
       params: DocumentStoreSearchParams,
     ): Promise<DocumentStoreSearchResult> {
