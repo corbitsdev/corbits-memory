@@ -76,7 +76,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `deprecateVersion` / `tombstoneDocument` / `hardDeleteDocument` /
   `sweepEphemeral` / `setRetentionClass`; `includeDeprecated` on search.
   See `docs/RETENTION.md`
-- Distiller substrate notes: `docs/DISTILLER.md` (CL-5869 host workflow)
+- **Resident distiller (CL-5869):** `@corbits/memory/distiller` —
+  `createResidentDistiller({ inference })` schedule workflow + `runDistillTick`
+  + `buildDistilledClaim`. Claim-aware `add` (generator_agent_id, provenance,
+  derived_from, …). `memory_feed` tool. Feed entries include `accessTags`.
+  See `docs/DISTILLER.md`
 
 ### Removed
 

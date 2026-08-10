@@ -4,8 +4,9 @@ Memory for Interchange hubs: durable documents, hybrid search, recent list.
 
 **You mount it on the hub (~5 lines). That exposes protected routes. Agents
 and ingestion modules call those routes.** Workbench and coding agents are
-clients — not owners of ingestion or auth. Inference is host-owned (call your
-model, then `add` / `search`); core does not ship an answer endpoint.
+clients — not owners of auth. Inference stays host-injected; the package ships
+add/search/list **and** an optional resident distiller so apps can opt into
+continuous distillation with a few lines (`docs/DISTILLER.md`).
 
 ## Shape (locked)
 
@@ -18,7 +19,8 @@ never creates one; it mounts onto yours.
 | `loadMemoryConfig()` | Config from env |
 | `runMemoryMigrations(url)` | Apply pgvector schema |
 | `registerMemoryRoutes` | Low-level HTTP only (optional) |
-| `@corbits/memory/tools` | Interchange `defineTool` factories (`memory_add` / `memory_search` / `memory_list`) |
+| `@corbits/memory/tools` | Interchange tools (`memory_add` / `search` / `list` / `feed`) |
+| `@corbits/memory/distiller` | `createResidentDistiller` workflow + `runDistillTick` |
 
 ### Verbs
 
@@ -31,8 +33,9 @@ never creates one; it mounts onto yours.
 
 Engine-only plane helpers (no HTTP yet): transform/replay, retention
 (`deprecateVersion` / `tombstoneDocument` / … — see `docs/RETENTION.md`),
-share-grant materialization. Distiller is a **host** `onTrigger` workflow
-using feed + add + attribution (`docs/DISTILLER.md`).
+share-grant materialization. Distiller is first-class:
+`createResidentDistiller` / `runDistillTick` (`docs/DISTILLER.md`) — host
+injects inference; package ships the workflow + tick helpers.
 
 Identity is always **`principalId` + `tenantId`** on the plane. HTTP routes
 never take body identity — they read `c.get("principal")` from Interchange

@@ -22,6 +22,7 @@ const FeedResponse = type({
     provenance: "string",
     occurredAt: "string",
     createdAt: "string",
+    accessTags: "string[]",
   }).array(),
   nextCursor: "number|null",
 });

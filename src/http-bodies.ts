@@ -25,6 +25,16 @@ export const AddRequest = type({
   text: "string >= 1",
   "access_tags?": "string[]",
   "share?": ShareBody,
+  "kind?": "string",
+  /** Distiller / agent identity on the written version (loop-safety + attribution). */
+  "generator_agent_id?": "string >= 1",
+  "provenance?": "'stated'|'inferred'|'unknown'",
+  "lineage_class?": "'native'|'imported'|'derived'",
+  "temporal_class?": "'event'|'deadline'|'state'|'lesson'",
+  /** Source version ids this claim is derived from (minted as derived_from edges). */
+  "derived_from?": "string[]",
+  "valid_from?": "string",
+  "valid_until?": "string",
 });
 
 export type AddRequest = typeof AddRequest.infer;

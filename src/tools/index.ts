@@ -9,6 +9,7 @@
 export { memoryAdd } from "./add.ts";
 export { memorySearch } from "./search.ts";
 export { memoryList } from "./list.ts";
+export { memoryFeed } from "./feed.ts";
 export {
   createMemoryHttpClient,
   MEMORY_TOOL_ENV_KEYS,
@@ -16,3 +17,4 @@ export {
   type MemoryHttpConfig,
   type MemoryToolEnv,
 } from "./client.ts";
+

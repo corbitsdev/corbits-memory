@@ -35,6 +35,14 @@ export type DocumentStoreAddParams = {
   adapter?: string;
   /** Document kind (default engine store uses `"note"`). */
   kind?: string;
+  /** Claim / distiller fields — engine store only; vendors may ignore. */
+  generatorAgentId?: string;
+  provenance?: "stated" | "inferred" | "unknown";
+  lineageClass?: "native" | "imported" | "derived";
+  temporalClass?: "event" | "deadline" | "state" | "lesson";
+  derivedFrom?: string[];
+  validFrom?: string;
+  validUntil?: string;
 };
 
 export type DocumentStoreSearchParams = {
@@ -132,6 +140,8 @@ export type DocumentStoreFeedEntry = {
   provenance: string;
   occurredAt: string;
   createdAt: string;
+  /** Grant-pattern tags — distiller copies onto claims (never widen). */
+  accessTags: string[];
 };
 
 export type DocumentStoreFeedResult = {

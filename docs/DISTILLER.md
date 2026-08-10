@@ -1,38 +1,92 @@
-# Resident distiller (CL-5869)
+# Resident distiller
 
-The **resident distiller** is a host workflow (Interchange `onTrigger`), not a
-process inside this package. Memory exposes the **substrate** only:
+First-class on-ramp so a Corbits app can add memory **and** keep it distilled
+without a sibling package.
 
-| Substrate | Where |
+## Quick start (Interchange workflow)
+
+```ts
+import { createResidentDistiller } from "@corbits/memory/distiller";
+// or: import { createResidentDistiller } from "@corbits/memory";
+
+const { workflow, generatorAgentId } = createResidentDistiller({
+  inference: {
+    sources: [{ provider: "openai", model: "gpt-4.1-mini" }],
+  },
+  // optional: cron: "*/5 * * * *", id, agentId, systemPrompt, extraTools
+});
+
+// Deploy `workflow` with host workflow-deploy.
+// Env for tools: memoryBaseUrl, memoryTenantId, memoryAuthToken
+// Grant the distiller principal: memory:search + memory:add (feed via search grant)
+```
+
+The agent is preloaded with `memory_feed`, `memory_add`, and `memory_search`.
+System prompt encodes loop-safety (`exclude_generator` = `generatorAgentId`),
+access-tag copy (never widen), and fail-soft poison handling.
+
+## Quick start (imperative — any scheduler)
+
+```ts
+import { runDistillTick } from "@corbits/memory/distiller";
+import { createMemoryHttpClient } from "@corbits/memory/tools";
+
+const client = createMemoryHttpClient({
+  baseUrl: process.env.MEMORY_BASE_URL!,
+  tenantId: process.env.MEMORY_TENANT_ID!,
+  authToken: process.env.MEMORY_AUTH_TOKEN!,
+});
+
+let cursor = 0;
+const result = await runDistillTick({
+  client,
+  after: cursor,
+  distill: async (entry) => {
+    // call your model — return skip | poison | write
+    return {
+      action: "write",
+      title: "Claim",
+      text: "…",
+      temporalClass: "lesson",
+    };
+  },
+});
+cursor = result.nextCursor; // persist
+```
+
+Inference is **always injected** (`distill` callback or host agent sources).
+The package never embeds a model.
+
+## Helpers
+
+| Export | Use |
 | --- | --- |
-| Capture feed (exactly-once cursor) | `memory.feed` / `GET .../memory/feed` — [FEED.md](./FEED.md) |
-| Claim-bearing + provenance | version columns — claim-bearing schema |
-| Temporal classes | [TEMPORAL.md](./TEMPORAL.md) |
-| Corroboration / living relevancy | [RELEVANCY.md](./RELEVANCY.md) |
-| Wire attribution on search | `SearchItem.attribution` (CL-5870) |
+| `buildDistilledClaim` | Wire body with `generator_agent_id`, `provenance=inferred`, `derived_from` |
+| `shouldProcessFeedEntry` | Skip own generator writes (defense in depth) |
+| `resolveNextCursor` | Fail-soft cursor advance after poison |
+| `RESIDENT_DISTILLER_AGENT_ID` | Default `"resident-distiller"` |
+
+## Substrate (already on the plane)
+
+| Piece | Where |
+| --- | --- |
+| Capture feed (exactly-once cursor) | `memory.feed` / `GET …/memory/feed` — [FEED.md](./FEED.md) |
+| Claim identity on add | `generator_agent_id`, `provenance`, `lineage_class`, `derived_from` |
+| Wire attribution on search | `SearchItem.attribution` |
 | Retention / forgetting | [RETENTION.md](./RETENTION.md) |
-| Transform / staged replay | `runTransform` / promote / demote |
-| Share grants | `share.principals` → WritableGrantStore |
+| Tools | `@corbits/memory/tools` — `memoryAdd`, `memoryFeed`, `memorySearch`, `memoryList` |
 
-## Recommended body shape
+## Grant manifest (host)
 
-1. **Pull** — `feed({ after: cursor, excludeGenerator: "resident-distiller" })`
-2. **Classify / gate** — host policy (action-authority, kinds, poison skip)
-3. **Distill** — host LLM; write via `add` with agent identity and
-   `generatorAgentId: "resident-distiller"`, provenance `inferred` as needed
-4. **Link** — supports/contradicts edges (host write path)
-5. **Attribute consumers** — search hits surface provenance, temporal class,
-   corroboration counts, and `derivedFrom` version ids for UI/citation
-6. **Advance cursor** — store `nextCursor` only after successful handling
-   (or after fail-soft poison quarantine)
+Minimum capabilities for the distiller principal:
 
-Loop-safety: always pass `excludeGenerator` matching the distiller’s
-`generatorAgentId` so the feed never re-delivers the distiller’s own writes.
+- `memory:search` (covers feed pull under the same capability family hosts use today)
+- `memory:add` (claim writes)
 
-## Out of scope here
+Copy `accessTags` from each feed entry onto writes — never mint broader tags.
 
-- Deploying the workflow, model choice, grant manifest contents beyond tags
-- Push outbox (phase 2 of the feed — still pull-only)
-- Automatic edge minting on add
+## Out of scope
 
-See `dispatch/resident-memory-distillation/5a-distiller_workflow/plan.md`.
+- Host deploy pipeline / secrets
+- Push outbox (feed remains pull-only)
+- Automatic supports/contradicts edge minting beyond `derived_from` on add

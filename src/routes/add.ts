@@ -64,6 +64,28 @@ export function mountAddRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
           principalId: subjectId,
           ...(accessTags !== undefined ? { accessTags } : {}),
           ...(share !== undefined ? { share } : {}),
+          ...(body.kind !== undefined ? { kind: body.kind } : {}),
+          ...(body.generator_agent_id !== undefined
+            ? { generatorAgentId: body.generator_agent_id }
+            : {}),
+          ...(body.provenance !== undefined
+            ? { provenance: body.provenance }
+            : {}),
+          ...(body.lineage_class !== undefined
+            ? { lineageClass: body.lineage_class }
+            : {}),
+          ...(body.temporal_class !== undefined
+            ? { temporalClass: body.temporal_class }
+            : {}),
+          ...(body.derived_from !== undefined
+            ? { derivedFrom: body.derived_from }
+            : {}),
+          ...(body.valid_from !== undefined
+            ? { validFrom: body.valid_from }
+            : {}),
+          ...(body.valid_until !== undefined
+            ? { validUntil: body.valid_until }
+            : {}),
         });
         return c.json({ documentId: result.documentId, versionId: result.versionId });
       } catch (err) {

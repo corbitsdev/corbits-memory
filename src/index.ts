@@ -6,8 +6,10 @@
  * `tenantId` in-process. Authz is the host grant store — this package
  * authenticates nothing itself.
  *
- * Inference is host-owned and ephemeral (call your model, then add/search).
- * Core does not mount an ingest agent or bake LLM into the write path.
+ * Distiller is first-class: `createResidentDistiller` / `runDistillTick` from
+ * `@corbits/memory/distiller` (or re-exported below). Inference stays host-
+ * injected; the package ships the workflow + tick helpers so apps opt in
+ * with a few lines.
  */
 import type { Hono } from "hono";
 import { createRequireGrant, type TenantEnv } from "@intx/hub-api";
@@ -135,6 +137,28 @@ export {
   tombstoneDocument,
   type RetentionMutationResult,
 } from "./services/retention.ts";
+
+// Resident distiller (CL-5869) — also `@corbits/memory/distiller`
+export {
+  RESIDENT_DISTILLER_AGENT_ID,
+  RESIDENT_DISTILLER_CRON_DEFAULT,
+  RESIDENT_DISTILLER_WORKFLOW_ID,
+  buildDistilledClaim,
+  createResidentDistiller,
+  resolveNextCursor,
+  runDistillTick,
+  shouldProcessFeedEntry,
+  type BuildDistilledClaimArgs,
+  type CreateResidentDistillerOpts,
+  type DistillOutcome,
+  type DistillTickFeedEntry,
+  type DistillTickPage,
+  type DistillTickResult,
+  type DistilledClaimWrite,
+  type FeedEntryLike,
+  type ResidentDistiller,
+  type RunDistillTickArgs,
+} from "./distiller/index.ts";
 
 // Corroboration / living relevancy (CL-5867)
 export {

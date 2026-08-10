@@ -174,6 +174,19 @@ export type MemoryAddParams = MemoryIdentity & {
    */
   share?: ShareSugar;
   attributes?: Record<string, string | number | boolean | null>;
+  /**
+   * Claim / distiller identity (optional). When `generatorAgentId` is set the
+   * version is written as agent-authored so the capture feed can exclude it
+   * via `excludeGenerator` (loop-safety).
+   */
+  generatorAgentId?: string;
+  provenance?: "stated" | "inferred" | "unknown";
+  lineageClass?: "native" | "imported" | "derived";
+  temporalClass?: "event" | "deadline" | "state" | "lesson";
+  /** Source version ids → `derived_from` edges on the new version. */
+  derivedFrom?: string[];
+  validFrom?: string;
+  validUntil?: string;
 };
 
 export type MemoryAddResult = {
@@ -245,6 +258,8 @@ export type MemoryFeedEntry = {
   provenance: string;
   occurredAt: string;
   createdAt: string;
+  /** Grant-pattern tags for claim writes (≤ source access). */
+  accessTags: string[];
 };
 
 export type MemoryFeedResult = {
@@ -827,6 +842,27 @@ function createPlaneFromStore(
           : {}),
         ...(params.adapter !== undefined ? { adapter: params.adapter } : {}),
         ...(params.kind !== undefined ? { kind: params.kind } : {}),
+        ...(params.generatorAgentId !== undefined
+          ? { generatorAgentId: params.generatorAgentId }
+          : {}),
+        ...(params.provenance !== undefined
+          ? { provenance: params.provenance }
+          : {}),
+        ...(params.lineageClass !== undefined
+          ? { lineageClass: params.lineageClass }
+          : {}),
+        ...(params.temporalClass !== undefined
+          ? { temporalClass: params.temporalClass }
+          : {}),
+        ...(params.derivedFrom !== undefined
+          ? { derivedFrom: params.derivedFrom }
+          : {}),
+        ...(params.validFrom !== undefined
+          ? { validFrom: params.validFrom }
+          : {}),
+        ...(params.validUntil !== undefined
+          ? { validUntil: params.validUntil }
+          : {}),
       });
 
       // Share materialization (CL-5873): stamp document-scoped tag + write
@@ -1181,6 +1217,23 @@ function createEngineDocumentStore(config: MemoryConfig): {
           `memory:${params.tenantId}:${crypto.randomUUID()}`;
         const accessTags = params.accessTags ?? [ownerTag(params.principalId)];
 
+        const generatorAgentId = params.generatorAgentId?.trim() || undefined;
+        const actor = generatorAgentId
+          ? {
+              kind: "agent" as const,
+              agentId: generatorAgentId,
+              principalId: params.principalId,
+            }
+          : { kind: "human" as const, principalId: params.principalId };
+
+        const edges =
+          params.derivedFrom && params.derivedFrom.length > 0
+            ? params.derivedFrom.map((versionId) => ({
+                rel: "derived_from" as const,
+                to: { type: "version" as const, ref: versionId },
+              }))
+            : undefined;
+
         const captureResult = await captureDocument(deps, {
           tenantId: params.tenantId,
           adapter,
@@ -1192,11 +1245,31 @@ function createEngineDocumentStore(config: MemoryConfig): {
             accessTags,
             entityHints: [],
             chunks: [{ ordinal: 0, text: params.text }],
-            actor: { kind: "human", principalId: params.principalId },
+            actor,
             contentHash: "", // recomputed canonically in adapt-and-plan
             ...(params.attributes !== undefined
               ? { attributes: params.attributes }
               : {}),
+            ...(params.provenance !== undefined
+              ? { provenance: params.provenance }
+              : generatorAgentId
+                ? { provenance: "inferred" as const }
+                : {}),
+            ...(params.lineageClass !== undefined
+              ? { lineageClass: params.lineageClass }
+              : generatorAgentId
+                ? { lineageClass: "derived" as const }
+                : {}),
+            ...(params.temporalClass !== undefined
+              ? { temporalClass: params.temporalClass }
+              : {}),
+            ...(params.validFrom !== undefined
+              ? { validFrom: params.validFrom }
+              : {}),
+            ...(params.validUntil !== undefined
+              ? { validUntil: params.validUntil }
+              : {}),
+            ...(edges !== undefined ? { edges } : {}),
           },
         });
         return {
@@ -1313,6 +1386,7 @@ function createEngineDocumentStore(config: MemoryConfig): {
           provenance: e.provenance,
           occurredAt: e.occurredAt,
           createdAt: e.createdAt,
+          accessTags: e.accessTags,
         }));
         const nextCursor =
           entries.length > 0 ? entries[entries.length - 1]!.feedSeq : null;
