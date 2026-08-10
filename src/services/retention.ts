@@ -134,7 +134,8 @@ export async function hardDeleteDocument(
 
 /**
  * Sweep ephemeral versions past valid_until (or 7d default from ingested_at).
- * Hard-deletes those documents when all live versions are expired ephemeral.
+ * Auto-deprecates expired ephemeral versions (core stays cron-free — host
+ * schedules this). Hard-delete remains an explicit separate verb.
  */
 export async function sweepEphemeral(
   db: Db,
@@ -142,19 +143,20 @@ export async function sweepEphemeral(
     tenantId: string;
     now?: Date;
   },
-): Promise<{ documentsDeleted: number }> {
+): Promise<{ versionsDeprecated: number }> {
   const now = input.now ?? new Date();
   const expired = await db
-    .select({
-      documentId: memoryVersion.documentId,
-      versionId: memoryVersion.id,
+    .update(memoryVersion)
+    .set({
+      status: "deprecated",
+      deprecatedAt: now,
+      deprecatedReason: "ephemeral_ttl",
     })
-    .from(memoryVersion)
     .where(
       and(
         eq(memoryVersion.tenantId, input.tenantId),
         eq(memoryVersion.retentionClass, "ephemeral"),
-        inArray(memoryVersion.status, ["active", "deprecated", "superseded"]),
+        eq(memoryVersion.status, "active"),
         or(
           and(
             isNotNull(memoryVersion.validUntil),
@@ -169,18 +171,10 @@ export async function sweepEphemeral(
           ),
         ),
       ),
-    );
+    )
+    .returning({ id: memoryVersion.id });
 
-  const docIds = [...new Set(expired.map((e) => e.documentId))];
-  let documentsDeleted = 0;
-  for (const documentId of docIds) {
-    const result = await hardDeleteDocument(db, {
-      tenantId: input.tenantId,
-      documentId,
-    });
-    if (result.deleted) documentsDeleted += 1;
-  }
-  return { documentsDeleted };
+  return { versionsDeprecated: expired.length };
 }
 
 export async function setRetentionClass(

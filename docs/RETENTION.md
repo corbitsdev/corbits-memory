@@ -21,11 +21,12 @@ CHECK constraint `version_retention_class_check` stays lockstep with
 | Deprecate | `memory.deprecateVersion` | `status=deprecated`, `deprecated_at` / reason |
 | Tombstone | `memory.tombstoneDocument` | All active/deprecated/superseded versions → `tombstoned`; chunk text redacted to `[redacted]` |
 | Hard delete | `memory.hardDeleteDocument` | Deletes document row (cascade); **refuses** if any non-tombstoned version is `durable` |
-| Sweep | `memory.sweepEphemeral` | Hard-deletes documents whose ephemeral versions are past TTL |
+| Sweep | `memory.sweepEphemeral` | Auto-deprecates ephemeral versions past `valid_until` (or 7d from `ingested_at`); host schedules, core is cron-free |
 | Set class | `memory.setRetentionClass` | Update `retention_class` on a version |
 
 Search and feed exclude non-active (and non-superseded for feed) rows by
 default. Pass `includeDeprecated: true` on search to retrieve deprecated
-versions intentionally (ops / audit).
+versions intentionally (ops / audit). Hard-delete is a separate explicit
+verb — TTL never hard-deletes.
 
 Service module: `src/services/retention.ts`.

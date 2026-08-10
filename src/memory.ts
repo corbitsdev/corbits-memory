@@ -316,7 +316,7 @@ export type Memory = {
   sweepEphemeral?(input: {
     tenantId: string;
     now?: Date;
-  }): Promise<{ documentsDeleted: number }>;
+  }): Promise<{ versionsDeprecated: number }>;
   setRetentionClass?(input: {
     tenantId: string;
     versionId: string;
