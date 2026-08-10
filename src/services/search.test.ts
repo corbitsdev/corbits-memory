@@ -233,8 +233,7 @@ describe("fetchDenseCandidates hnsw tuning", () => {
       unsafe: (sqlText: string) => {
         statements.push(sqlText);
         return Promise.resolve(
-          sqlText.includes('FROM "memory"."embed_model"') ||
-            sqlText.includes("FROM memory_embed_model")
+          sqlText.includes('FROM "memory"."embed_model"')
             ? [MODEL_ROW]
             : [],
         );
@@ -376,6 +375,7 @@ describe("fetchDenseCandidates kind/entity filtering", () => {
       unsafe: (sqlText: string, params?: unknown[]) => Promise<unknown[]>;
       savepoint: (fn: (sp: FakeTx) => Promise<unknown>) => Promise<unknown>;
     };
+    const statements: string[] = [];
     function evaluate(sqlText: string, params: unknown[]): unknown[] {
       let rows = DENSE_ROWS;
       const kindMatch = sqlText.match(/kd\.kind = ANY\(\$(\d+)/);
@@ -396,6 +396,7 @@ describe("fetchDenseCandidates kind/entity filtering", () => {
     }
     const tx: FakeTx = {
       unsafe: (sqlText: string, params: unknown[] = []) => {
+        statements.push(sqlText);
         if (sqlText.includes("ORDER BY")) {
           return Promise.resolve(evaluate(sqlText, params));
         }
@@ -404,18 +405,21 @@ describe("fetchDenseCandidates kind/entity filtering", () => {
       savepoint: (fn: (sp: FakeTx) => Promise<unknown>) => fn(tx),
     };
     const rawSql = {
-      unsafe: (sqlText: string) =>
-        Promise.resolve(
-          // CL-5233 qualified the table; keep the pre-qualify form so an
-          // accidental revert still fails this suite the same way.
-          sqlText.includes('FROM "memory"."embed_model"') ||
-            sqlText.includes("FROM memory_embed_model")
+      unsafe: (sqlText: string) => {
+        statements.push(sqlText);
+        return Promise.resolve(
+          // CL-5233 qualified the table — only the fully-qualified form matches.
+          sqlText.includes('FROM "memory"."embed_model"')
             ? [MODEL_ROW]
             : [],
-        ),
+        );
+      },
       begin: (cb: (t: FakeTx) => Promise<unknown>) => cb(tx),
     };
-    return rawSql as unknown as Parameters<typeof fetchDenseCandidates>[0]["sql"];
+    return {
+      rawSql: rawSql as unknown as Parameters<typeof fetchDenseCandidates>[0]["sql"],
+      statements,
+    };
   }
 
   function baseArgs(sql: Parameters<typeof fetchDenseCandidates>[0]["sql"]) {
@@ -435,8 +439,9 @@ describe("fetchDenseCandidates kind/entity filtering", () => {
   }
 
   it("excludes a semantically-similar chunk whose document kind does not match `kinds`", async () => {
+    const fake = fakeRawSql();
     const rows = await fetchDenseCandidates({
-      ...baseArgs(fakeRawSql()),
+      ...baseArgs(fake.rawSql),
       kinds: ["task"],
     });
     const chunkIds = rows?.map((r) => r.chunkId) ?? [];
@@ -445,8 +450,9 @@ describe("fetchDenseCandidates kind/entity filtering", () => {
   });
 
   it("excludes a semantically-similar chunk whose document is not linked to any requested entityId", async () => {
+    const fake = fakeRawSql();
     const rows = await fetchDenseCandidates({
-      ...baseArgs(fakeRawSql()),
+      ...baseArgs(fake.rawSql),
       entityIds: ["e-match"],
     });
     const chunkIds = rows?.map((r) => r.chunkId) ?? [];
@@ -454,16 +460,32 @@ describe("fetchDenseCandidates kind/entity filtering", () => {
     expect(chunkIds).not.toContain("chunk-note");
   });
 
+  it("entity filter targets memory.edge (not pre-rename knowledge_edge)", async () => {
+    const fake = fakeRawSql();
+    await fetchDenseCandidates({
+      ...baseArgs(fake.rawSql),
+      entityIds: ["e-match"],
+    });
+    const denseSelect = fake.statements.find(
+      (s) => s.includes("ORDER BY") && s.includes("ke."),
+    );
+    expect(denseSelect).toBeDefined();
+    expect(denseSelect).toContain('FROM "memory"."edge" ke');
+    expect(denseSelect).not.toContain("knowledge_edge");
+  });
+
   it("applies no kind/entity predicate — and returns every semantically-similar chunk — when neither filter is provided", async () => {
-    const rows = await fetchDenseCandidates(baseArgs(fakeRawSql()));
+    const fake = fakeRawSql();
+    const rows = await fetchDenseCandidates(baseArgs(fake.rawSql));
     const chunkIds = rows?.map((r) => r.chunkId) ?? [];
     expect(chunkIds).toContain("chunk-task");
     expect(chunkIds).toContain("chunk-note");
   });
 
   it("treats an empty kinds/entityIds array as no filter, same as lexical", async () => {
+    const fake = fakeRawSql();
     const rows = await fetchDenseCandidates({
-      ...baseArgs(fakeRawSql()),
+      ...baseArgs(fake.rawSql),
       kinds: [],
       entityIds: [],
     });

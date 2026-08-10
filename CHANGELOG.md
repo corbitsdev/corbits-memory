@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Citation `open.type` is now `"memory"`.
 - **Breaking:** env var is `DATABASE_URL` (was `KNOWLEDGE_DATABASE_URL`); pass
   `memory.databaseUrl` on config as an alternative. No deprecated alias.
+- `add` (plane + HTTP) returns `{ documentId, versionId }` so share-grant audit
+  and provenance can name the version that carried the write.
 - Interchange `defineTool` factories at `@corbits/memory/tools` (`memory_add`,
   `memory_search`, `memory_list`) — HTTP clients for mounted hub routes with
   install env `memoryBaseUrl` / `memoryTenantId` / `memoryAuthToken`. Declared
@@ -50,14 +52,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   mini-ACL. Share sugar only mints tags. See `docs/AUTHZ-DOCUMENT-ACCESS.md`.
 - **Breaking:** Postgres baseline is two files (`0001_extensions` +
   `0002_memory_baseline`) with `access_tags` and no `visibility_*` columns.
-  Fresh installs only — drop/recreate the memory schema on existing DBs.
+  Fresh installs only — drop/recreate the `memory` schema on existing DBs.
 - **Breaking:** `grantStore` + `conditionRegistry` are top-level `createMemory`
   options (no nested `grants: { … }`).
 
 ### Added
 
 - Optional `TextExtractor` + `file` XOR `content` on `add`
-- `share` sugar on `add` (maps to access tags only: owner, tenant, peers)
+- `share` sugar on `add` (maps to access tags; principals also materialize
+  grants when the host grant store is writable)
 - `access_tags` on `memory.document` (baseline schema)
 
 ### Removed

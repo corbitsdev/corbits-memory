@@ -534,7 +534,7 @@ export async function fetchDenseCandidates(
   if (entityIds && entityIds.length > 0) {
     params.push(entityIds);
     entityClause = `AND kd.id IN (
-      SELECT ke.from_ref FROM memory_edge ke
+      SELECT ke.from_ref FROM "memory"."edge" ke
       WHERE ke.tenant_id = $1 AND ke.from_type = 'document' AND ke.to_type = 'entity'
         AND ke.to_ref = ANY($${params.length}::text[])
     )`;
