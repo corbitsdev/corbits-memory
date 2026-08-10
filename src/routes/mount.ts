@@ -10,10 +10,11 @@ import type { RouteDeps } from "./deps.ts";
 import { mountAddRoute } from "./add.ts";
 import { mountSearchRoute } from "./search.ts";
 import { mountListRoute } from "./list.ts";
+import { mountFeedRoute } from "./feed.ts";
 
 export type { GrantConfig, RouteDeps } from "./deps.ts";
 
-/** HTTP JSON routes: add, search, list. */
+/** HTTP JSON routes: add, search, list, feed. */
 export function registerMemoryRoutes(
   app: Hono<TenantEnv>,
   deps: RouteDeps,
@@ -21,4 +22,5 @@ export function registerMemoryRoutes(
   mountAddRoute(app, deps);
   mountSearchRoute(app, deps);
   mountListRoute(app, deps);
+  mountFeedRoute(app, deps);
 }

@@ -27,6 +27,7 @@ never creates one; it mounts onto yours.
 | `add` | `POST /api/tenants/:tenantId/memory/add` | `memory:add` | Capture a document |
 | `search` | `POST /api/tenants/:tenantId/memory/search` | `memory:search` | Hybrid retrieval (+ optional live sources) |
 | `list` | `GET /api/tenants/:tenantId/memory/list` | `memory:search` | Recent documents for the principal |
+| `feed` | `GET /api/tenants/:tenantId/memory/feed` | `memory:search` | Cursor pull of new live versions (distiller) |
 
 Identity is always **`principalId` + `tenantId`** on the plane. HTTP routes
 never take body identity — they read `c.get("principal")` from Interchange

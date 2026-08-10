@@ -60,8 +60,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Optional `TextExtractor` + `file` XOR `content` on `add`
 - `share` sugar on `add` (maps to access tags; principals also materialize
-  grants when the host grant store is writable)
+  grants when the host grant store is writable); `grantsMaterialized` on the
+  add result when peers were requested
 - `access_tags` on `memory.document` (baseline schema)
+- Claim-bearing schema, temporal model, transform/replay, share grants
+  (resident memory distillation foundation — CL-5865/5866/5872/5873)
+- Living relevancy: corroboration factor from supports/contradicts edges;
+  strong evidence gate (CL-5867). See `docs/RELEVANCY.md`
+- Capture feed: `memory.feed` + `GET .../memory/feed` with `feed_seq` cursor
+  (CL-5868). See `docs/FEED.md`
+- Search items include optional additive `attribution` (versionId, createdByKind, …)
 
 ### Removed
 

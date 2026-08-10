@@ -90,6 +90,35 @@ export type DocumentStoreListEvent = {
   principalId: string;
 };
 
+export type DocumentStoreFeedParams = {
+  tenantId: string;
+  principalId: string;
+  after?: number;
+  limit?: number;
+  excludeGenerator?: string;
+  grants?: GrantStore;
+  conditionRegistry?: ConditionRegistry;
+};
+
+export type DocumentStoreFeedEntry = {
+  feedSeq: number;
+  versionId: string;
+  documentId: string;
+  kind: string;
+  title: string;
+  status: string;
+  createdByKind: string;
+  generatorAgentId: string | null;
+  provenance: string;
+  occurredAt: string;
+  createdAt: string;
+};
+
+export type DocumentStoreFeedResult = {
+  entries: DocumentStoreFeedEntry[];
+  nextCursor: number | null;
+};
+
 /**
  * Durable document plane. Default implementation is the engine's pgvector
  * store. Hosts inject a DocumentStore (or fakes) via `options.documentStore`
@@ -106,6 +135,11 @@ export type DocumentStore = {
   add(params: DocumentStoreAddParams): Promise<DocumentStoreAddResult>;
   search(params: DocumentStoreSearchParams): Promise<DocumentStoreSearchResult>;
   list(params: DocumentStoreListParams): Promise<DocumentStoreListEvent[]>;
+  /**
+   * Cursor pull of new live versions (CL-5868). Engine-only; vendor stores
+   * may omit (plane returns 501).
+   */
+  feed?(params: DocumentStoreFeedParams): Promise<DocumentStoreFeedResult>;
   close(): Promise<void>;
   /**
    * Append access tags after insert (used by share materialization to stamp

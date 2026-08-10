@@ -42,6 +42,12 @@ import {
   toRankedCandidates,
   type DegradeFlag,
 } from "../core/hybrid-search.ts";
+import {
+  corroborationFactor,
+  effectiveAuthority,
+  meetsStrongEvidenceGate,
+  type CorroborationCounts,
+} from "../core/corroboration.ts";
 import { formatCaughtError, log } from "../log.ts";
 import { resolveGenerationSearchParams } from "./transform.ts";
 import type {
@@ -90,8 +96,9 @@ export function authorityWeightedScore(
 }
 
 // Evidence cap: a hit only reaches 'strong' when BOTH its raw lexical
-// relevance clears STRONG_RANK_FLOOR AND its authority clears this floor.
-const AUTHORITY_STRONG_FLOOR = 0.3;
+// relevance clears STRONG_RANK_FLOOR AND the strong-evidence gate (authority
+// floor + stated human OR corroboration floor) clears. See docs/RELEVANCY.md.
+export const AUTHORITY_STRONG_FLOOR = 0.3;
 
 // Second, reranked-path-only strong floor. `deriveHybridEvidence`'s lexical
 // ts_rank check under-reports a query resolved mostly through the DENSE
@@ -129,12 +136,17 @@ export interface CandidateRow {
   rank: number;
   occurredAt: Date;
   // The version's stored 0..1 authority score (computed at capture time;
-  // never recomputed here).
+  // never recomputed here). Ranking multiplies by corroborationFactor.
   authority: number;
   // Temporal ranking class + validity (docs/TEMPORAL.md). Defaults applied
   // when a row predates the temporal migration (should not happen after 0004).
   temporalClass: "event" | "deadline" | "state" | "lesson";
   validUntil: Date | null;
+  /** Provenance mode for evidence gating (stated | inferred | unknown). */
+  provenance?: string;
+  /** Independent supports / contradicts targeting this version (search-time). */
+  supports?: number;
+  contradicts?: number;
 }
 
 export function snippet(text: string, maxLen = 240): string {
@@ -190,7 +202,14 @@ export function toHit(
     status: row.status,
     score:
       scoreOverride ??
-      authorityWeightedScore(row.rank, row.authority, authorityWeight),
+      authorityWeightedScore(
+        row.rank,
+        effectiveAuthority(row.authority, {
+          supports: row.supports ?? 0,
+          contradicts: row.contradicts ?? 0,
+        }),
+        authorityWeight,
+      ),
     title: row.title,
     snippet: snippet(row.snippetText),
     kind: row.kind,
@@ -208,17 +227,24 @@ export function toHit(
   };
 }
 
-// Evidence is capped by authority, not just relevance: the top-ranked hit
-// (by raw relevance) must ALSO clear AUTHORITY_STRONG_FLOOR to report
-// 'strong'. A relevant hit backed only by a low-authority source reports
-// 'weak' instead of overstating confidence.
+// Evidence is capped by the strong-evidence gate (authority + corroboration /
+// stated human), not relevance alone. A relevant hit with low authority or
+// only inferred single-source content reports 'weak'.
 export function deriveEvidence(
   hits: readonly CandidateRow[],
 ): SearchResponse["evidence"] {
   if (hits.length === 0) return "none";
   const top = hits.reduce((best, h) => (h.rank > best.rank ? h : best));
   if (top.rank < STRONG_RANK_FLOOR) return "weak";
-  return top.authority >= AUTHORITY_STRONG_FLOOR ? "strong" : "weak";
+  return meetsStrongEvidenceGate({
+    authority: top.authority,
+    supports: top.supports ?? 0,
+    provenance: top.provenance,
+    createdByKind: top.createdByKind,
+    authorityFloor: AUTHORITY_STRONG_FLOOR,
+  })
+    ? "strong"
+    : "weak";
 }
 
 // Evidence is primarily derived from the LEXICAL channel, using the same
@@ -228,22 +254,34 @@ export function deriveEvidence(
 // against fused scores would make "strong" unreachable via that path. A
 // SECOND, independent "strong" path exists for the reranked path: when
 // `rerankedTop` is supplied (reranking ran and produced a top hit), a rerank
-// score clearing RERANK_STRONG_FLOOR combined with authority clearing
-// AUTHORITY_STRONG_FLOOR is strong evidence on its own, even when the
-// lexical channel barely (or never) matched — this is what lets a query
-// resolved mostly through the DENSE channel report "strong" instead of
-// always "weak". A result that came back only through the dense channel,
-// on the non-reranked/degraded path (no `rerankedTop`), is still "weak".
+// score clearing RERANK_STRONG_FLOOR combined with the strong-evidence gate
+// is strong evidence on its own, even when the lexical channel barely (or
+// never) matched — this is what lets a query resolved mostly through the
+// DENSE channel report "strong" instead of always "weak". A result that
+// came back only through the dense channel, on the non-reranked/degraded
+// path (no `rerankedTop`), is still "weak".
 export function deriveHybridEvidence(
   lexicalRows: readonly CandidateRow[],
   finalHitCount: number,
-  rerankedTop?: { rerankScore: number; authority: number },
+  rerankedTop?: {
+    rerankScore: number;
+    authority: number;
+    supports?: number;
+    provenance?: string;
+    createdByKind?: string;
+  },
 ): SearchResponse["evidence"] {
   if (finalHitCount === 0) return "none";
   if (
     rerankedTop &&
     rerankedTop.rerankScore >= RERANK_STRONG_FLOOR &&
-    rerankedTop.authority >= AUTHORITY_STRONG_FLOOR
+    meetsStrongEvidenceGate({
+      authority: rerankedTop.authority,
+      supports: rerankedTop.supports ?? 0,
+      provenance: rerankedTop.provenance,
+      createdByKind: rerankedTop.createdByKind,
+      authorityFloor: AUTHORITY_STRONG_FLOOR,
+    })
   ) {
     return "strong";
   }
@@ -266,7 +304,14 @@ export function dedupeCandidatesPerDocument(
 ): CandidateRow[] {
   const scoreOf = (row: CandidateRow): number =>
     applyAuthorityPrior
-      ? authorityWeightedScore(row.rank, row.authority, authorityWeight)
+      ? authorityWeightedScore(
+          row.rank,
+          effectiveAuthority(row.authority, {
+            supports: row.supports ?? 0,
+            contradicts: row.contradicts ?? 0,
+          }),
+          authorityWeight,
+        )
       : row.rank;
 
   const byDocument = new Map<string, CandidateRow>();
@@ -311,6 +356,50 @@ export async function attachEntityIds(
     map.set(edge.documentId, list);
   }
   return map;
+}
+
+/**
+ * Batch-load supports/contradicts counts for candidate version ids.
+ * Edges target `to_type = version`. Mutates rows in place.
+ */
+export async function attachCorroborationCounts(
+  db: Db,
+  tenantId: string,
+  rows: CandidateRow[],
+): Promise<void> {
+  const versionIds = [...new Set(rows.map((r) => r.versionId))];
+  if (versionIds.length === 0) return;
+
+  const edges = await db
+    .select({
+      toRef: knowledgeEdge.toRef,
+      rel: knowledgeEdge.rel,
+    })
+    .from(knowledgeEdge)
+    .where(
+      and(
+        eq(knowledgeEdge.tenantId, tenantId),
+        eq(knowledgeEdge.toType, "version"),
+        inArray(knowledgeEdge.toRef, versionIds),
+        inArray(knowledgeEdge.rel, ["supports", "contradicts"]),
+      ),
+    );
+
+  const counts = new Map<string, CorroborationCounts>();
+  for (const id of versionIds) {
+    counts.set(id, { supports: 0, contradicts: 0 });
+  }
+  for (const edge of edges) {
+    const c = counts.get(edge.toRef) ?? { supports: 0, contradicts: 0 };
+    if (edge.rel === "supports") c.supports += 1;
+    else if (edge.rel === "contradicts") c.contradicts += 1;
+    counts.set(edge.toRef, c);
+  }
+  for (const row of rows) {
+    const c = counts.get(row.versionId) ?? { supports: 0, contradicts: 0 };
+    row.supports = c.supports;
+    row.contradicts = c.contradicts;
+  }
 }
 
 // The kinds/entityIds shape shared by both channels' candidate-query params
@@ -408,6 +497,7 @@ export async function fetchLexicalCandidates(
       authority: memoryVersion.authority,
       temporalClass: memoryVersion.temporalClass,
       validUntil: memoryVersion.validUntil,
+      provenance: memoryVersion.provenance,
     })
     .from(memoryChunk)
     .innerJoin(
@@ -546,7 +636,8 @@ export async function fetchDenseCandidates(
            kd.adapter AS adapter, kd.external_ref AS external_ref,
            kv.created_by_kind AS created_by_kind, kv.generator_agent_id AS generator_agent_id,
            c.text AS snippet_text, kv.occurred_at AS occurred_at, kv.authority AS authority,
-           kv.temporal_class AS temporal_class, kv.valid_until AS valid_until
+           kv.temporal_class AS temporal_class, kv.valid_until AS valid_until,
+           kv.provenance AS provenance
     FROM ${activeTable.tableName} e
     JOIN "memory"."chunk" c ON c.id = e.chunk_id
     JOIN "memory"."version" kv ON kv.id = c.version_id
@@ -612,6 +703,7 @@ export async function fetchDenseCandidates(
     validUntil: row["valid_until"]
       ? new Date(row["valid_until"] as string)
       : null,
+    provenance: (row["provenance"] as string | undefined) ?? "unknown",
   }));
 }
 
@@ -685,7 +777,19 @@ function applyBoosts(
   const normalized = normalizeScoresToUnit(rows.map((row) => row.rank));
   return rows.map((row, index) => {
     const normScore = normalized[index] ?? 0;
-    const authorityMult = authorityBoostMultiplier(row.authority);
+    const authorityMult = authorityBoostMultiplier(
+      effectiveAuthority(row.authority, {
+        supports: row.supports ?? 0,
+        contradicts: row.contradicts ?? 0,
+      }),
+    );
+    // Corroboration also multiplies the final score once more via the same
+    // factor so a supported claim outranks an unsupported twin at equal
+    // authority snapshot (authorityBoost alone compresses high authorities).
+    const corrMult = corroborationFactor({
+      supports: row.supports ?? 0,
+      contradicts: row.contradicts ?? 0,
+    });
     const recencyMult = temporalRecencyMultiplier({
       temporalClass: row.temporalClass,
       occurredAt: row.occurredAt,
@@ -693,7 +797,10 @@ function applyBoosts(
       now,
       halfLifeMs: recencyHalfLifeMs,
     });
-    return { row, finalScore: normScore * authorityMult * recencyMult };
+    return {
+      row,
+      finalScore: normScore * authorityMult * corrMult * recencyMult,
+    };
   });
 }
 
@@ -878,6 +985,12 @@ export async function hybridSearch(
     mergedRows.push({ ...base, rank: candidate.score });
   }
 
+  // Living relevancy: attach supports/contradicts before authority-weighted
+  // dedupe / boosts (capture-time authority snapshot stays on the row).
+  await attachCorroborationCounts(db, tenantId, mergedRows);
+  // Lexical-only evidence path also needs counts on the original channel rows.
+  await attachCorroborationCounts(db, tenantId, lexicalRows);
+
   let truncated: CandidateRow[];
   // The final score per chunk, when the reranked path ran; absent on the
   // degraded/fallback path, where `toHit` falls back to its own
@@ -1009,6 +1122,11 @@ export async function hybridSearch(
       ? {
           rerankScore: rawRerankScoreByChunk.get(topTruncated.chunkId) ?? 0,
           authority: topTruncated.authority,
+          supports: topTruncated.supports ?? 0,
+          ...(topTruncated.provenance !== undefined
+            ? { provenance: topTruncated.provenance }
+            : {}),
+          createdByKind: topTruncated.createdByKind,
         }
       : undefined;
   const evidence = deriveHybridEvidence(lexicalRows, hits.length, rerankedTop);

@@ -27,6 +27,10 @@ import {
   type TimelineEvent,
 } from "./services/timeline.ts";
 import {
+  fetchFeed,
+  type FeedEntry,
+} from "./services/feed.ts";
+import {
   createTransformConfig,
   demoteGeneration,
   listTransformConfigs,
@@ -163,7 +167,26 @@ export type MemoryAddParams = MemoryIdentity & {
   attributes?: Record<string, string | number | boolean | null>;
 };
 
-export type MemoryAddResult = { documentId: string; versionId: string };
+export type MemoryAddResult = {
+  documentId: string;
+  versionId: string;
+  /**
+   * When `share.principals` was non-empty: true if peer grants were written
+   * to a WritableGrantStore; false if materialization was skipped (no writable
+   * store or soft failure). Omitted when no peer share was requested.
+   */
+  grantsMaterialized?: boolean;
+};
+
+export type SearchAttribution = {
+  versionId: string;
+  provenance?: string;
+  createdByKind?: string;
+  generatorAgentId?: string | null;
+  evidence?: "strong" | "weak" | "none";
+  supports?: number;
+  contradicts?: number;
+};
 
 export type SearchItem = {
   documentId: string;
@@ -174,6 +197,8 @@ export type SearchItem = {
   citation: SearchHit["citation"];
   /** ISO timestamp for merge recency when the store provides it. */
   updatedAt?: string;
+  /** Additive provenance / temporal / corroboration for render-time attribution. */
+  attribution?: SearchAttribution;
 };
 
 export type SearchResult = {
@@ -185,6 +210,32 @@ export type SearchResult = {
 
 export type MemoryListParams = MemoryIdentity & {
   limit?: number;
+};
+
+export type MemoryFeedParams = MemoryIdentity & {
+  /** Exclusive cursor (last seen feedSeq). Default 0. */
+  after?: number;
+  limit?: number;
+  excludeGenerator?: string;
+};
+
+export type MemoryFeedEntry = {
+  feedSeq: number;
+  versionId: string;
+  documentId: string;
+  kind: string;
+  title: string;
+  status: string;
+  createdByKind: string;
+  generatorAgentId: string | null;
+  provenance: string;
+  occurredAt: string;
+  createdAt: string;
+};
+
+export type MemoryFeedResult = {
+  entries: MemoryFeedEntry[];
+  nextCursor: number | null;
 };
 
 export class MemoryError extends Error {
@@ -201,6 +252,11 @@ export type Memory = {
   search(params: MemorySearchParams): Promise<SearchResult>;
   add(params: MemoryAddParams): Promise<MemoryAddResult>;
   list(params: MemoryListParams): Promise<TimelineEvent[]>;
+  /**
+   * Cursor pull of new live versions (engine store only). Grant-checked like
+   * search. See docs/FEED.md.
+   */
+  feed?(params: MemoryFeedParams): Promise<MemoryFeedResult>;
   close(): Promise<void>;
   /**
    * Transform / replay surface (engine DocumentStore only). Present when the
@@ -315,6 +371,13 @@ function hitsToSearchItems(hits: readonly SearchHit[]): SearchItem[] {
     score: h.score,
     kind: h.kind,
     citation: h.citation,
+    attribution: {
+      versionId: h.version_id,
+      createdByKind: h.created_by_kind,
+      ...(h.generator_agent_id !== undefined
+        ? { generatorAgentId: h.generator_agent_id }
+        : {}),
+    },
   }));
 }
 
@@ -701,8 +764,10 @@ function createPlaneFromStore(
       // Share materialization (CL-5873): stamp document-scoped tag + write
       // peer grants when the host store is writable. Tag mint alone is not
       // enough for peers without host bootstrap grants on owner tags.
+      let grantsMaterialized: boolean | undefined;
       const peers = params.share?.principals;
       if (peers && peers.length > 0) {
+        grantsMaterialized = false;
         const docTag = documentTag(result.documentId);
         if (store.appendAccessTags) {
           await store.appendAccessTags(params.tenantId, result.documentId, [docTag]);
@@ -720,6 +785,7 @@ function createPlaneFromStore(
             sourceVersionId: result.versionId,
             share: params.share ?? {},
           });
+          grantsMaterialized = true;
         } else {
           log.warn(
             "memory.add: share.principals set without WritableGrantStore; tags only (peers need host grants)",
@@ -728,7 +794,9 @@ function createPlaneFromStore(
         }
       }
 
-      return result;
+      return grantsMaterialized === undefined
+        ? result
+        : { ...result, grantsMaterialized };
     },
 
     async list(params) {
@@ -737,6 +805,28 @@ function createPlaneFromStore(
         tenantId: params.tenantId,
         principalId: params.principalId,
         ...(limit !== undefined ? { limit } : {}),
+        ...(grants !== undefined ? { grants: grants.grantStore } : {}),
+        ...(grants?.conditionRegistry !== undefined
+          ? { conditionRegistry: grants.conditionRegistry }
+          : {}),
+      });
+    },
+
+    async feed(params) {
+      if (!store.feed) {
+        throw new MemoryError(
+          501,
+          "feed requires the engine DocumentStore",
+        );
+      }
+      return store.feed({
+        tenantId: params.tenantId,
+        principalId: params.principalId,
+        ...(params.after !== undefined ? { after: params.after } : {}),
+        ...(params.limit !== undefined ? { limit: params.limit } : {}),
+        ...(params.excludeGenerator !== undefined
+          ? { excludeGenerator: params.excludeGenerator }
+          : {}),
         ...(grants !== undefined ? { grants: grants.grantStore } : {}),
         ...(grants?.conditionRegistry !== undefined
           ? { conditionRegistry: grants.conditionRegistry }
@@ -1052,6 +1142,56 @@ function createEngineDocumentStore(config: MemoryConfig): {
             ? { conditionRegistry: params.conditionRegistry }
             : {}),
         });
+      },
+
+      async feed(params) {
+        await ensureVerified();
+        const raw = await fetchFeed(db, {
+          tenantId: params.tenantId,
+          ...(params.after !== undefined ? { after: params.after } : {}),
+          ...(params.limit !== undefined ? { limit: params.limit } : {}),
+          ...(params.excludeGenerator !== undefined
+            ? { excludeGenerator: params.excludeGenerator }
+            : {}),
+        });
+
+        const allowed: FeedEntry[] = [];
+        for (const entry of raw.entries) {
+          if (!params.grants) {
+            if (entry.createdByPrincipalId === params.principalId) {
+              allowed.push(entry);
+            }
+            continue;
+          }
+          const ok = await canAccessDocument({
+            grants: params.grants,
+            tenantId: params.tenantId,
+            principalId: params.principalId,
+            createdByPrincipalId: entry.createdByPrincipalId,
+            accessTags: entry.accessTags,
+            ...(params.conditionRegistry !== undefined
+              ? { conditionRegistry: params.conditionRegistry }
+              : {}),
+          });
+          if (ok) allowed.push(entry);
+        }
+
+        const entries = allowed.map((e) => ({
+          feedSeq: e.feedSeq,
+          versionId: e.versionId,
+          documentId: e.documentId,
+          kind: e.kind,
+          title: e.title,
+          status: e.status,
+          createdByKind: e.createdByKind,
+          generatorAgentId: e.generatorAgentId,
+          provenance: e.provenance,
+          occurredAt: e.occurredAt,
+          createdAt: e.createdAt,
+        }));
+        const nextCursor =
+          entries.length > 0 ? entries[entries.length - 1]!.feedSeq : null;
+        return { entries, nextCursor };
       },
 
       async close() {

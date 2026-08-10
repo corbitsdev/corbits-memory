@@ -73,6 +73,48 @@ export function parseListLimitString(
   return n;
 }
 
+/** HTTP query schema for GET /memory/feed. */
+export const FeedQuery = type({
+  "after?": "string",
+  "limit?": "string",
+  "exclude_generator?": "string",
+});
+
+export type FeedQuery = typeof FeedQuery.infer;
+
+export type ParsedFeedQuery = {
+  after?: number;
+  limit?: number;
+  excludeGenerator?: string;
+};
+
+/**
+ * Parse feed query params. Returns `{ ok: false, error }` on invalid numbers.
+ */
+export function parseFeedQuery(
+  q: FeedQuery,
+): { ok: true; value: ParsedFeedQuery } | { ok: false; error: string } {
+  const value: ParsedFeedQuery = {};
+  if (q.after !== undefined && q.after !== "") {
+    const n = Number(q.after);
+    if (!Number.isInteger(n) || n < 0) {
+      return { ok: false, error: "after must be a non-negative integer" };
+    }
+    value.after = n;
+  }
+  if (q.limit !== undefined && q.limit !== "") {
+    const n = Number(q.limit);
+    if (!Number.isInteger(n) || n < 1 || n > 100) {
+      return { ok: false, error: "limit must be an integer from 1 to 100" };
+    }
+    value.limit = n;
+  }
+  if (q.exclude_generator !== undefined && q.exclude_generator !== "") {
+    value.excludeGenerator = q.exclude_generator;
+  }
+  return { ok: true, value };
+}
+
 /** Coerce LLM-stringified integers before arktype number.integer checks. */
 export function coerceOptionalLimitArg(
   args: Record<string, unknown>,

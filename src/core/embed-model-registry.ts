@@ -305,20 +305,23 @@ export async function clearActiveEmbedModels(
   );
 }
 
-/** Make `modelKey` the sole active model for the tenant. */
+/** Make `modelKey` the sole active model for the tenant (single statement). */
 async function setActiveEmbedModelExclusive(
   client: EmbedRegistrySqlClient,
   tenantId: string,
   modelKey: string,
 ): Promise<void> {
+  // One round-trip: demote every other active row and activate the target.
+  // Concurrent activate still races at the app level; this removes the
+  // two-UPDATE window where zero or two actives can briefly exist.
   await client.query(
-    `UPDATE "memory"."embed_model"
-     SET status = 'ready', updated_at = now()
-     WHERE tenant_id = $1 AND status = 'active' AND model_key <> $2`,
-    [tenantId, modelKey],
-  );
-  await client.query(
-    `UPDATE "memory"."embed_model"
+    `WITH demoted AS (
+       UPDATE "memory"."embed_model"
+       SET status = 'ready', updated_at = now()
+       WHERE tenant_id = $1 AND status = 'active' AND model_key <> $2
+       RETURNING 1
+     )
+     UPDATE "memory"."embed_model"
      SET status = 'active', updated_at = now()
      WHERE tenant_id = $1 AND model_key = $2`,
     [tenantId, modelKey],

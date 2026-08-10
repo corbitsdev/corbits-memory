@@ -1,4 +1,5 @@
 import {
+  bigint,
   boolean,
   customType,
   integer,
@@ -84,6 +85,9 @@ export const memoryVersion = memorySchema.table(
     // version it writes with its own transform_run id instead, so a replayed
     // corpus never collides with (or supersedes) the live one.
     generation: text("generation").notNull().default("live"),
+    // Monotonic commit marker for capture-feed pull (CL-5868). Assigned by
+    // Postgres bigserial (see migrations/0006_capture_feed.sql); not set in app.
+    feedSeq: bigint("feed_seq", { mode: "number" }),
   },
   (t) => [
     uniqueIndex("version_document_generation_version_uniq").on(
@@ -92,6 +96,7 @@ export const memoryVersion = memorySchema.table(
       t.version,
     ),
     index("version_document_status_idx").on(t.documentId, t.status),
+    index("version_feed_seq_idx").on(t.tenantId, t.generation, t.feedSeq),
   ],
 );
 

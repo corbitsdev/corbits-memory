@@ -40,9 +40,13 @@ export type {
   Memory,
   MemoryOptions,
   MemoryListParams,
+  MemoryFeedParams,
+  MemoryFeedEntry,
+  MemoryFeedResult,
   MemoryShare,
   SearchHit,
   SearchItem,
+  SearchAttribution,
   SearchResult,
   TextExtractor,
   TimelineEvent,
@@ -110,6 +114,28 @@ export {
   type TransformConfigRow,
   type TransformRunRow,
 } from "./services/transform.ts";
+
+// Capture feed (CL-5868)
+export {
+  fetchFeed,
+  FEED_LIMIT_DEFAULT,
+  FEED_LIMIT_MAX,
+  FEED_LIMIT_MIN,
+  type FeedArgs,
+  type FeedEntry,
+  type FeedResult,
+} from "./services/feed.ts";
+
+// Corroboration / living relevancy (CL-5867)
+export {
+  corroborationFactor,
+  CORROBORATION_COUNT_LOG_CAP,
+  CORROBORATION_STRONG_FLOOR,
+  effectiveAuthority,
+  meetsStrongEvidenceGate,
+  type CorroborationCounts,
+  type StrongEvidenceSignals,
+} from "./core/corroboration.ts";
 
 // Embed model registry (ensure vs activate)
 export {

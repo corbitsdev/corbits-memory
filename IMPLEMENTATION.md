@@ -22,7 +22,7 @@ src/
     mount.ts              # registerMemoryRoutes (HTTP)
 
     deps.ts               # RouteDeps, caller(c) (context identity), grantGuard
-    add.ts, search.ts, list.ts
+    add.ts, search.ts, list.ts, feed.ts
   db/
     schema.ts             # Drizzle table defs (memory.* schema)
     client.ts             # createDb(config) -> { db (drizzle), sql (raw postgres-js) }
@@ -31,6 +31,8 @@ src/
     search.ts             # hybridSearch and every retrieval-candidate query
     timeline.ts           # listTimelineEvents — durable recent docs + grant-tag filter
     transform.ts          # transform_config CRUD + runTransform (replay)
+    feed.ts               # capture feed cursor pull (CL-5868)
+    share-grants.ts       # peer grant materialization on share (CL-5873)
   core/                   # framework-agnostic (chunking, embed/rerank, merge, schemas)
 # DocumentStore adapters / tools live as sibling packages (not in this tree):
 #   @corbits/mem0-memory-adapter         → github.com/corbitsdev/corbits-mem0-memory-adapter
@@ -402,6 +404,16 @@ Entry point, one query in, one ranked/citable hit list out. `k` is clamped to
 `[1, MAX_K=100]`, default `DEFAULT_HYBRID_TOP_K = 8`. An empty `query` string
 is only accepted if `kinds` or `entityIds` is provided (structured-filter-only
 search); otherwise it throws `MemorySearchInputError` (400).
+
+**Living relevancy (CL-5867):** after fusion, `attachCorroborationCounts` loads
+`supports`/`contradicts` edge counts per version. Ranking multiplies by
+`corroborationFactor` (bounded [0.7, 1.3]); evidence:strong also requires the
+gate in `core/corroboration.ts` (stated human **or** support count ≥ floor).
+Capture-time `authority` is never rewritten. See `docs/RELEVANCY.md`.
+
+**Capture feed (CL-5868):** `memory.feed({ after, limit, excludeGenerator? })`
+and `GET .../memory/feed` pull live versions ordered by `feed_seq` (migration
+`0006_capture_feed.sql`). Grant-checked like search. See `docs/FEED.md`.
 
 1. **Generation resolution** — `generation` defaults to `LIVE_GENERATION`.
    For any non-live generation, `resolveGenerationSearchParams` (transform.ts)

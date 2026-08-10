@@ -134,25 +134,23 @@ describe("deriveHybridEvidence", () => {
     expect(deriveHybridEvidence(lexicalRows, 1)).toBe("weak");
   });
 
-  // The bug this fix closes: a query resolved mostly through the DENSE
-  // channel has a low (or zero) lexical ts_rank, so before this fix
-  // deriveHybridEvidence always fell through to deriveEvidence(lexicalRows)
-  // and reported "weak" — even when the cross-encoder rerank was highly
-  // confident and authority was high. The reranked-path floor now reports
-  // "strong" in that case instead.
-  it("reports 'strong' when reranked + high rerank score + high authority, even though lexical ts_rank is low", () => {
+  // Living relevancy (CL-5867): strong also needs the corroboration gate —
+  // stated human OR supports ≥ floor. High authority alone is not enough.
+  it("reports 'strong' when reranked + high rerank score + high authority + supports, even though lexical ts_rank is low", () => {
     const lowLexicalRows = [candidate({ rank: 0.001, authority: 0.9 })];
     const evidence = deriveHybridEvidence(lowLexicalRows, 1, {
       rerankScore: 0.85,
       authority: 0.9,
+      supports: 2,
     });
     expect(evidence).toBe("strong");
   });
 
-  it("reports 'strong' even with NO lexical rows at all, given a confident reranked top hit", () => {
+  it("reports 'strong' even with NO lexical rows at all, given a confident reranked top hit with supports", () => {
     const evidence = deriveHybridEvidence([], 1, {
       rerankScore: 0.85,
       authority: 0.9,
+      supports: 2,
     });
     expect(evidence).toBe("strong");
   });
@@ -161,6 +159,7 @@ describe("deriveHybridEvidence", () => {
     const evidence = deriveHybridEvidence([], 1, {
       rerankScore: 0.2,
       authority: 0.9,
+      supports: 5,
     });
     expect(evidence).toBe("weak");
   });
@@ -169,12 +168,41 @@ describe("deriveHybridEvidence", () => {
     const evidence = deriveHybridEvidence([], 1, {
       rerankScore: 0.9,
       authority: 0.1,
+      supports: 5,
     });
     expect(evidence).toBe("weak");
   });
 
+  it("reports 'weak' when high score/authority but no corroboration gate (no supports, not stated human)", () => {
+    const evidence = deriveHybridEvidence([], 1, {
+      rerankScore: 0.9,
+      authority: 0.9,
+      supports: 0,
+      provenance: "inferred",
+      createdByKind: "agent",
+    });
+    expect(evidence).toBe("weak");
+  });
+
+  it("reports 'strong' for stated human without supports when score floors clear", () => {
+    const evidence = deriveHybridEvidence([], 1, {
+      rerankScore: 0.85,
+      authority: 0.9,
+      supports: 0,
+      provenance: "stated",
+      createdByKind: "human",
+    });
+    expect(evidence).toBe("strong");
+  });
+
   it("falls back to the lexical evidence path when reranking did not run (no rerankedTop)", () => {
-    const strongLexicalRows = [candidate({ rank: 0.9, authority: 0.9 })];
+    const strongLexicalRows = [
+      candidate({
+        rank: 0.9,
+        authority: 0.9,
+        supports: 2,
+      }),
+    ];
     expect(deriveHybridEvidence(strongLexicalRows, 1)).toBe("strong");
   });
 });
