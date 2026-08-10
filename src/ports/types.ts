@@ -111,8 +111,10 @@ export type DocumentStore = {
    * Append access tags after insert (used by share materialization to stamp
    * `memory.doc:<id>` once the document id is known). Optional — stores that
    * omit it leave peer share grants without a matching tag (fail-closed).
+   * Tenant is required so a forged documentId cannot retag another tenant.
    */
   appendAccessTags?(
+    tenantId: string,
     documentId: string,
     tags: readonly string[],
   ): Promise<void>;

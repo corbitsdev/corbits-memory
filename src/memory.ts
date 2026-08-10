@@ -705,7 +705,7 @@ function createPlaneFromStore(
       if (peers && peers.length > 0) {
         const docTag = documentTag(result.documentId);
         if (store.appendAccessTags) {
-          await store.appendAccessTags(result.documentId, [docTag]);
+          await store.appendAccessTags(params.tenantId, result.documentId, [docTag]);
         } else {
           log.warn(
             "memory.add: share.principals set but DocumentStore has no appendAccessTags; peer grants may not match",
@@ -993,9 +993,10 @@ function createEngineDocumentStore(config: MemoryConfig): {
         };
       },
 
-      async appendAccessTags(documentId, tags) {
+      async appendAccessTags(tenantId, documentId, tags) {
         if (tags.length === 0) return;
-        // Union into existing access_tags array (postgres text[]).
+        // Union into existing access_tags array (postgres text[]). Tenant
+        // filter is defense-in-depth against a forged documentId.
         await sql`
           UPDATE "memory"."document"
           SET access_tags = (
@@ -1007,6 +1008,7 @@ function createEngineDocumentStore(config: MemoryConfig): {
             )
           )
           WHERE id = ${documentId}
+            AND tenant_id = ${tenantId}
         `;
       },
 

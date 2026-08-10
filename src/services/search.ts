@@ -784,7 +784,12 @@ export async function hybridSearch(
   const resolvedTuning =
     generation === LIVE_GENERATION
       ? null
-      : await resolveGenerationSearchParams(db, generation, config.embed);
+      : await resolveGenerationSearchParams(
+          db,
+          generation,
+          config.embed,
+          tenantId,
+        );
 
   const authorityWeight = resolvedTuning?.authorityWeight ?? AUTHORITY_WEIGHT;
   const recencyHalfLifeMs =

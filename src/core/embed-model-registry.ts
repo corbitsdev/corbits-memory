@@ -205,8 +205,10 @@ export async function ensureEmbedModel(
 
 /**
  * Ensure the table exists, then promote this model to the tenant's active
- * dense-search target (`status='active'`, `updated_at=now()`). Live capture
- * uses this path; transform/replay must use `ensureEmbedModel` only.
+ * dense-search target (`status='active'`, `updated_at=now()`). Other active
+ * rows for the tenant are demoted to `ready` so `resolveActiveEmbedTable`
+ * cannot pick a stale peer by updated_at race. Live capture uses this path;
+ * transform/replay must use `ensureEmbedModel` only.
  */
 export async function activateEmbedModel(
   client: EmbedRegistrySqlClient,
@@ -215,12 +217,7 @@ export async function activateEmbedModel(
   fetchImpl: typeof fetch = fetch,
 ): Promise<ActivateEmbedModelResult> {
   const result = await ensureEmbedModel(client, tenantId, config, fetchImpl);
-  await client.query(
-    `UPDATE "memory"."embed_model"
-     SET status = 'active', updated_at = now()
-     WHERE tenant_id = $1 AND model_key = $2`,
-    [tenantId, result.modelKey],
-  );
+  await setActiveEmbedModelExclusive(client, tenantId, result.modelKey);
   return result;
 }
 
@@ -260,7 +257,8 @@ export async function resolveActiveEmbedTable(
  * restore the pre-promote live model without needing baseUrl/modelId.
  *
  * Throws if the registry row is missing — demote must not silently leave
- * dense search on the promoted model.
+ * dense search on the promoted model. Demotes other active rows for the
+ * tenant to `ready`.
  */
 export async function activateEmbedModelByKey(
   client: EmbedRegistrySqlClient,
@@ -271,10 +269,8 @@ export async function activateEmbedModelByKey(
     throw new Error(`activateEmbedModelByKey: invalid modelKey "${modelKey}"`);
   }
   const rows = await client.query(
-    `UPDATE "memory"."embed_model"
-     SET status = 'active', updated_at = now()
-     WHERE tenant_id = $1 AND model_key = $2
-     RETURNING model_key, model_id, dims`,
+    `SELECT model_key, model_id, dims FROM "memory"."embed_model"
+     WHERE tenant_id = $1 AND model_key = $2`,
     [tenantId, modelKey],
   );
   const row = rows[0];
@@ -283,12 +279,50 @@ export async function activateEmbedModelByKey(
       `activateEmbedModelByKey: no embed_model row for tenant=${tenantId} model_key=${modelKey}`,
     );
   }
+  await setActiveEmbedModelExclusive(client, tenantId, modelKey);
   return {
     tableName: embeddingTableName(modelKey),
     dims: row.dims as number,
     modelId: row.model_id as string,
     modelKey,
   };
+}
+
+/**
+ * Clear every active embed model for the tenant (status → ready). Used when
+ * demoting a promote that had no prior live model so dense search degrades
+ * cleanly instead of remaining on the promoted table after the corpus swap.
+ */
+export async function clearActiveEmbedModels(
+  client: EmbedRegistrySqlClient,
+  tenantId: string,
+): Promise<void> {
+  await client.query(
+    `UPDATE "memory"."embed_model"
+     SET status = 'ready', updated_at = now()
+     WHERE tenant_id = $1 AND status = 'active'`,
+    [tenantId],
+  );
+}
+
+/** Make `modelKey` the sole active model for the tenant. */
+async function setActiveEmbedModelExclusive(
+  client: EmbedRegistrySqlClient,
+  tenantId: string,
+  modelKey: string,
+): Promise<void> {
+  await client.query(
+    `UPDATE "memory"."embed_model"
+     SET status = 'ready', updated_at = now()
+     WHERE tenant_id = $1 AND status = 'active' AND model_key <> $2`,
+    [tenantId, modelKey],
+  );
+  await client.query(
+    `UPDATE "memory"."embed_model"
+     SET status = 'active', updated_at = now()
+     WHERE tenant_id = $1 AND model_key = $2`,
+    [tenantId, modelKey],
+  );
 }
 
 /**

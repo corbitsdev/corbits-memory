@@ -115,6 +115,7 @@ export {
 export {
   activateEmbedModel,
   activateEmbedModelByKey,
+  clearActiveEmbedModels,
   ensureEmbedModel,
   resolveActiveEmbedTable,
   resolveEmbedTableByModelKey,

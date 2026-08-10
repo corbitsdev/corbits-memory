@@ -3,6 +3,7 @@ import type { EmbedClientConfig } from "./embed-client.ts";
 import {
   activateEmbedModel,
   activateEmbedModelByKey,
+  clearActiveEmbedModels,
   computeModelKey,
   cosineDistanceExpr,
   DimsOutOfBoundsError,
@@ -323,15 +324,29 @@ describe("activateEmbedModel (split)", () => {
     await ensureEmbedModel(client, "tenant-1", baseConfig, fixtureFetch(768));
     const ensureQueries = queries.length;
     await activateEmbedModel(client, "tenant-1", baseConfig, fixtureFetch(768));
-    // activate always issues the status UPDATE after ensure work
+    // activate always issues the exclusive active UPDATE after ensure work
     expect(
       queries.slice(ensureQueries).some((q) => q.sql.includes("SET status = 'active'")),
+    ).toBe(true);
+    expect(
+      queries.slice(ensureQueries).some((q) => q.sql.includes("SET status = 'ready'")),
     ).toBe(true);
   });
 });
 
+describe("clearActiveEmbedModels", () => {
+  it("demotes every active row for the tenant to ready", async () => {
+    const { client, queries } = createMockClient();
+    await clearActiveEmbedModels(client, "tenant-1");
+    expect(queries).toHaveLength(1);
+    expect(queries[0]?.sql).toContain("SET status = 'ready'");
+    expect(queries[0]?.sql).toContain("status = 'active'");
+    expect(queries[0]?.params).toEqual(["tenant-1"]);
+  });
+});
+
 describe("activateEmbedModelByKey", () => {
-  it("issues UPDATE by model_key without probing the embed endpoint", async () => {
+  it("selects by model_key then exclusives-activates without probing embed", async () => {
     const modelKey = "abcdef0123456789";
     const queries: Array<{ sql: string; params: readonly unknown[] }> = [];
     const client: EmbedRegistrySqlClient = {
@@ -345,8 +360,9 @@ describe("activateEmbedModelByKey", () => {
     const result = await activateEmbedModelByKey(client, "tenant-1", modelKey);
     expect(result.modelKey).toBe(modelKey);
     expect(result.dims).toBe(768);
-    expect(queries[0]?.sql).toContain("SET status = 'active'");
-    expect(queries[0]?.params).toEqual(["tenant-1", modelKey]);
+    expect(queries[0]?.sql).toContain("SELECT model_key");
+    expect(queries.some((q) => q.sql.includes("SET status = 'ready'"))).toBe(true);
+    expect(queries.some((q) => q.sql.includes("SET status = 'active'"))).toBe(true);
   });
 
   it("throws when the registry row is missing", async () => {

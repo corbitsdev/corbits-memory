@@ -23,7 +23,7 @@ import { EmbedClientConfigSchema, type EmbedClientConfig } from "../core/embed-c
 import type { RerankClientConfig } from "../core/rerank-client.ts";
 import { deriveFromRawCapture, type CaptureInput } from "./capture.ts";
 import { LIVE_GENERATION } from "../core/generation.ts";
-import { activateEmbedModel, activateEmbedModelByKey, resolveActiveEmbedTable } from "../core/embed-model-registry.ts";
+import { activateEmbedModel, activateEmbedModelByKey, clearActiveEmbedModels, resolveActiveEmbedTable } from "../core/embed-model-registry.ts";
 import { createRawSqlClient } from "../core/embed-sql.ts";
 
 export class TransformConfigNotFoundError extends Error {
@@ -245,21 +245,29 @@ export interface GenerationSearchParams {
 
 // Resolves a search-time `generation` (a transform_run id, per the 1:1
 // `transform_run.generation` uniqueness) back to its config's tuning knobs.
-// Returns `null` when the generation isn't a known replay run (including
-// 'live', which the caller should never even ask this for) — hybridSearch
-// falls back to its own engine defaults for every field in that case.
+// Returns `null` when the generation isn't a known replay run for this tenant
+// (including 'live', which the caller should never even ask this for) —
+// hybridSearch falls back to its own engine defaults for every field in that
+// case. Tenant is required so a cross-tenant generation id cannot resolve
+// another tenant's embed overrides (which may carry apiKey).
 //
 // `engineEmbed` is required to fully resolve a partial transform embed
 // override (same merge rules as runTransform).
 export async function resolveGenerationSearchParams(
   db: Db,
   generation: string,
-  engineEmbed?: EngineConfig["embed"],
+  engineEmbed: EngineConfig["embed"] | undefined,
+  tenantId: string,
 ): Promise<GenerationSearchParams | null> {
   const runRows = await db
     .select({ configId: transformRun.configId })
     .from(transformRun)
-    .where(eq(transformRun.generation, generation))
+    .where(
+      and(
+        eq(transformRun.generation, generation),
+        eq(transformRun.tenantId, tenantId),
+      ),
+    )
     .limit(1);
   const run = runRows[0];
   if (!run) return null;
@@ -267,7 +275,12 @@ export async function resolveGenerationSearchParams(
   const configRows = await db
     .select({ params: transformConfig.params })
     .from(transformConfig)
-    .where(eq(transformConfig.id, run.configId))
+    .where(
+      and(
+        eq(transformConfig.id, run.configId),
+        eq(transformConfig.tenantId, tenantId),
+      ),
+    )
     .limit(1);
   const configRow = configRows[0];
   if (!configRow) return null;
@@ -534,6 +547,11 @@ export async function promoteGeneration(
   }
 
   const configRow = await loadTransformConfig(deps.db, run.configId);
+  if (configRow.tenantId !== input.tenantId) {
+    throw new TransformPromoteError(
+      `transform_config tenant mismatch for generation ${input.generation}`,
+    );
+  }
   const embed = buildEmbedClientConfig(configRow.params.embed, deps.config.embed);
   const archiveGen = `archive_${run.id}_${Date.now()}`;
   const client = createRawSqlClient(deps.sql);
@@ -581,18 +599,20 @@ export async function promoteGeneration(
     });
   } catch (err) {
     // Version swap failed after dense activate — restore prior dense target.
-    if (priorModelKey) {
-      try {
+    try {
+      if (priorModelKey) {
         await activateEmbedModelByKey(client, input.tenantId, priorModelKey);
-      } catch (restoreErr) {
-        log.warn(
-          "promoteGeneration: failed to restore prior embed model after version swap error",
-          {
-            priorModelKey,
-            error: formatCaughtError(restoreErr),
-          },
-        );
+      } else {
+        await clearActiveEmbedModels(client, input.tenantId);
       }
+    } catch (restoreErr) {
+      log.warn(
+        "promoteGeneration: failed to restore prior embed model after version swap error",
+        {
+          priorModelKey,
+          error: formatCaughtError(restoreErr),
+        },
+      );
     }
     throw err;
   }
@@ -636,7 +656,8 @@ export async function demoteGeneration(
   const client = createRawSqlClient(deps.sql);
 
   // Restore prior dense target first so a missing model_key fails closed
-  // before we rewrite generation tags.
+  // before we rewrite generation tags. No prior model → clear active so
+  // dense degrades rather than remaining on the promoted table after swap.
   if (priorModelKey) {
     try {
       await activateEmbedModelByKey(client, input.tenantId, priorModelKey);
@@ -645,6 +666,8 @@ export async function demoteGeneration(
         `cannot demote: failed to restore prior embed model ${priorModelKey}: ${formatCaughtError(err)}`,
       );
     }
+  } else {
+    await clearActiveEmbedModels(client, input.tenantId);
   }
 
   await deps.db.transaction(async (tx) => {

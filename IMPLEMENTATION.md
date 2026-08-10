@@ -405,10 +405,12 @@ search); otherwise it throws `MemorySearchInputError` (400).
 
 1. **Generation resolution** — `generation` defaults to `LIVE_GENERATION`.
    For any non-live generation, `resolveGenerationSearchParams` (transform.ts)
-   looks up the owning `transform_run` → `transform_config` and pulls its
-   tuning knobs (`authorityWeight`, `recencyHalfLifeDays`, `mmrLambda`,
-   `overfetch`, `rerank`); every field it doesn't supply falls back to the
-   engine's own defaults. Live search never pays for this lookup.
+   looks up the owning `transform_run` → `transform_config` **for the search
+   tenant** and pulls its tuning knobs (`authorityWeight`,
+   `recencyHalfLifeDays`, `mmrLambda`, `overfetch`, `rerank`); every field it
+   doesn't supply falls back to the engine's own defaults. Live search never
+   pays for this lookup. Cross-tenant generation ids resolve to `null`
+   (engine defaults) so embed overrides (including `apiKey`) cannot leak.
 2. **Lexical channel** — `fetchLexicalCandidates`: Postgres full-text search
    (`ts_rank` against `plainto_tsquery` in the configured `FTS_LANGUAGE`,
    bound as a `regconfig` parameter, over
@@ -514,13 +516,16 @@ writes to. A `transform_config` is a named/versioned recipe
 **Promote / demote (staged cutover):**
 
 - `promoteGeneration` — requires `status = 'completed'`. Snapshots the
-  pre-promote active `model_key`, activates the staged embed model, then
-  swaps generation tags (`live` → archive, staged → `live`). Records
+  pre-promote active `model_key`, activates the staged embed model (sole
+  active for the tenant; peers demoted to `ready`), then swaps generation
+  tags (`live` → archive, staged → `live`). Records
   `archived_live_generation` + `archived_live_model_key` for demote. If the
-  version swap fails after activate, re-activates the prior model_key.
+  version swap fails after activate, re-activates the prior model_key (or
+  clears active when there was no prior).
 - `demoteGeneration` — re-activates `archived_live_model_key` (fail-closed if
-  the registry row is gone), then restores archive → live and staged corpus
-  back onto the run generation.
+  the registry row is gone), or clears all active models when no prior was
+  recorded, then restores archive → live and staged corpus back onto the run
+  generation.
 
 Plane methods (engine DocumentStore only): `createTransformConfig`,
 `listTransformConfigs`, `runTransform`, `promoteGeneration`,
