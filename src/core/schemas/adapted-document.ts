@@ -1,5 +1,9 @@
 import { type } from "arktype";
-import { CreatedByKindSchema } from "./document.ts";
+import {
+  CreatedByKindSchema,
+  LineageClassSchema,
+  ProvenanceModeSchema,
+} from "./document.ts";
 import { MemoryEdgeHintSchema } from "./entity-edge.ts";
 import { AuthoritySourceClassSchema } from "../authority.ts";
 
@@ -48,6 +52,14 @@ export type RawPointer = typeof RawPointerSchema.infer;
 //
 // Document access is grant tags only (`accessTags`) — the security boundary
 // (docs/AUTHZ-DOCUMENT-ACCESS.md).
+//
+// Two orthogonal "class" axes on the write path:
+// - sourceClass: ranking prior (thread/channel/call/record/native) for
+//   computeAuthority — never written to knowledge.version.source_class.
+// - lineageClass: data-lineage stored on knowledge.version.source_class
+//   (native|imported|derived). Defaults to native at capture.
+// provenance: how the content was obtained (stated|inferred|unknown);
+// defaults to stated at capture for human/adapter paths.
 export const AdaptedDocumentSchema = type({
   kind: `1 <= string <= ${MAX_KIND_CHARS}`,
   title: `1 <= string <= ${MAX_TITLE_CHARS}`,
@@ -67,6 +79,8 @@ export const AdaptedDocumentSchema = type({
   "actorCount?": "number",
   "sourceClass?": AuthoritySourceClassSchema,
   "hasSocialSignal?": "boolean",
+  "lineageClass?": LineageClassSchema,
+  "provenance?": ProvenanceModeSchema,
   contentHash: "string",
 });
 export type AdaptedDocument = typeof AdaptedDocumentSchema.infer;

@@ -71,6 +71,10 @@ type CaptureTxResult =
 // defaults here rather than at the schema layer, so every capture (including
 // a future caller that forgets to set a signal) always produces a
 // well-formed AuthoritySignals rather than an undefined-riddled one.
+//
+// Ranking sourceClass (thread/channel/…) is deliberately NOT written to the
+// version.source_class column — that column is data lineage
+// (native|imported|derived) via lineageClass. See deriveLineageClass.
 function deriveAuthoritySignals(plan: CapturePlan): AuthoritySignals {
   return {
     createdByKind: plan.document.actor?.kind ?? "system",
@@ -78,6 +82,14 @@ function deriveAuthoritySignals(plan: CapturePlan): AuthoritySignals {
     sourceClass: plan.document.sourceClass ?? "native",
     hasSocialSignal: plan.document.hasSocialSignal ?? false,
   };
+}
+
+function deriveLineageClass(plan: CapturePlan): string {
+  return plan.document.lineageClass ?? "native";
+}
+
+function deriveProvenance(plan: CapturePlan): string {
+  return plan.document.provenance ?? "stated";
 }
 
 async function insertVersion(
@@ -111,7 +123,8 @@ async function insertVersion(
     authority: computeAuthority(authoritySignals),
     actorCount: authoritySignals.actorCount,
     hasSocialSignal: authoritySignals.hasSocialSignal,
-    sourceClass: authoritySignals.sourceClass,
+    sourceClass: deriveLineageClass(plan),
+    provenance: deriveProvenance(plan),
     rawCaptureId: opts.rawCaptureId,
     generation: opts.generation,
   });
@@ -195,13 +208,14 @@ async function insertOrReuseRawCapture(
 
 // No unique constraint backs memory_entity — dedupe here on an exact
 // (tenantId, kind, identifiers) match, matching what a caller re-emits for
-// the same real-world thing across captures.
+// the same real-world thing across captures. Returns the entity id (existing
+// or freshly inserted) so edge resolution can point at it.
 async function upsertEntity(
   tx: Tx,
   tenantId: string,
   hint: EntityHint,
   now: Date,
-): Promise<void> {
+): Promise<string> {
   const identifiers = { value: hint.identifier };
   const rows = await tx
     .select({
@@ -215,23 +229,29 @@ async function upsertEntity(
         eq(memoryEntity.kind, hint.kind),
       ),
     );
-  const exists = rows.some(
+  const match = rows.find(
     (r) => JSON.stringify(r.identifiers) === JSON.stringify(identifiers),
   );
-  if (exists) return;
+  if (match) return match.id;
+  const id = newId("kent");
   await tx.insert(memoryEntity).values({
-    id: newId("kent"),
+    id,
     tenantId,
     kind: hint.kind,
     identifiers,
     createdAt: now,
     updatedAt: now,
   });
+  return id;
 }
 
 // No unique constraint backs memory_edge either — dedupe on the full
 // (tenantId, rel, from, to) tuple so re-ingesting the same document doesn't
 // pile up duplicate relationship rows across versions.
+//
+// Adapter-facing `native` endpoints are planning-time hints for principals
+// (or other non-entity refs). Resolve them to a memory_entity row before
+// insert so the DB CHECK (document|version|chunk|entity) is always satisfied.
 async function upsertEdge(
   tx: Tx,
   tenantId: string,
@@ -239,6 +259,18 @@ async function upsertEdge(
   hint: MemoryEdgeHint,
   now: Date,
 ): Promise<void> {
+  let toType = hint.to.type;
+  let toRef = hint.to.ref;
+  if (toType === "native") {
+    toRef = await upsertEntity(
+      tx,
+      tenantId,
+      { kind: "principal", identifier: toRef },
+      now,
+    );
+    toType = "entity";
+  }
+
   const rows = await tx
     .select({ id: memoryEdge.id })
     .from(memoryEdge)
@@ -248,8 +280,8 @@ async function upsertEdge(
         eq(memoryEdge.rel, hint.rel),
         eq(memoryEdge.fromType, "document"),
         eq(memoryEdge.fromRef, documentId),
-        eq(memoryEdge.toType, hint.to.type),
-        eq(memoryEdge.toRef, hint.to.ref),
+        eq(memoryEdge.toType, toType),
+        eq(memoryEdge.toRef, toRef),
       ),
     )
     .limit(1);
@@ -260,8 +292,8 @@ async function upsertEdge(
     rel: hint.rel,
     fromType: "document",
     fromRef: documentId,
-    toType: hint.to.type,
-    toRef: hint.to.ref,
+    toType,
+    toRef,
     createdAt: now,
   });
 }

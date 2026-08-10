@@ -1,4 +1,9 @@
 import { type } from "arktype";
+import {
+  LINEAGE_CLASSES,
+  PROVENANCE_MODES,
+  arktypeStringUnion,
+} from "../enums.ts";
 
 export const MemoryVersionStatusSchema = type(
   "'active'|'superseded'|'deprecated'|'archived'|'tombstoned'",
@@ -7,6 +12,16 @@ export type MemoryVersionStatus = typeof MemoryVersionStatusSchema.infer;
 
 export const CreatedByKindSchema = type("'human'|'agent'|'system'|'adapter'");
 export type CreatedByKind = typeof CreatedByKindSchema.infer;
+
+export const LineageClassSchema = type(
+  arktypeStringUnion(LINEAGE_CLASSES) as "'native'|'imported'|'derived'",
+);
+export type LineageClass = typeof LineageClassSchema.infer;
+
+export const ProvenanceModeSchema = type(
+  arktypeStringUnion(PROVENANCE_MODES) as "'stated'|'inferred'|'unknown'",
+);
+export type ProvenanceMode = typeof ProvenanceModeSchema.infer;
 
 // The stable logical row for a captured source, deduped on (tenant_id,
 // adapter, external_ref). Document access is grant tags only.
@@ -42,5 +57,7 @@ export const MemoryVersionSchema = type({
   created_by_principal_id: "string | null",
   created_by_kind: CreatedByKindSchema,
   "generator_agent_id?": "string",
+  provenance: ProvenanceModeSchema,
+  source_class: LineageClassSchema,
 });
 export type MemoryVersion = typeof MemoryVersionSchema.infer;

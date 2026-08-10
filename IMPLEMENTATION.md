@@ -196,9 +196,27 @@ Lightweight graph rows. `memory_entity` has no unique constraint; dedupe on
 `(tenant_id, kind, identifiers)` is done in application code
 (`upsertEntity` in `capture.ts`, an exact-match linear scan per kind). Same for
 `memory_edge` (dedupe on the full `(tenant_id, rel, from, to)` tuple,
-`upsertEdge`). `rel` is constrained (DB CHECK + arktype) to
-`'about'|'produced_by'|'links'|'parent'|'mentions'|'waiting_on'`; `from_type`/
-`to_type` to `'document'|'entity'|'native'`.
+`upsertEdge`). `rel` is constrained (DB CHECK + arktype, single source of
+truth in `src/core/enums.ts`) to
+`mentions|about|authored_by|involves|part_of|derived_from|supports|contradicts|supersedes`;
+`from_type`/`to_type` stored in the DB are
+`document|version|chunk|entity`. Adapter-facing edge hints may also use
+`native` as a planning-time principal ref; capture resolves it to an
+`entity` row (`kind=principal`) before insert. A lockstep test asserts the
+migration CHECK sets match the TS constants.
+
+### Provenance and lineage (claim-bearing substrate)
+
+Two axes on `memory.version`, orthogonal to ranking priors:
+
+| Column / field | Values | Meaning |
+| --- | --- | --- |
+| `provenance` | `stated` \| `inferred` \| `unknown` | How content was obtained. Capture defaults to `stated`; distilled claims write `inferred`. Existing rows default `unknown`. |
+| `source_class` (lineage) | `native` \| `imported` \| `derived` | Data lineage. Adapters write `native` (or `imported` for bulk import); distilled claims write `derived` via `AdaptedDocument.lineageClass`. |
+
+Ranking priors (`AdaptedDocument.sourceClass`: `native|thread|channel|call|record`) feed `computeAuthority` only and are **not** written to the version `source_class` column — that was a latent CHECK violation fixed when the axes were split.
+
+A derived claim is a normal version with `provenance: inferred`, `lineageClass: derived`, and a `derived_from` edge to the source version (or document). Core never runs inference; it only accepts the shape.
 
 ### `memory_embed_model`
 Per-tenant registry of which embed model is currently active, and the

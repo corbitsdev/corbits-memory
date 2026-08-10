@@ -72,6 +72,9 @@ export const memoryVersion = memorySchema.table(
     actorCount: integer("actor_count").notNull().default(1),
     hasSocialSignal: boolean("has_social_signal").notNull().default(false),
     sourceClass: text("source_class").notNull().default("native"),
+    // How content was obtained: stated (asserted), inferred (derived claim),
+    // unknown (legacy / unset). Orthogonal to created_by_kind and source_class.
+    provenance: text("provenance").notNull().default("unknown"),
     rawCaptureId: text("raw_capture_id").references(() => rawCapture.id),
     // Replay-generation tag — 'live' for the normal /capture path; a replay tags every
     // version it writes with its own transform_run id instead, so a replayed

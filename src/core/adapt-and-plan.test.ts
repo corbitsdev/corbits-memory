@@ -51,12 +51,12 @@ describe("adaptAndPlan", () => {
   it("carries entityHints and edges through from the adapted document", () => {
     const plan = adaptAndPlan(
       validAdaptedDocument({
-        edges: [{ rel: "links", to: { type: "native", ref: "mail:m1" } }],
+        edges: [{ rel: "involves", to: { type: "native", ref: "mail:m1" } }],
         entityHints: [{ kind: "person", identifier: "jane@example.com" }],
       }),
     );
     expect(plan.edges).toEqual([
-      { rel: "links", to: { type: "native", ref: "mail:m1" } },
+      { rel: "involves", to: { type: "native", ref: "mail:m1" } },
     ]);
     expect(plan.entityHints).toEqual([
       { kind: "person", identifier: "jane@example.com" },

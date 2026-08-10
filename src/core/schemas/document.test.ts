@@ -57,6 +57,8 @@ describe("MemoryVersionSchema", () => {
       deprecated_reason: null,
       created_by_principal_id: "principal_1",
       created_by_kind: "human",
+      provenance: "stated",
+      source_class: "native",
     };
     const out = MemoryVersionSchema(fixture);
     expect(out instanceof type.errors ? out.summary : out).toEqual(fixture);
@@ -78,6 +80,8 @@ describe("MemoryVersionSchema", () => {
       deprecated_reason: null,
       created_by_principal_id: null,
       created_by_kind: "human",
+      provenance: "stated",
+      source_class: "native",
     });
     expect(out instanceof type.errors).toBe(true);
   });
