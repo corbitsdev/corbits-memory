@@ -126,6 +126,16 @@ export {
   type FeedResult,
 } from "./services/feed.ts";
 
+// Retention / forgetting (CL-5871)
+export {
+  deprecateVersion,
+  hardDeleteDocument,
+  setRetentionClass,
+  sweepEphemeral,
+  tombstoneDocument,
+  type RetentionMutationResult,
+} from "./services/retention.ts";
+
 // Corroboration / living relevancy (CL-5867)
 export {
   corroborationFactor,

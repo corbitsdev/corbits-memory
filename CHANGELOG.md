@@ -69,7 +69,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   strong evidence gate (CL-5867). See `docs/RELEVANCY.md`
 - Capture feed: `memory.feed` + `GET .../memory/feed` with `feed_seq` cursor
   (CL-5868). See `docs/FEED.md`
-- Search items include optional additive `attribution` (versionId, createdByKind, …)
+- **Wire attribution (CL-5870):** search hits carry additive `attribution`
+  (versionId, provenance, source/temporal class, createdByKind,
+  generatorAgentId, occurredAt/validUntil, corroboration counts, derivedFrom)
+- **Retention (CL-5871):** `retention_class` on versions; plane APIs
+  `deprecateVersion` / `tombstoneDocument` / `hardDeleteDocument` /
+  `sweepEphemeral` / `setRetentionClass`; `includeDeprecated` on search.
+  See `docs/RETENTION.md`
+- Distiller substrate notes: `docs/DISTILLER.md` (CL-5869 host workflow)
 
 ### Removed
 

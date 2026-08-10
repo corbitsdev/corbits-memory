@@ -21,6 +21,9 @@ function parseSearchArgs(args: Record<string, unknown>): MemorySearchBody {
   if (parsed.includeEvidence !== undefined) {
     body.includeEvidence = parsed.includeEvidence;
   }
+  if (parsed.includeDeprecated !== undefined) {
+    body.includeDeprecated = parsed.includeDeprecated;
+  }
   return body;
 }
 
@@ -69,6 +72,11 @@ export const memorySearch = defineMemoryHttpTool({
         type: "boolean",
         description:
           "Include evidence strength on the response (hub default true)",
+      },
+      includeDeprecated: {
+        type: "boolean",
+        description:
+          "Include deprecated versions in results (default false)",
       },
     },
     required: ["query"],

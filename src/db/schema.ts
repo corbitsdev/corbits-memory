@@ -80,6 +80,8 @@ export const memoryVersion = memorySchema.table(
     temporalClass: text("temporal_class").notNull().default("event"),
     validFrom: timestamp("valid_from"),
     validUntil: timestamp("valid_until"),
+    // Retention class (CL-5871) — when to forget, not how to rank.
+    retentionClass: text("retention_class").notNull().default("standard"),
     rawCaptureId: text("raw_capture_id").references(() => rawCapture.id),
     // Replay-generation tag — 'live' for the normal /capture path; a replay tags every
     // version it writes with its own transform_run id instead, so a replayed

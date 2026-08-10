@@ -142,11 +142,15 @@ export interface CandidateRow {
   // when a row predates the temporal migration (should not happen after 0004).
   temporalClass: "event" | "deadline" | "state" | "lesson";
   validUntil: Date | null;
+  /** Lineage class (native | imported | derived) for attribution. */
+  sourceClass?: string;
   /** Provenance mode for evidence gating (stated | inferred | unknown). */
   provenance?: string;
   /** Independent supports / contradicts targeting this version (search-time). */
   supports?: number;
   contradicts?: number;
+  /** Source version ids via derived_from edges (CL-5870). */
+  derivedFrom?: string[];
 }
 
 export function snippet(text: string, maxLen = 240): string {
@@ -194,7 +198,7 @@ export function toHit(
   // authority handling baked in (the reranked path's boosted score).
   authorityWeight: number = AUTHORITY_WEIGHT,
 ): SearchHit {
-  return {
+  const hit: SearchHit = {
     chunk_id: row.chunkId,
     document_id: row.documentId,
     version: row.version,
@@ -214,9 +218,6 @@ export function toHit(
     snippet: snippet(row.snippetText),
     kind: row.kind,
     created_by_kind: row.createdByKind,
-    ...(row.generatorAgentId
-      ? { generator_agent_id: row.generatorAgentId }
-      : {}),
     citation: {
       adapter: row.adapter,
       external_ref: row.externalRef,
@@ -224,7 +225,25 @@ export function toHit(
     },
     entity_ids: [],
     channels_matched: channelsMatched,
+    temporal_class: row.temporalClass,
+    occurred_at: row.occurredAt.toISOString(),
+    valid_until: row.validUntil ? row.validUntil.toISOString() : null,
+    supports: row.supports ?? 0,
+    contradicts: row.contradicts ?? 0,
   };
+  if (row.generatorAgentId) {
+    hit.generator_agent_id = row.generatorAgentId;
+  }
+  if (row.provenance !== undefined) {
+    hit.provenance = row.provenance as NonNullable<SearchHit["provenance"]>;
+  }
+  if (row.sourceClass !== undefined) {
+    hit.source_class = row.sourceClass as NonNullable<SearchHit["source_class"]>;
+  }
+  if (row.derivedFrom !== undefined) {
+    hit.derived_from = row.derivedFrom;
+  }
+  return hit;
 }
 
 // Evidence is capped by the strong-evidence gate (authority + corroboration /
@@ -372,16 +391,16 @@ export async function attachCorroborationCounts(
 
   const edges = await db
     .select({
-      toRef: knowledgeEdge.toRef,
-      rel: knowledgeEdge.rel,
+      toRef: memoryEdge.toRef,
+      rel: memoryEdge.rel,
     })
-    .from(knowledgeEdge)
+    .from(memoryEdge)
     .where(
       and(
-        eq(knowledgeEdge.tenantId, tenantId),
-        eq(knowledgeEdge.toType, "version"),
-        inArray(knowledgeEdge.toRef, versionIds),
-        inArray(knowledgeEdge.rel, ["supports", "contradicts"]),
+        eq(memoryEdge.tenantId, tenantId),
+        eq(memoryEdge.toType, "version"),
+        inArray(memoryEdge.toRef, versionIds),
+        inArray(memoryEdge.rel, ["supports", "contradicts"]),
       ),
     );
 
@@ -399,6 +418,45 @@ export async function attachCorroborationCounts(
     const c = counts.get(row.versionId) ?? { supports: 0, contradicts: 0 };
     row.supports = c.supports;
     row.contradicts = c.contradicts;
+  }
+}
+
+/**
+ * Load derived_from edges (from hit version → source version) for attribution.
+ * Does not grant-filter sources; the DocumentStore / host may strip inaccessible
+ * source ids after the security post-filter if needed.
+ */
+export async function attachDerivedFrom(
+  db: Db,
+  tenantId: string,
+  rows: CandidateRow[],
+): Promise<void> {
+  if (rows.length === 0) return;
+  const versionIds = [...new Set(rows.map((r) => r.versionId))];
+  const edges = await db
+    .select({
+      fromRef: memoryEdge.fromRef,
+      toRef: memoryEdge.toRef,
+    })
+    .from(memoryEdge)
+    .where(
+      and(
+        eq(memoryEdge.tenantId, tenantId),
+        eq(memoryEdge.fromType, "version"),
+        eq(memoryEdge.toType, "version"),
+        eq(memoryEdge.rel, "derived_from"),
+        inArray(memoryEdge.fromRef, versionIds),
+      ),
+    );
+
+  const map = new Map<string, string[]>();
+  for (const e of edges) {
+    const list = map.get(e.fromRef) ?? [];
+    list.push(e.toRef);
+    map.set(e.fromRef, list);
+  }
+  for (const row of rows) {
+    row.derivedFrom = map.get(row.versionId) ?? [];
   }
 }
 
@@ -422,6 +480,8 @@ interface LexicalCandidateParams extends ChannelFilterFields {
   // a replayed generation's chunks never leak into a live search and vice
   // versa (the replay pipeline).
   generation?: string | undefined;
+  /** When true, include deprecated versions alongside active (CL-5871). */
+  includeDeprecated?: boolean | undefined;
 }
 
 // The single FTS-candidate query for the lexical channel. Returns raw,
@@ -440,11 +500,14 @@ export async function fetchLexicalCandidates(
     kinds,
     entityIds,
     generation = LIVE_GENERATION,
+    includeDeprecated = false,
   } = params;
 
   const conditions = [
     eq(memoryChunk.tenantId, tenantId),
-    eq(memoryVersion.status, "active"),
+    includeDeprecated
+      ? inArray(memoryVersion.status, ["active", "deprecated"])
+      : eq(memoryVersion.status, "active"),
     eq(memoryVersion.generation, generation),
   ];
 
@@ -498,6 +561,7 @@ export async function fetchLexicalCandidates(
       temporalClass: memoryVersion.temporalClass,
       validUntil: memoryVersion.validUntil,
       provenance: memoryVersion.provenance,
+      sourceClass: memoryVersion.sourceClass,
     })
     .from(memoryChunk)
     .innerJoin(
@@ -529,6 +593,7 @@ interface FetchDenseCandidatesArgs extends ChannelFilterFields {
   // the embed client config passed in (from that run's transform_config),
   // which may be only `ready` and must not require status='active'.
   generation?: string | undefined;
+  includeDeprecated?: boolean | undefined;
 }
 
 // Whether this pool's pgvector understands hnsw.iterative_scan, learned
@@ -568,6 +633,7 @@ export async function fetchDenseCandidates(
     kinds,
     entityIds,
     generation = LIVE_GENERATION,
+    includeDeprecated = false,
   } = args;
 
   if (query === "") return null;
@@ -637,12 +703,13 @@ export async function fetchDenseCandidates(
            kv.created_by_kind AS created_by_kind, kv.generator_agent_id AS generator_agent_id,
            c.text AS snippet_text, kv.occurred_at AS occurred_at, kv.authority AS authority,
            kv.temporal_class AS temporal_class, kv.valid_until AS valid_until,
-           kv.provenance AS provenance
+           kv.provenance AS provenance, kv.source_class AS source_class
     FROM ${activeTable.tableName} e
     JOIN "memory"."chunk" c ON c.id = e.chunk_id
     JOIN "memory"."version" kv ON kv.id = c.version_id
     JOIN "memory"."document" kd ON kd.id = c.document_id
-    WHERE e.tenant_id = $1 AND c.tenant_id = $1 AND kv.status = 'active'
+    WHERE e.tenant_id = $1 AND c.tenant_id = $1
+      AND kv.status ${includeDeprecated ? "IN ('active', 'deprecated')" : "= 'active'"}
       AND kv.generation = ${generationParam}
       ${kindClause}
       ${entityClause}
@@ -680,31 +747,42 @@ export async function fetchDenseCandidates(
     return tx.unsafe(sqlText, params as never[]);
   });
 
-  return (rows as unknown as Array<Record<string, unknown>>).map((row) => ({
-    chunkId: row["chunk_id"] as string,
-    documentId: row["document_id"] as string,
-    versionId: row["version_id"] as string,
-    version: row["version"] as number,
-    status: row["status"] as CandidateRow["status"],
-    title: row["title"] as string,
-    kind: row["kind"] as string,
-    adapter: row["adapter"] as string,
-    externalRef: row["external_ref"] as string,
-    createdByKind: row["created_by_kind"] as CandidateRow["createdByKind"],
-    generatorAgentId: (row["generator_agent_id"] as string | null) ?? null,
-    snippetText: row["snippet_text"] as string,
-    // Dense candidates carry no ts_rank-comparable score; `rank` is
-    // overwritten with the fused RRF score once fusion runs, and is never
-    // read before that.
-    rank: 0,
-    occurredAt: new Date(row["occurred_at"] as string),
-    authority: row["authority"] as number,
-    temporalClass: (row["temporal_class"] as CandidateRow["temporalClass"]) ?? "event",
-    validUntil: row["valid_until"]
-      ? new Date(row["valid_until"] as string)
-      : null,
-    provenance: (row["provenance"] as string | undefined) ?? "unknown",
-  }));
+  return (rows as unknown as Array<Record<string, unknown>>).map((row) => {
+    const sourceClass = row["source_class"] as string | null | undefined;
+    const provenance = row["provenance"] as string | null | undefined;
+    const base: CandidateRow = {
+      chunkId: row["chunk_id"] as string,
+      documentId: row["document_id"] as string,
+      versionId: row["version_id"] as string,
+      version: row["version"] as number,
+      status: row["status"] as CandidateRow["status"],
+      title: row["title"] as string,
+      kind: row["kind"] as string,
+      adapter: row["adapter"] as string,
+      externalRef: row["external_ref"] as string,
+      createdByKind: row["created_by_kind"] as CandidateRow["createdByKind"],
+      generatorAgentId: (row["generator_agent_id"] as string | null) ?? null,
+      snippetText: row["snippet_text"] as string,
+      // Dense candidates carry no ts_rank-comparable score; `rank` is
+      // overwritten with the fused RRF score once fusion runs, and is never
+      // read before that.
+      rank: 0,
+      occurredAt: new Date(row["occurred_at"] as string),
+      authority: row["authority"] as number,
+      temporalClass:
+        (row["temporal_class"] as CandidateRow["temporalClass"]) ?? "event",
+      validUntil: row["valid_until"]
+        ? new Date(row["valid_until"] as string)
+        : null,
+    };
+    if (provenance != null && provenance !== "") {
+      base.provenance = provenance;
+    }
+    if (sourceClass != null && sourceClass !== "") {
+      base.sourceClass = sourceClass;
+    }
+    return base;
+  });
 }
 
 // Vectors for the MMR diversity pass, pulled from the generation-scoped
@@ -836,6 +914,8 @@ export interface HybridSearchArgs extends ChannelFilterFields {
   // instead, applying its transform_config's retrieval tuning when
   // resolvable (see resolveGenerationSearchParams, transform.ts).
   generation?: string | undefined;
+  /** Include deprecated versions in retrieval (default false). CL-5871. */
+  includeDeprecated?: boolean | undefined;
 }
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -871,6 +951,7 @@ export async function hybridSearch(
   const { db, sql: rawSql, config, fetchImpl = fetch, now = new Date() } = deps;
   const { tenantId, principalId, kinds, entityIds } = args;
   const generation = args.generation ?? LIVE_GENERATION;
+  const includeDeprecated = args.includeDeprecated === true;
   const query = args.query.trim();
   const k = Math.min(
     Math.max(1, Math.floor(args.k ?? DEFAULT_HYBRID_TOP_K)),
@@ -922,6 +1003,7 @@ export async function hybridSearch(
     kinds,
     entityIds,
     generation,
+    includeDeprecated,
   });
 
   const embedClientConfig =
@@ -943,6 +1025,7 @@ export async function hybridSearch(
       kinds,
       entityIds,
       generation,
+      includeDeprecated,
     });
     if (dense === null) {
       degraded = ["dense_unavailable"];
@@ -990,6 +1073,7 @@ export async function hybridSearch(
   await attachCorroborationCounts(db, tenantId, mergedRows);
   // Lexical-only evidence path also needs counts on the original channel rows.
   await attachCorroborationCounts(db, tenantId, lexicalRows);
+  await attachDerivedFrom(db, tenantId, mergedRows);
 
   let truncated: CandidateRow[];
   // The final score per chunk, when the reranked path ran; absent on the

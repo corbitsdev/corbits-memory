@@ -40,6 +40,13 @@ import {
   type TransformRunRow,
 } from "./services/transform.ts";
 import {
+  deprecateVersion,
+  hardDeleteDocument,
+  setRetentionClass,
+  sweepEphemeral,
+  tombstoneDocument,
+} from "./services/retention.ts";
+import {
   documentTag,
   materializeShareGrants,
   MEMORY_SHARE_CONDITION_REGISTRY,
@@ -138,6 +145,8 @@ export type MemorySearchParams = MemoryIdentity & {
    * Omit to include all mounted sources plus local.
    */
   sources?: string[];
+  /** Include deprecated versions in local retrieval (CL-5871). Default false. */
+  includeDeprecated?: boolean;
 };
 
 export type MemoryShare = ShareSugar;
@@ -181,11 +190,16 @@ export type MemoryAddResult = {
 export type SearchAttribution = {
   versionId: string;
   provenance?: string;
+  sourceClass?: string;
+  temporalClass?: string;
   createdByKind?: string;
   generatorAgentId?: string | null;
+  occurredAt?: string;
+  validUntil?: string | null;
   evidence?: "strong" | "weak" | "none";
   supports?: number;
   contradicts?: number;
+  derivedFrom?: string[];
 };
 
 export type SearchItem = {
@@ -282,6 +296,32 @@ export type Memory = {
     tenantId: string;
     generation: string;
   }): Promise<TransformRunRow>;
+  /**
+   * Retention write paths (engine store only). See docs/RETENTION.md (CL-5871).
+   */
+  deprecateVersion?(input: {
+    tenantId: string;
+    versionId: string;
+    reason?: string;
+  }): Promise<{ versionId: string; documentId: string; status: string } | null>;
+  tombstoneDocument?(input: {
+    tenantId: string;
+    documentId: string;
+    reason?: string;
+  }): Promise<{ versions: number }>;
+  hardDeleteDocument?(input: {
+    tenantId: string;
+    documentId: string;
+  }): Promise<{ deleted: boolean; reason?: string }>;
+  sweepEphemeral?(input: {
+    tenantId: string;
+    now?: Date;
+  }): Promise<{ documentsDeleted: number }>;
+  setRetentionClass?(input: {
+    tenantId: string;
+    versionId: string;
+    retentionClass: "durable" | "standard" | "ephemeral" | "source_only";
+  }): Promise<{ versionId: string; documentId: string; status: string } | null>;
 };
 
 export type { TimelineEvent };
@@ -363,7 +403,10 @@ function resolveListLimit(limit: number | undefined): number | undefined {
   return limit;
 }
 
-function hitsToSearchItems(hits: readonly SearchHit[]): SearchItem[] {
+function hitsToSearchItems(
+  hits: readonly SearchHit[],
+  evidence?: HybridSearchResult["evidence"],
+): SearchItem[] {
   return hits.map((h) => ({
     documentId: h.document_id,
     title: h.title,
@@ -377,6 +420,17 @@ function hitsToSearchItems(hits: readonly SearchHit[]): SearchItem[] {
       ...(h.generator_agent_id !== undefined
         ? { generatorAgentId: h.generator_agent_id }
         : {}),
+      ...(h.provenance !== undefined ? { provenance: h.provenance } : {}),
+      ...(h.source_class !== undefined ? { sourceClass: h.source_class } : {}),
+      ...(h.temporal_class !== undefined
+        ? { temporalClass: h.temporal_class }
+        : {}),
+      ...(h.occurred_at !== undefined ? { occurredAt: h.occurred_at } : {}),
+      ...(h.valid_until !== undefined ? { validUntil: h.valid_until } : {}),
+      ...(h.supports !== undefined ? { supports: h.supports } : {}),
+      ...(h.contradicts !== undefined ? { contradicts: h.contradicts } : {}),
+      ...(h.derived_from !== undefined ? { derivedFrom: h.derived_from } : {}),
+      ...(evidence !== undefined ? { evidence } : {}),
     },
   }));
 }
@@ -570,14 +624,22 @@ function mergeToSearchResult(params: {
     ...(params.sources !== undefined ? { sources: params.sources } : {}),
   });
 
-  const items: SearchItem[] = merged.items.map((it) => ({
-    documentId: it.documentId,
-    title: it.title,
-    snippet: it.snippet,
-    score: it.score,
-    kind: it.kind,
-    citation: it.citation,
-  }));
+  const items: SearchItem[] = merged.items.map((it) => {
+    // Preserve local attribution when merge kept a local hit (same documentId).
+    const local = params.localItems.find((l) => l.documentId === it.documentId);
+    return {
+      documentId: it.documentId,
+      title: it.title,
+      snippet: it.snippet,
+      score: it.score,
+      kind: it.kind,
+      citation: it.citation,
+      ...(local?.attribution !== undefined
+        ? { attribution: local.attribution }
+        : {}),
+      ...(local?.updatedAt !== undefined ? { updatedAt: local.updatedAt } : {}),
+    };
+  });
 
   const degraded: DegradeFlag[] = [
     ...(params.localDegraded ?? []),
@@ -646,6 +708,9 @@ function createPlaneFromStore(
         ...(params.entityIds !== undefined
           ? { entityIds: params.entityIds }
           : {}),
+        ...(params.includeDeprecated !== undefined
+          ? { includeDeprecated: params.includeDeprecated }
+          : {}),
         ...(grants !== undefined ? { grants: grants.grantStore } : {}),
         ...(grants?.conditionRegistry !== undefined
           ? { conditionRegistry: grants.conditionRegistry }
@@ -659,6 +724,9 @@ function createPlaneFromStore(
         kind: it.kind,
         citation: it.citation,
         ...(it.updatedAt !== undefined ? { updatedAt: it.updatedAt } : {}),
+        ...(it.attribution !== undefined
+          ? { attribution: it.attribution }
+          : {}),
       }));
       localDegraded = local.degraded as DegradeFlag[] | undefined;
       localEvidence = local.evidence;
@@ -887,6 +955,56 @@ function createPlaneFromStore(
       }
       return demoteGeneration(transformDeps, input);
     },
+
+    async deprecateVersion(input) {
+      if (!transformDeps) {
+        throw new MemoryError(
+          501,
+          "retention APIs require the engine DocumentStore",
+        );
+      }
+      return deprecateVersion(transformDeps.db, input);
+    },
+
+    async tombstoneDocument(input) {
+      if (!transformDeps) {
+        throw new MemoryError(
+          501,
+          "retention APIs require the engine DocumentStore",
+        );
+      }
+      return tombstoneDocument(transformDeps.db, input);
+    },
+
+    async hardDeleteDocument(input) {
+      if (!transformDeps) {
+        throw new MemoryError(
+          501,
+          "retention APIs require the engine DocumentStore",
+        );
+      }
+      return hardDeleteDocument(transformDeps.db, input);
+    },
+
+    async sweepEphemeral(input) {
+      if (!transformDeps) {
+        throw new MemoryError(
+          501,
+          "retention APIs require the engine DocumentStore",
+        );
+      }
+      return sweepEphemeral(transformDeps.db, input);
+    },
+
+    async setRetentionClass(input) {
+      if (!transformDeps) {
+        throw new MemoryError(
+          501,
+          "retention APIs require the engine DocumentStore",
+        );
+      }
+      return setRetentionClass(transformDeps.db, input);
+    },
   };
 
   return plane;
@@ -959,6 +1077,7 @@ function createEngineDocumentStore(config: MemoryConfig): {
     k?: number;
     kinds?: string[];
     entityIds?: string[];
+    includeDeprecated?: boolean;
     grants?: DocumentStoreSearchParams["grants"];
     conditionRegistry?: DocumentStoreSearchParams["conditionRegistry"];
   }): Promise<HybridSearchResult> {
@@ -972,6 +1091,9 @@ function createEngineDocumentStore(config: MemoryConfig): {
         ...(params.kinds !== undefined ? { kinds: params.kinds } : {}),
         ...(params.entityIds !== undefined
           ? { entityIds: params.entityIds }
+          : {}),
+        ...(params.includeDeprecated !== undefined
+          ? { includeDeprecated: params.includeDeprecated }
           : {}),
       });
 
@@ -1112,12 +1234,15 @@ function createEngineDocumentStore(config: MemoryConfig): {
           ...(params.entityIds !== undefined
             ? { entityIds: params.entityIds }
             : {}),
+          ...(params.includeDeprecated !== undefined
+            ? { includeDeprecated: params.includeDeprecated }
+            : {}),
           ...(params.grants !== undefined ? { grants: params.grants } : {}),
           ...(params.conditionRegistry !== undefined
             ? { conditionRegistry: params.conditionRegistry }
             : {}),
         });
-        const items = hitsToSearchItems(result.hits);
+        const items = hitsToSearchItems(result.hits, result.evidence);
         if (params.includeEvidence) {
           return {
             items,

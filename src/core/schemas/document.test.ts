@@ -60,6 +60,7 @@ describe("MemoryVersionSchema", () => {
       provenance: "stated",
       source_class: "native",
       temporal_class: "event",
+      retention_class: "standard",
     };
     const out = MemoryVersionSchema(fixture);
     expect(out instanceof type.errors ? out.summary : out).toEqual(fixture);

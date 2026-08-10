@@ -6,12 +6,14 @@ import {
   EDGE_REF_TYPES_DB,
   LINEAGE_CLASSES,
   PROVENANCE_MODES,
+  RETENTION_CLASSES,
   TEMPORAL_CLASSES,
 } from "./enums.ts";
 import { MemoryEdgeRelSchema, MemoryEdgeRefTypeSchema } from "./schemas/entity-edge.ts";
 import {
   LineageClassSchema,
   ProvenanceModeSchema,
+  RetentionClassSchema,
   TemporalClassSchema,
 } from "./schemas/document.ts";
 import { type } from "arktype";
@@ -86,6 +88,12 @@ describe("enum lockstep: TS constants match migration CHECK constraints", () => 
       sorted(TEMPORAL_CLASSES),
     );
   });
+
+  it("version_retention_class_check matches RETENTION_CLASSES", () => {
+    expect(sorted(lastCheckInList(sql, "version_retention_class_check"))).toEqual(
+      sorted(RETENTION_CLASSES),
+    );
+  });
 });
 
 describe("enum lockstep: arktype accepts every SSOT value and rejects unknown", () => {
@@ -125,5 +133,12 @@ describe("enum lockstep: arktype accepts every SSOT value and rejects unknown", 
       expect(TemporalClassSchema(t) instanceof type.errors).toBe(false);
     }
     expect(TemporalClassSchema("forecast") instanceof type.errors).toBe(true);
+  });
+
+  it("RetentionClassSchema accepts RETENTION_CLASSES only", () => {
+    for (const r of RETENTION_CLASSES) {
+      expect(RetentionClassSchema(r) instanceof type.errors).toBe(false);
+    }
+    expect(RetentionClassSchema("forever") instanceof type.errors).toBe(true);
   });
 });

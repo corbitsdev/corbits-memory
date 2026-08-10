@@ -51,7 +51,7 @@ export const PROVENANCE_MODES = ["stated", "inferred", "unknown"] as const;
 export type ProvenanceMode = (typeof PROVENANCE_MODES)[number];
 
 /**
- * Temporal ranking class stored on knowledge.version.temporal_class.
+ * Temporal ranking class stored on memory.version.temporal_class.
  * See docs/TEMPORAL.md.
  */
 export const TEMPORAL_CLASSES = [
@@ -61,6 +61,18 @@ export const TEMPORAL_CLASSES = [
   "lesson",
 ] as const;
 export type TemporalClass = (typeof TEMPORAL_CLASSES)[number];
+
+/**
+ * Retention class on memory.version.retention_class (CL-5871).
+ * Orthogonal to temporal_class (ranking) and status (lifecycle).
+ */
+export const RETENTION_CLASSES = [
+  "durable",
+  "standard",
+  "ephemeral",
+  "source_only",
+] as const;
+export type RetentionClass = (typeof RETENTION_CLASSES)[number];
 
 /** Build an arktype union string from a const string array. */
 export function arktypeStringUnion(

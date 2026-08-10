@@ -36,6 +36,7 @@ export const SearchRequest = type({
   "entity_ids?": "string[]",
   "sources?": "string[]",
   "includeEvidence?": "boolean",
+  "includeDeprecated?": "boolean",
 });
 
 export type SearchRequest = typeof SearchRequest.infer;

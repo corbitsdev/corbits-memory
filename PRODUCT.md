@@ -25,9 +25,14 @@ never creates one; it mounts onto yours.
 | Method | HTTP | Grant | Meaning |
 | --- | --- | --- | --- |
 | `add` | `POST /api/tenants/:tenantId/memory/add` | `memory:add` | Capture a document |
-| `search` | `POST /api/tenants/:tenantId/memory/search` | `memory:search` | Hybrid retrieval (+ optional live sources) |
+| `search` | `POST /api/tenants/:tenantId/memory/search` | `memory:search` | Hybrid retrieval (+ optional live sources); hits may include additive `attribution` |
 | `list` | `GET /api/tenants/:tenantId/memory/list` | `memory:search` | Recent documents for the principal |
 | `feed` | `GET /api/tenants/:tenantId/memory/feed` | `memory:search` | Cursor pull of new live versions (distiller) |
+
+Engine-only plane helpers (no HTTP yet): transform/replay, retention
+(`deprecateVersion` / `tombstoneDocument` / … — see `docs/RETENTION.md`),
+share-grant materialization. Distiller is a **host** `onTrigger` workflow
+using feed + add + attribution (`docs/DISTILLER.md`).
 
 Identity is always **`principalId` + `tenantId`** on the plane. HTTP routes
 never take body identity — they read `c.get("principal")` from Interchange

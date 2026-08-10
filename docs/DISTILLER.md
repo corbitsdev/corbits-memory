@@ -9,6 +9,8 @@ process inside this package. Memory exposes the **substrate** only:
 | Claim-bearing + provenance | version columns — claim-bearing schema |
 | Temporal classes | [TEMPORAL.md](./TEMPORAL.md) |
 | Corroboration / living relevancy | [RELEVANCY.md](./RELEVANCY.md) |
+| Wire attribution on search | `SearchItem.attribution` (CL-5870) |
+| Retention / forgetting | [RETENTION.md](./RETENTION.md) |
 | Transform / staged replay | `runTransform` / promote / demote |
 | Share grants | `share.principals` → WritableGrantStore |
 
@@ -16,10 +18,12 @@ process inside this package. Memory exposes the **substrate** only:
 
 1. **Pull** — `feed({ after: cursor, excludeGenerator: "resident-distiller" })`
 2. **Classify / gate** — host policy (action-authority, kinds, poison skip)
-3. **Distill** — host LLM; write via `add` with `createdByKind: agent`,
+3. **Distill** — host LLM; write via `add` with agent identity and
    `generatorAgentId: "resident-distiller"`, provenance `inferred` as needed
-4. **Link** — supports/contradicts edges (host or future write API)
-5. **Advance cursor** — store `nextCursor` only after successful handling
+4. **Link** — supports/contradicts edges (host write path)
+5. **Attribute consumers** — search hits surface provenance, temporal class,
+   corroboration counts, and `derivedFrom` version ids for UI/citation
+6. **Advance cursor** — store `nextCursor` only after successful handling
    (or after fail-soft poison quarantine)
 
 Loop-safety: always pass `excludeGenerator` matching the distiller’s

@@ -411,6 +411,18 @@ search); otherwise it throws `MemorySearchInputError` (400).
 gate in `core/corroboration.ts` (stated human **or** support count ≥ floor).
 Capture-time `authority` is never rewritten. See `docs/RELEVANCY.md`.
 
+**Wire attribution (CL-5870):** `attachDerivedFrom` loads `derived_from` edges
+onto candidates; `toHit` emits provenance, source/temporal class, occurred_at,
+valid_until, corroboration counts, and derived_from. The plane maps these into
+additive `SearchItem.attribution` (and `DocumentStoreSearchItem.attribution`).
+
+**Retention (CL-5871):** `memory.version.retention_class` + migration
+`0007_retention.sql`. Plane helpers in `services/retention.ts`
+(`deprecateVersion`, `tombstoneDocument`, `hardDeleteDocument`,
+`sweepEphemeral`, `setRetentionClass`). Search accepts `includeDeprecated`
+so lexical/dense can include `status IN ('active','deprecated')`. See
+`docs/RETENTION.md`.
+
 **Capture feed (CL-5868):** `memory.feed({ after, limit, excludeGenerator? })`
 and `GET .../memory/feed` pull live versions ordered by `feed_seq` (migration
 `0006_capture_feed.sql`). Grant-checked like search. See `docs/FEED.md`.

@@ -47,6 +47,8 @@ export type DocumentStoreSearchParams = {
   kinds?: string[];
   /** Narrow local retrieval by linked entity ids (unset/`[]` = no filter). */
   entityIds?: string[];
+  /** Include deprecated versions (CL-5871). */
+  includeDeprecated?: boolean;
   /**
    * Host grant store for grant-tag document access (default engine + fakes).
    * Vendor stores may ignore (principal-bucket only).
@@ -66,6 +68,24 @@ export type DocumentStoreSearchItem = {
   adapter?: string;
   externalRef?: string;
   updatedAt?: string;
+  /**
+   * Optional attribution block (CL-5870). Engine store always fills this;
+   * vendor stores may omit.
+   */
+  attribution?: {
+    versionId: string;
+    provenance?: string;
+    sourceClass?: string;
+    temporalClass?: string;
+    createdByKind?: string;
+    generatorAgentId?: string | null;
+    occurredAt?: string;
+    validUntil?: string | null;
+    evidence?: "strong" | "weak" | "none";
+    supports?: number;
+    contradicts?: number;
+    derivedFrom?: string[];
+  };
 };
 
 export type DocumentStoreSearchResult = {

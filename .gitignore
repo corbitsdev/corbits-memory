@@ -18,3 +18,6 @@ dispatch/
 # Staging dirs for sibling package extracts (copy out with cp only)
 .staging-*/
 
+
+# Local agent/session scratch — never commit
+.corbits/

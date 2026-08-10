@@ -2,6 +2,7 @@ import { type } from "arktype";
 import {
   LINEAGE_CLASSES,
   PROVENANCE_MODES,
+  RETENTION_CLASSES,
   TEMPORAL_CLASSES,
   arktypeStringUnion,
 } from "../enums.ts";
@@ -29,6 +30,12 @@ export const TemporalClassSchema = type(
     "'event'|'deadline'|'state'|'lesson'",
 );
 export type TemporalClass = typeof TemporalClassSchema.infer;
+
+export const RetentionClassSchema = type(
+  arktypeStringUnion(RETENTION_CLASSES) as
+    "'durable'|'standard'|'ephemeral'|'source_only'",
+);
+export type RetentionClass = typeof RetentionClassSchema.infer;
 
 // The stable logical row for a captured source, deduped on (tenant_id,
 // adapter, external_ref). Document access is grant tags only.
@@ -70,6 +77,7 @@ export const MemoryVersionSchema = type({
   provenance: ProvenanceModeSchema,
   source_class: LineageClassSchema,
   temporal_class: TemporalClassSchema,
+  retention_class: RetentionClassSchema,
   "valid_from?": "string | null",
   "valid_until?": "string | null",
 });
