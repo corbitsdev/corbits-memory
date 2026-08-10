@@ -47,6 +47,28 @@ describe("SearchHitSchema", () => {
     const out = SearchHitSchema(fixture);
     expect(out instanceof type.errors).toBe(true);
   });
+
+  it("accepts additive attribution fields (CL-5870)", () => {
+    const fixture = fullHitFixture();
+    fixture.provenance = "inferred";
+    fixture.source_class = "derived";
+    fixture.temporal_class = "lesson";
+    fixture.occurred_at = "2026-07-01T00:00:00.000Z";
+    fixture.valid_until = null;
+    fixture.supports = 3;
+    fixture.contradicts = 1;
+    fixture.derived_from = ["kv_src"];
+    fixture.generator_agent_id = "resident-distiller";
+    fixture.created_by_kind = "agent";
+    const out = SearchHitSchema(fixture);
+    expect(out instanceof type.errors ? out.summary : out).toEqual(fixture);
+  });
+
+  it("still parses without attribution fields (additive / back-compat)", () => {
+    const fixture = fullHitFixture();
+    const out = SearchHitSchema(fixture);
+    expect(out instanceof type.errors).toBe(false);
+  });
 });
 
 describe("SearchResponseSchema", () => {

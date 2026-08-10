@@ -415,6 +415,8 @@ Capture-time `authority` is never rewritten. See `docs/RELEVANCY.md`.
 onto candidates; `toHit` emits provenance, source/temporal class, occurred_at,
 valid_until, corroboration counts, and derived_from. The plane maps these into
 additive `SearchItem.attribution` (and `DocumentStoreSearchItem.attribution`).
+**List/timeline** stays document-title oriented and does not attach the full
+attribution block (version-level fields are search/feed concerns).
 
 **Retention (CL-5871):** `memory.version.retention_class` + migration
 `0007_retention.sql`. Plane helpers in `services/retention.ts`

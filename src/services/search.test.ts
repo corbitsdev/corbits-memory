@@ -6,6 +6,7 @@ import {
   fetchDenseCandidates,
   hnswEfSearch,
   snippet,
+  toHit,
   type CandidateRow,
 } from "./search.ts";
 
@@ -520,5 +521,71 @@ describe("fetchDenseCandidates kind/entity filtering", () => {
     const chunkIds = rows?.map((r) => r.chunkId) ?? [];
     expect(chunkIds).toContain("chunk-task");
     expect(chunkIds).toContain("chunk-note");
+  });
+});
+
+describe("toHit — wire attribution (CL-5870)", () => {
+  it("surfaces provenance, temporal, corroboration, and derived_from on the hit", () => {
+    const hit = toHit(
+      candidate({
+        provenance: "inferred",
+        sourceClass: "derived",
+        temporalClass: "state",
+        validUntil: new Date("2026-12-01T00:00:00Z"),
+        supports: 2,
+        contradicts: 0,
+        derivedFrom: ["kv_source_1", "kv_source_2"],
+        generatorAgentId: "resident-distiller",
+        createdByKind: "agent",
+      }),
+    );
+    expect(hit.version_id).toBe("ver_1");
+    expect(hit.provenance).toBe("inferred");
+    expect(hit.source_class).toBe("derived");
+    expect(hit.temporal_class).toBe("state");
+    expect(hit.valid_until).toBe("2026-12-01T00:00:00.000Z");
+    expect(hit.supports).toBe(2);
+    expect(hit.contradicts).toBe(0);
+    expect(hit.derived_from).toEqual(["kv_source_1", "kv_source_2"]);
+    expect(hit.generator_agent_id).toBe("resident-distiller");
+    expect(hit.created_by_kind).toBe("agent");
+  });
+
+  it("omits optional attribution fields when absent (additive wire)", () => {
+    const hit = toHit(candidate());
+    expect(hit.provenance).toBeUndefined();
+    expect(hit.source_class).toBeUndefined();
+    expect(hit.derived_from).toBeUndefined();
+    expect(hit.generator_agent_id).toBeUndefined();
+    expect(hit.supports).toBe(0);
+    expect(hit.contradicts).toBe(0);
+    expect(hit.temporal_class).toBe("event");
+  });
+
+  it("distinguishes stated human vs inferred agent attribution shapes", () => {
+    const human = toHit(
+      candidate({
+        provenance: "stated",
+        sourceClass: "native",
+        createdByKind: "human",
+        generatorAgentId: null,
+      }),
+    );
+    const distilled = toHit(
+      candidate({
+        provenance: "inferred",
+        sourceClass: "derived",
+        createdByKind: "agent",
+        generatorAgentId: "resident-distiller",
+        derivedFrom: ["kv_raw"],
+      }),
+    );
+    expect(human.provenance).toBe("stated");
+    expect(human.created_by_kind).toBe("human");
+    expect(human.generator_agent_id).toBeUndefined();
+    expect(distilled.provenance).toBe("inferred");
+    expect(distilled.created_by_kind).toBe("agent");
+    expect(distilled.generator_agent_id).toBe("resident-distiller");
+    expect(distilled.derived_from).toEqual(["kv_raw"]);
   });
 });

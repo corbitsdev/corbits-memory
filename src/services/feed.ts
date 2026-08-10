@@ -69,8 +69,8 @@ export async function fetchFeed(
   const conditions = [
     eq(memoryVersion.tenantId, args.tenantId),
     eq(memoryVersion.generation, LIVE_GENERATION),
-    // Active (or superseded historical) live rows — exclude tombstones later in 4b.
-    // Feed surfaces commits; status filter keeps deprecated/tombstoned out once written.
+    // Live feed: active or superseded commits only. Deprecated / tombstoned
+    // versions are retention write-path outcomes and stay out of the cursor stream.
     sql`${memoryVersion.status} IN ('active', 'superseded')`,
     gt(memoryVersion.feedSeq, after),
   ];
