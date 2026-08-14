@@ -1,8 +1,8 @@
 import { type } from "arktype";
 import {
   CreatedByKindSchema,
-  LineageClassSchema,
   MemoryVersionStatusSchema,
+  LineageClassSchema,
   ProvenanceModeSchema,
   TemporalClassSchema,
 } from "./document.ts";

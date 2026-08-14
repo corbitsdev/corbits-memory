@@ -489,7 +489,7 @@ describe("fetchDenseCandidates kind/entity filtering", () => {
     expect(chunkIds).not.toContain("chunk-note");
   });
 
-  it("entity filter targets memory.edge (not pre-rename knowledge_edge)", async () => {
+  it("entity filter targets memory.edge (quoted schema.table form)", async () => {
     const fake = fakeRawSql();
     await fetchDenseCandidates({
       ...baseArgs(fake.rawSql),

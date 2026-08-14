@@ -22,9 +22,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   See `PRODUCT.md`, `docs/DISTILLER.md`, `docs/FEED.md`.
 - **Breaking:** Postgres schema renamed from `knowledge` to **`memory`**. Fresh
   installs only — drop/recreate the old schema (or rename) on existing DBs.
-  Citation `open.type` is now `"memory"`.
-- **Breaking:** env var is `DATABASE_URL` (was `KNOWLEDGE_DATABASE_URL`); pass
-  `memory.databaseUrl` on config as an alternative. No deprecated alias.
+  Citation `open.type` is now `"memory"`. Migration files and Drizzle/arktype
+  symbols use the `memory*` naming (`0002_memory_baseline`, `memoryDocument`,
+  `MemoryVersionSchema`, …); deprecated `KNOWLEDGE_*` / `knowledge*` aliases
+  are removed.
+- **Breaking:** env `KNOWLEDGE_DATABASE_URL` is no longer required. Prefer
+  `DATABASE_URL` or pass `memory.databaseUrl` on config.
+  `KNOWLEDGE_DATABASE_URL` remains a deprecated alias.
 - `add` (plane + HTTP) returns `{ documentId, versionId }` so share-grant audit
   and provenance can name the version that carried the write.
 - Interchange `defineTool` factories at `@corbits/memory/tools` (`memory_add`,
