@@ -8,7 +8,7 @@ import {
 } from "./grant-tags.ts";
 
 import type { EngineConfig } from "./config.ts";
-import { log } from "./log.ts";
+import { formatCaughtError, log } from "./log.ts";
 import { createDb, type Db, type RawSql } from "./db/client.ts";
 import { createFtsVerification, parseFtsLanguage } from "./core/fts-language.ts";
 import { createRawSqlClient } from "./core/embed-sql.ts";
@@ -869,34 +869,51 @@ function createPlaneFromStore(
 
       // Share materialization (CL-5873): stamp document-scoped tag + write
       // peer grants when the host store is writable. Tag mint alone is not
-      // enough for peers without host bootstrap grants on owner tags.
+      // enough for peers without host bootstrap grants on owner tags. The
+      // document is already durably committed by store.add() above, so a
+      // failure here must not throw (that would surface as add() failing
+      // for a document that in fact exists, inviting a caller retry that
+      // creates a duplicate) — it downgrades grantsMaterialized instead.
+      // grantsMaterialized is only ever true when BOTH the access tag was
+      // actually stamped AND the peer grant was actually written; either
+      // alone leaves canAccessDocument unable to find a match for peers.
       let grantsMaterialized: boolean | undefined;
       const peers = params.share?.principals;
       if (peers && peers.length > 0) {
         grantsMaterialized = false;
-        const docTag = documentTag(result.documentId);
-        if (store.appendAccessTags) {
-          await store.appendAccessTags(params.tenantId, result.documentId, [docTag]);
-        } else {
-          log.warn(
-            "memory.add: share.principals set but DocumentStore has no appendAccessTags; peer grants may not match",
-            { documentId: result.documentId },
+        try {
+          const docTag = documentTag(result.documentId);
+          let tagStamped = false;
+          if (store.appendAccessTags) {
+            await store.appendAccessTags(params.tenantId, result.documentId, [docTag]);
+            tagStamped = true;
+          } else {
+            log.warn(
+              "memory.add: share.principals set but DocumentStore has no appendAccessTags; peer grants may not match",
+              { documentId: result.documentId },
+            );
+          }
+          if (isWritableGrantStore(grants?.grantStore)) {
+            await materializeShareGrants(grants.grantStore, {
+              tenantId: params.tenantId,
+              sharedByPrincipalId: params.principalId,
+              documentId: result.documentId,
+              sourceVersionId: result.versionId,
+              share: params.share ?? {},
+            });
+            grantsMaterialized = tagStamped;
+          } else {
+            log.warn(
+              "memory.add: share.principals set without WritableGrantStore; tags only (peers need host grants)",
+              { documentId: result.documentId },
+            );
+          }
+        } catch (err) {
+          log.error(
+            "memory.add: share materialization failed after document commit; peers may not have access",
+            { documentId: result.documentId, error: formatCaughtError(err) },
           );
-        }
-        if (isWritableGrantStore(grants?.grantStore)) {
-          await materializeShareGrants(grants.grantStore, {
-            tenantId: params.tenantId,
-            sharedByPrincipalId: params.principalId,
-            documentId: result.documentId,
-            sourceVersionId: result.versionId,
-            share: params.share ?? {},
-          });
-          grantsMaterialized = true;
-        } else {
-          log.warn(
-            "memory.add: share.principals set without WritableGrantStore; tags only (peers need host grants)",
-            { documentId: result.documentId },
-          );
+          grantsMaterialized = false;
         }
       }
 
