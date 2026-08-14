@@ -5,7 +5,6 @@ import type { EngineConfig } from "../config.ts";
 import { newId } from "../core/id.ts";
 import { formatCaughtError, log } from "../log.ts";
 import {
-  memoryVersion,
   rawCapture,
   transformConfig,
   transformRun,
@@ -554,68 +553,44 @@ export async function promoteGeneration(
   }
   const embed = buildEmbedClientConfig(configRow.params.embed, deps.config.embed);
   const archiveGen = `archive_${run.id}_${Date.now()}`;
-  const client = createRawSqlClient(deps.sql);
+  const readClient = createRawSqlClient(deps.sql);
 
   // Snapshot prior active model before we flip dense search.
-  const priorActive = await resolveActiveEmbedTable(client, input.tenantId);
+  const priorActive = await resolveActiveEmbedTable(readClient, input.tenantId);
   const priorModelKey = priorActive?.modelKey ?? null;
 
-  // Activate staged embed first — if this fails, versions stay put.
-  await activateEmbedModel(client, input.tenantId, embed);
+  // Activate the staged embed model and swap generation tags inside one
+  // Postgres transaction. resolveActiveEmbedTable and the live-generation
+  // filter used by search are otherwise readable independently, which opens
+  // a window where dense search resolves the newly-active (staged) table
+  // while `version` rows are still tagged with the pre-swap generation —
+  // a silent, empty-result degradation of live dense search. Doing both
+  // writes in one transaction means any concurrent reader sees only the
+  // fully-pre-promote or fully-post-promote state, never the half-way one.
+  // A thrown error here rolls back the embed activation too, so no separate
+  // restore-on-failure step is needed.
+  await deps.sql.begin(async (txSql) => {
+    const txClient = createRawSqlClient(txSql);
+    await activateEmbedModel(txClient, input.tenantId, embed);
 
-  try {
-    await deps.db.transaction(async (tx) => {
-      // 1) archive current live
-      await tx
-        .update(memoryVersion)
-        .set({ generation: archiveGen })
-        .where(
-          and(
-            eq(memoryVersion.tenantId, input.tenantId),
-            eq(memoryVersion.generation, LIVE_GENERATION),
-          ),
-        );
-      // 2) promote staged → live
-      await tx
-        .update(memoryVersion)
-        .set({ generation: LIVE_GENERATION })
-        .where(
-          and(
-            eq(memoryVersion.tenantId, input.tenantId),
-            eq(memoryVersion.generation, input.generation),
-          ),
-        );
-      // 3) bookkeeping — generation column stays the original run id for lookup;
-      //    versions now live under 'live'. Search by generation=runId after
-      //    promote finds nothing (expected); demote restores.
-      await tx
-        .update(transformRun)
-        .set({
-          archivedLiveGeneration: archiveGen,
-          archivedLiveModelKey: priorModelKey,
-          promotedAt: new Date(),
-        })
-        .where(eq(transformRun.id, run.id));
-    });
-  } catch (err) {
-    // Version swap failed after dense activate — restore prior dense target.
-    try {
-      if (priorModelKey) {
-        await activateEmbedModelByKey(client, input.tenantId, priorModelKey);
-      } else {
-        await clearActiveEmbedModels(client, input.tenantId);
-      }
-    } catch (restoreErr) {
-      log.warn(
-        "promoteGeneration: failed to restore prior embed model after version swap error",
-        {
-          priorModelKey,
-          error: formatCaughtError(restoreErr),
-        },
-      );
-    }
-    throw err;
-  }
+    // 1) archive current live
+    await txSql.unsafe(
+      `UPDATE "memory"."version" SET generation = $1 WHERE tenant_id = $2 AND generation = $3`,
+      [archiveGen, input.tenantId, LIVE_GENERATION],
+    );
+    // 2) promote staged → live
+    await txSql.unsafe(
+      `UPDATE "memory"."version" SET generation = $1 WHERE tenant_id = $2 AND generation = $3`,
+      [LIVE_GENERATION, input.tenantId, input.generation],
+    );
+    // 3) bookkeeping — generation column stays the original run id for lookup;
+    //    versions now live under 'live'. Search by generation=runId after
+    //    promote finds nothing (expected); demote restores.
+    await txSql.unsafe(
+      `UPDATE "memory"."transform_run" SET archived_live_generation = $1, archived_live_model_key = $2, promoted_at = now() WHERE id = $3`,
+      [archiveGen, priorModelKey, run.id],
+    );
+  });
 
   return loadTransformRun(deps.db, run.id);
 }
@@ -653,52 +628,41 @@ export async function demoteGeneration(
 
   const archiveGen = run.archivedLiveGeneration;
   const priorModelKey = run.archivedLiveModelKey ?? null;
-  const client = createRawSqlClient(deps.sql);
 
-  // Restore prior dense target first so a missing model_key fails closed
-  // before we rewrite generation tags. No prior model → clear active so
-  // dense degrades rather than remaining on the promoted table after swap.
-  if (priorModelKey) {
-    try {
-      await activateEmbedModelByKey(client, input.tenantId, priorModelKey);
-    } catch (err) {
-      throw new TransformPromoteError(
-        `cannot demote: failed to restore prior embed model ${priorModelKey}: ${formatCaughtError(err)}`,
-      );
+  // Restore prior dense target and rewrite generation tags inside one
+  // Postgres transaction — see promoteGeneration for why: doing these as
+  // separate writes lets a concurrent reader observe the restored model
+  // paired with not-yet-swapped generation tags (or vice versa), silently
+  // emptying live dense search for the duration of the gap. A thrown error
+  // here rolls back the restore too, so demote is all-or-nothing.
+  await deps.sql.begin(async (txSql) => {
+    const txClient = createRawSqlClient(txSql);
+    if (priorModelKey) {
+      try {
+        await activateEmbedModelByKey(txClient, input.tenantId, priorModelKey);
+      } catch (err) {
+        throw new TransformPromoteError(
+          `cannot demote: failed to restore prior embed model ${priorModelKey}: ${formatCaughtError(err)}`,
+        );
+      }
+    } else {
+      await clearActiveEmbedModels(txClient, input.tenantId);
     }
-  } else {
-    await clearActiveEmbedModels(client, input.tenantId);
-  }
 
-  await deps.db.transaction(async (tx) => {
     // live (promoted) → back to run generation
-    await tx
-      .update(memoryVersion)
-      .set({ generation: input.generation })
-      .where(
-        and(
-          eq(memoryVersion.tenantId, input.tenantId),
-          eq(memoryVersion.generation, LIVE_GENERATION),
-        ),
-      );
+    await txSql.unsafe(
+      `UPDATE "memory"."version" SET generation = $1 WHERE tenant_id = $2 AND generation = $3`,
+      [input.generation, input.tenantId, LIVE_GENERATION],
+    );
     // archive → live
-    await tx
-      .update(memoryVersion)
-      .set({ generation: LIVE_GENERATION })
-      .where(
-        and(
-          eq(memoryVersion.tenantId, input.tenantId),
-          eq(memoryVersion.generation, archiveGen),
-        ),
-      );
-    await tx
-      .update(transformRun)
-      .set({
-        archivedLiveGeneration: null,
-        archivedLiveModelKey: null,
-        promotedAt: null,
-      })
-      .where(eq(transformRun.id, run.id));
+    await txSql.unsafe(
+      `UPDATE "memory"."version" SET generation = $1 WHERE tenant_id = $2 AND generation = $3`,
+      [LIVE_GENERATION, input.tenantId, archiveGen],
+    );
+    await txSql.unsafe(
+      `UPDATE "memory"."transform_run" SET archived_live_generation = NULL, archived_live_model_key = NULL, promoted_at = NULL WHERE id = $1`,
+      [run.id],
+    );
   });
 
   return loadTransformRun(deps.db, run.id);
