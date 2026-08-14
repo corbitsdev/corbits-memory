@@ -37,10 +37,19 @@ export function defineMemoryHttpTool(opts: {
     signal: AbortSignal | undefined,
   ) => Promise<string>;
 }) {
-  return defineTool<MemoryInstallEnv>({
+  // Bound to a const rather than passed as a fresh object literal: some
+  // `@intx/agent` versions add a static `definitions` field to defineTool's
+  // options (so callers can enumerate tool names without instantiating the
+  // factory) that this package's own pinned version predates. Routing
+  // through a named variable gets normal structural (duck-typed) parameter
+  // assignment instead of TypeScript's excess-property check on literals,
+  // so this call type-checks against either shape — the extra field is
+  // simply unused by an older defineTool at runtime.
+  const toolOpts = {
     id: opts.id,
     requires: MEMORY_TOOL_ENV_KEYS,
-    factory(env) {
+    definitions: [{ name: opts.name }],
+    factory(env: MemoryInstallEnv) {
       const client = createMemoryHttpClient(readMemoryToolEnv(env));
       const runner = createToolRunner([
         stringTool({
@@ -55,8 +64,9 @@ export function defineMemoryHttpTool(opts: {
       ]);
       return {
         definitions: runner.definitions,
-        run: (call, signal) => runner.run(call, signal),
+        run: runner.run.bind(runner),
       };
     },
-  });
+  };
+  return defineTool<MemoryInstallEnv>(toolOpts);
 }

@@ -32,15 +32,30 @@ export function createInMemoryWritableGrantStore(
   initial: GrantRule[] = [],
 ): WritableGrantStore & { grants: GrantRule[] } {
   const grants = [...initial];
-  return {
+  function collect(principalId: string) {
+    const now = new Date();
+    return grants.filter((g) => {
+      if (g.principalId !== principalId) return false;
+      if (g.expiresAt !== null && g.expiresAt <= now) return false;
+      return true;
+    });
+  }
+  // Bound to a const rather than returned as a fresh object literal: some
+  // `@intx/authz` versions require `collectGrantsInChain` on `GrantStore`
+  // (an ancestor-chain walk) that this package's own pinned version
+  // predates. Routing through a named variable gets normal structural
+  // assignment for the function's declared return type instead of
+  // TypeScript's excess-property check on literals, so this satisfies
+  // either shape — tenantId (and thus the ancestor chain) is a no-op here
+  // regardless, matching `createInMemoryGrantStore`'s own tenant-scoped
+  // fixture semantics.
+  const store = {
     grants,
     async collectGrants(principalId: string, _tenantId?: string) {
-      const now = new Date();
-      return grants.filter((g) => {
-        if (g.principalId !== principalId) return false;
-        if (g.expiresAt !== null && g.expiresAt <= now) return false;
-        return true;
-      });
+      return collect(principalId);
+    },
+    async collectGrantsInChain(principalId: string, _tenantId?: string) {
+      return collect(principalId);
     },
     async putGrant(grant: GrantRule) {
       const idx = grants.findIndex((g) => g.id === grant.id);
@@ -48,4 +63,5 @@ export function createInMemoryWritableGrantStore(
       else grants.push(grant);
     },
   };
+  return store;
 }
