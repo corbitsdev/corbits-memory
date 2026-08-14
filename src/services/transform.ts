@@ -185,7 +185,7 @@ function buildChunker(params: TransformConfigParams["chunk"]): Chunker {
 // common replays — a new model, a different endpoint, a context-window /
 // chunking change, any tuning tweak — name only what changes. An embed
 // endpoint is just a URL + capability options, trusted the same as the
-// engine's own embed endpoint and KNOWLEDGE_DATABASE_URL — self-hosted or managed makes
+// engine's own embed endpoint and DATABASE_URL — self-hosted or managed makes
 // no difference.
 function buildEmbedClientConfig(
   params: TransformConfigParams["embed"],

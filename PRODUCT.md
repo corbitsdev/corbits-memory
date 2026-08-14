@@ -77,8 +77,8 @@ stores, Linear tools. Core never imports vendor SDKs.
 - No answer/generation endpoint — host owns inference.
 - Workbench is a client, not required.
 
-**Default durable store:** Postgres via `KNOWLEDGE_DATABASE_URL` only (no
-`DATABASE_URL` fallback), tables under the **`knowledge`** schema. When
+**Default durable store:** Postgres via `DATABASE_URL`, tables under the
+**`memory`** schema. When
 `documentStore` is injected, Postgres is not opened. Cross-refs are plain
 `text` — no FKs into the host control plane.
 

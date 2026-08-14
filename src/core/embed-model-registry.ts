@@ -31,7 +31,7 @@ export function cosineDistanceExpr(
 }
 
 // Dims are dynamic and discovered, never hard-coded — the dimension travels
-// with exactly one artifact: knowledge.embed_model.dims, discovered here at
+// with exactly one artifact: memory.embed_model.dims, discovered here at
 // configure time. Never resurrect an EMBED_DIM constant anywhere in this module.
 export const MIN_EMBED_DIMS = 64;
 // Upper bound is pgvector's halfvec index cap: above 4000 dims no index type
@@ -73,10 +73,10 @@ export const EMBED_TABLE_BARE_PATTERN = /^embedding_[a-f0-9]{16}$/;
 
 /**
  * Fully schema-qualified embedding table name for raw SQL interpolation.
- * Tables live under the knowledge schema: "knowledge"."embedding_<key>".
+ * Tables live under the memory schema: "memory"."embedding_<key>".
  */
 export const EMBED_TABLE_NAME_PATTERN =
-  /^"knowledge"\."embedding_[a-f0-9]{16}"$/;
+  /^"memory"\."embedding_[a-f0-9]{16}"$/;
 
 // This is the only place in this module that ever interpolates a computed
 // identifier into raw SQL (see activateEmbedModel below) — a future change
@@ -93,7 +93,7 @@ export function embeddingTableBareName(modelKey: string): string {
 
 export function embeddingTableName(modelKey: string): string {
   const bare = embeddingTableBareName(modelKey);
-  return `"knowledge"."${bare}"`;
+  return `"memory"."${bare}"`;
 }
 
 // Minimal DB seam — this module takes no dependency on drizzle-orm/postgres
@@ -123,7 +123,7 @@ export async function activateEmbedModel(
   const bare = embeddingTableBareName(modelKey);
 
   await client.query(
-    `INSERT INTO "knowledge"."embed_model" (id, tenant_id, model_key, model_id, dims, status, created_at, updated_at)
+    `INSERT INTO "memory"."embed_model" (id, tenant_id, model_key, model_id, dims, status, created_at, updated_at)
      VALUES ($1, $2, $3, $4, $5, 'active', now(), now())
      ON CONFLICT (tenant_id, model_key)
      DO UPDATE SET model_id = EXCLUDED.model_id, dims = EXCLUDED.dims, updated_at = now()`,
@@ -142,7 +142,7 @@ export async function activateEmbedModel(
        tenant_id text NOT NULL,
        embedding vector(${dims}),
        CONSTRAINT ${bare}_chunk_fk
-         FOREIGN KEY (chunk_id) REFERENCES "knowledge"."chunk" (id) ON DELETE CASCADE
+         FOREIGN KEY (chunk_id) REFERENCES "memory"."chunk" (id) ON DELETE CASCADE
      )`,
     [],
   );
@@ -203,7 +203,7 @@ export async function resolveActiveEmbedTable(
   tenantId: string,
 ): Promise<ActiveEmbedTable | null> {
   const rows = await client.query(
-    `SELECT model_key, model_id, dims FROM "knowledge"."embed_model"
+    `SELECT model_key, model_id, dims FROM "memory"."embed_model"
      WHERE tenant_id = $1 AND status = 'active'
      ORDER BY updated_at DESC
      LIMIT 1`,

@@ -1,13 +1,13 @@
 import { describe, expect, it } from "bun:test";
 import { type } from "arktype";
 import {
-  KnowledgeEdgeHintSchema,
-  KnowledgeEdgeSchema,
-  KnowledgeEntitySchema,
+  MemoryEdgeHintSchema,
+  MemoryEdgeSchema,
+  MemoryEntitySchema,
 } from "./entity-edge.ts";
-import type { KnowledgeEdge } from "./entity-edge.ts";
+import type { MemoryEdge } from "./entity-edge.ts";
 
-describe("KnowledgeEntitySchema", () => {
+describe("MemoryEntitySchema", () => {
   it("round-trips a full fixture", () => {
     const fixture = {
       id: "entity_1",
@@ -16,14 +16,14 @@ describe("KnowledgeEntitySchema", () => {
       identifiers: { email: "jane@example.com" },
       created_at: "2026-07-19T00:00:00.000Z",
     };
-    const out = KnowledgeEntitySchema(fixture);
+    const out = MemoryEntitySchema(fixture);
     expect(out instanceof type.errors ? out.summary : out).toEqual(fixture);
   });
 });
 
-describe("KnowledgeEdgeSchema", () => {
+describe("MemoryEdgeSchema", () => {
   it("round-trips a full fixture", () => {
-    const fixture: KnowledgeEdge = {
+    const fixture: MemoryEdge = {
       id: "edge_1",
       tenant_id: "tenant_1",
       rel: "about",
@@ -31,12 +31,12 @@ describe("KnowledgeEdgeSchema", () => {
       to: { type: "entity", ref: "entity_1" },
       created_at: "2026-07-19T00:00:00.000Z",
     };
-    const out = KnowledgeEdgeSchema(fixture);
+    const out = MemoryEdgeSchema(fixture);
     expect(out instanceof type.errors ? out.summary : out).toEqual(fixture);
   });
 
   it("rejects an unknown rel", () => {
-    const out = KnowledgeEdgeSchema({
+    const out = MemoryEdgeSchema({
       id: "edge_1",
       tenant_id: "tenant_1",
       rel: "orbits",
@@ -48,10 +48,10 @@ describe("KnowledgeEdgeSchema", () => {
   });
 });
 
-// T4 — a KnowledgeEdgeHint missing to.ref must fail arktype validation.
-describe("KnowledgeEdgeHintSchema", () => {
+// T4 — a MemoryEdgeHint missing to.ref must fail arktype validation.
+describe("MemoryEdgeHintSchema", () => {
   it("parses a full fixture", () => {
-    const out = KnowledgeEdgeHintSchema({
+    const out = MemoryEdgeHintSchema({
       rel: "produced_by",
       to: { type: "native", ref: "principal_1" },
     });
@@ -59,7 +59,7 @@ describe("KnowledgeEdgeHintSchema", () => {
   });
 
   it("rejects a hint whose to is missing ref", () => {
-    const out = KnowledgeEdgeHintSchema({
+    const out = MemoryEdgeHintSchema({
       rel: "produced_by",
       to: { type: "native" },
     });

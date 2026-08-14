@@ -12,7 +12,7 @@ import type { ConditionRegistry, GrantStore } from "@intx/authz";
 import { canAccessDocument } from "../grant-tags.ts";
 
 import type { Db } from "../db/client.ts";
-import { knowledgeDocument, knowledgeVersion } from "../db/schema.ts";
+import { memoryDocument, memoryVersion } from "../db/schema.ts";
 import { log } from "../log.ts";
 
 export type TimelineEvent = {
@@ -52,7 +52,7 @@ const MAX_LIMIT = 100;
  * Tenant-only WHERE — document access is applied in application code.
  */
 export function timelineWhere(tenantId: string) {
-  return eq(knowledgeDocument.tenantId, tenantId);
+  return eq(memoryDocument.tenantId, tenantId);
 }
 
 /**
@@ -120,24 +120,24 @@ export async function listTimelineEvents(
 
   const rows = await params.db
     .select({
-      documentId: knowledgeDocument.id,
-      title: knowledgeDocument.title,
-      adapter: knowledgeDocument.adapter,
-      externalRef: knowledgeDocument.externalRef,
-      occurredAt: knowledgeVersion.occurredAt,
-      createdByPrincipalId: knowledgeVersion.createdByPrincipalId,
-      accessTags: knowledgeDocument.accessTags,
+      documentId: memoryDocument.id,
+      title: memoryDocument.title,
+      adapter: memoryDocument.adapter,
+      externalRef: memoryDocument.externalRef,
+      occurredAt: memoryVersion.occurredAt,
+      createdByPrincipalId: memoryVersion.createdByPrincipalId,
+      accessTags: memoryDocument.accessTags,
     })
-    .from(knowledgeDocument)
+    .from(memoryDocument)
     .innerJoin(
-      knowledgeVersion,
+      memoryVersion,
       and(
-        eq(knowledgeVersion.documentId, knowledgeDocument.id),
-        eq(knowledgeVersion.status, "active"),
+        eq(memoryVersion.documentId, memoryDocument.id),
+        eq(memoryVersion.status, "active"),
       ),
     )
     .where(timelineWhere(params.tenantId))
-    .orderBy(desc(knowledgeVersion.occurredAt))
+    .orderBy(desc(memoryVersion.occurredAt))
     .limit(fetchLimit);
 
   const { events, withheld } = await filterTimelineRows(rows, {

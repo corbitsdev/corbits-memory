@@ -33,7 +33,7 @@ import { createMemory, loadMemoryConfig } from "@corbits/memory";
 
 const memory = createMemory({
   app,
-  config: loadMemoryConfig(), // KNOWLEDGE_DATABASE_URL + embed env
+  config: loadMemoryConfig(), // DATABASE_URL + embed env
   grantStore,
   conditionRegistry,
 });
@@ -124,11 +124,11 @@ always sees their own docs. Details:
 ## Config
 
 `loadMemoryConfig()` reads env (see `.env.example`). For the default pgvector
-store you need `KNOWLEDGE_DATABASE_URL`, `EMBED_BASE_URL`, `EMBED_MODEL`.
+store you need `DATABASE_URL`, `EMBED_BASE_URL`, `EMBED_MODEL`.
 
 ```ts
 import { runMemoryMigrations } from "@corbits/memory/migrations";
-await runMemoryMigrations(process.env.KNOWLEDGE_DATABASE_URL!);
+await runMemoryMigrations(process.env.DATABASE_URL!);
 ```
 
 Inject `documentStore` to use fakes, a host store, or a sibling adapter instead

@@ -11,7 +11,7 @@ port, or process entrypoint here, and there never should be.
 bun install              # Bun 1.2+ required
 bun run typecheck        # tsc --noEmit
 bun run test             # bun test ./src (no network, no Postgres)
-bun run db:setup         # apply migrations (needs KNOWLEDGE_DATABASE_URL)
+bun run db:setup         # apply migrations (needs DATABASE_URL)
 docker compose up -d     # local pgvector + model endpoints for manual runs
 ```
 
@@ -28,7 +28,7 @@ CI runs `typecheck` + `test` — both must pass before any push.
 - `src/services/` — capture / search / transform internals (not public verbs)
 - `src/ports/` — `DocumentStore` / `SourceProvider` + fakes
 - `src/core/` — embed/rerank clients, merge, arktype schemas
-- `src/db/` + `migrations/` — Drizzle schema + SQL migrations (pgvector, `knowledge.*`)
+- `src/db/` + `migrations/` — Drizzle schema + SQL migrations (pgvector, `memory.*`)
 - `packages/` — removed; DocumentStore adapters and Linear tools are sibling packages
   (`@corbits/mem0-memory-adapter`, `@corbits/supermemory-memory-adapter`,
   `@corbits/linear-tools`).
@@ -38,10 +38,10 @@ CI runs `typecheck` + `test` — both must pass before any push.
 1. **Authenticate nothing.** Identity is `c.get("principal")` from the
    Interchange context; authorization goes through the host's grant store
    (`@intx/authz`). Never add API keys, sessions, or OAuth here.
-2. **One Postgres**: `KNOWLEDGE_DATABASE_URL`, the engine's own vector plane.
-   There is deliberately no `DATABASE_URL` fallback — the host's control-plane
-   DB is never ours. No foreign keys into control-plane tables; cross-refs
-   (`tenant_id`, `principal_id`) are plain `text`.
+2. **One Postgres**: `DATABASE_URL`, the engine's own vector plane, under the
+   `memory` schema — never the host's control-plane DB. No foreign keys into
+   control-plane tables; cross-refs (`tenant_id`, `principal_id`) are plain
+   `text`.
 3. **Never embed in-process.** Embedding/reranking are outbound HTTP calls to
    configured endpoints. A model endpoint is a trusted URL, same as the
    database URL — no self-host flags, no SSRF filtering here.

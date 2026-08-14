@@ -609,7 +609,7 @@ function createPlaneFromStore(
         if (!options.textExtractor) {
           throw new MemoryError(
             400,
-            "file requires a textExtractor on the knowledge plane",
+            "file requires a textExtractor on the memory plane",
           );
         }
         const extracted = await options.textExtractor.extract({
@@ -755,8 +755,8 @@ function createEngineDocumentStore(config: MemoryConfig): DocumentStore {
           SELECT d.id,
                  d.access_tags,
                  v.created_by_principal_id AS created_by
-          FROM "knowledge"."document" d
-          LEFT JOIN "knowledge"."version" v
+          FROM "memory"."document" d
+          LEFT JOIN "memory"."version" v
             ON v.document_id = d.id
            AND v.status = 'active'
            AND v.generation = 'live'

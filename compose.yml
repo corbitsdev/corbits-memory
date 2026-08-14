@@ -1,4 +1,4 @@
-# Local dev dependencies for the knowledge engine SDK.
+# Local dev dependencies for the memory engine SDK.
 #
 #   docker compose up -d          # DB + embeddings + reranker
 #   docker compose exec ollama ollama pull nomic-embed-text
@@ -8,19 +8,19 @@
 # compose only stands up the backing services the engine talks to.
 
 services:
-  # Knowledge / vector store (pgvector).
+  # Memory / vector store (pgvector).
   postgres:
     image: pgvector/pgvector:pg17
     ports:
       - "5434:5432"
     environment:
-      POSTGRES_USER: knowledge
-      POSTGRES_PASSWORD: knowledge-dev-password
-      POSTGRES_DB: knowledge
+      POSTGRES_USER: memory
+      POSTGRES_PASSWORD: memory-dev-password
+      POSTGRES_DB: memory
     volumes:
-      - knowledge-data:/var/lib/postgresql/data
+      - memory-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U knowledge -d knowledge"]
+      test: ["CMD-SHELL", "pg_isready -U memory -d memory"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -44,6 +44,6 @@ services:
       - reranker-cache:/data
 
 volumes:
-  knowledge-data:
+  memory-data:
   ollama-models:
   reranker-cache:

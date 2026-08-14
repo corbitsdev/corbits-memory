@@ -1,10 +1,10 @@
 import { type } from "arktype";
 import { CreatedByKindSchema } from "./document.ts";
-import { KnowledgeEdgeHintSchema } from "./entity-edge.ts";
+import { MemoryEdgeHintSchema } from "./entity-edge.ts";
 import { AuthoritySourceClassSchema } from "../authority.ts";
 
 // A hint that a chunk/document mentions a real-world entity; the ingestion
-// engine resolves this against knowledge_entity, creating a row if none
+// engine resolves this against memory_entity, creating a row if none
 // matches yet.
 export const EntityHintSchema = type({
   kind: "string",
@@ -56,7 +56,7 @@ export const AdaptedDocumentSchema = type({
   accessTags: "string[]",
   "attributes?": "Record<string, string | number | boolean | null>",
   entityHints: EntityHintSchema.array(),
-  "edges?": KnowledgeEdgeHintSchema.array(),
+  "edges?": MemoryEdgeHintSchema.array(),
   chunks: AdaptedDocumentChunkSchema.array().atMostLength(MAX_CHUNKS_PER_DOCUMENT),
   "rawPointer?": RawPointerSchema,
   "actor?": ActorAttributionSchema,

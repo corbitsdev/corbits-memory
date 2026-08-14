@@ -54,9 +54,7 @@ function optionalIntEnv(name: string): number | undefined {
 export function loadMemoryConfig(): MemoryConfig {
   return {
     memory: {
-      // Deliberately no DATABASE_URL fallback: the host app's own database
-      // must never be mistaken for the engine's vector plane.
-      databaseUrl: requireEnv("KNOWLEDGE_DATABASE_URL"),
+      databaseUrl: requireEnv("DATABASE_URL"),
       dbPoolMax: intEnv("DB_POOL_MAX", 8),
       ftsLanguage: parseFtsLanguage(optionalEnv("FTS_LANGUAGE")),
       embed: {

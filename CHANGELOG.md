@@ -24,7 +24,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `MemoryConfig`, `MemoryError`. HTTP paths are under
   `/api/tenants/:tenantId/memory/`; grants are
   `memory:add` / `memory:search`; access tags use `memory.owner:` / `memory.tenant:`
-  / `memory.space:`. Postgres schema name remains `knowledge`.
+  / `memory.space:`. Postgres schema is `memory`.
+- **Breaking:** config reads `DATABASE_URL` (was `KNOWLEDGE_DATABASE_URL`) for
+  the engine's own pgvector Postgres connection.
 - **Breaking:** memory plane surface is `add` / `search` / `list` with
   `principalId` + `tenantId` only. Inference is host-owned (no answer endpoint
   or personal-memory side-channel on the plane).
@@ -42,8 +44,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   creator-always + host `GrantStore`), not the visibility-mode / block-list
   mini-ACL. Share sugar only mints tags. See `docs/AUTHZ-DOCUMENT-ACCESS.md`.
 - **Breaking:** Postgres baseline is two files (`0001_extensions` +
-  `0002_knowledge_baseline`) with `access_tags` and no `visibility_*` columns.
-  Fresh installs only — drop/recreate the knowledge schema on existing DBs.
+  `0002_memory_baseline`) with `access_tags` and no `visibility_*` columns.
+  Fresh installs only — drop/recreate the memory schema on existing DBs.
 - **Breaking:** `grantStore` + `conditionRegistry` are top-level `createMemory`
   options (no nested `grants: { … }`).
 
@@ -51,7 +53,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Optional `TextExtractor` + `file` XOR `content` on `add`
 - `share` sugar on `add` (maps to access tags only: owner, tenant, peers)
-- `access_tags` on `knowledge.document` (baseline schema; Postgres schema name unchanged)
+- `access_tags` on `memory.document` (baseline schema)
 
 ### Removed
 

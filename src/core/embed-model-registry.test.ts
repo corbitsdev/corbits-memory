@@ -64,7 +64,7 @@ describe("computeModelKey / embeddingTableName", () => {
     expect(key).toMatch(/^[a-f0-9]{16}$/);
     const tableName = embeddingTableName(key);
     expect(tableName).toMatch(EMBED_TABLE_NAME_PATTERN);
-    expect(tableName).toBe(`"knowledge"."embedding_${key}"`);
+    expect(tableName).toBe(`"memory"."embedding_${key}"`);
   });
 
   it("rejects a key that would produce an invalid identifier", () => {
@@ -134,7 +134,7 @@ describe("activateEmbedModel", () => {
     expect(result.tableName).toMatch(EMBED_TABLE_NAME_PATTERN);
 
     const insertQuery = queries.find((q) =>
-      q.sql.includes('INSERT INTO "knowledge"."embed_model"'),
+      q.sql.includes('INSERT INTO "memory"."embed_model"'),
     );
     expect(insertQuery).toBeDefined();
     expect(insertQuery?.params).toContain("tenant-1");
@@ -143,10 +143,10 @@ describe("activateEmbedModel", () => {
     const createTableQuery = queries.find((q) => q.sql.includes("CREATE TABLE IF NOT EXISTS"));
     expect(createTableQuery?.sql).toContain(result.tableName);
     expect(createTableQuery?.sql).toContain("vector(768)");
-    const bare = result.tableName.replace(/^"knowledge"\."|"$/g, "");
+    const bare = result.tableName.replace(/^"memory"\."|"$/g, "");
     expect(createTableQuery?.sql).toContain(`CONSTRAINT ${bare}_chunk_fk`);
     expect(createTableQuery?.sql).toContain(
-      'FOREIGN KEY (chunk_id) REFERENCES "knowledge"."chunk" (id) ON DELETE CASCADE',
+      'FOREIGN KEY (chunk_id) REFERENCES "memory"."chunk" (id) ON DELETE CASCADE',
     );
 
     const tenantIndexQuery = queries.find((q) => q.sql.includes("_tenant_chunk_idx"));
@@ -269,7 +269,7 @@ describe("resolveActiveEmbedTable", () => {
     };
     const result = await resolveActiveEmbedTable(client, "tenant-1");
     expect(result).toEqual({
-      tableName: `"knowledge"."embedding_${modelKey}"`,
+      tableName: `"memory"."embedding_${modelKey}"`,
       dims: 768,
       modelId: baseConfig.modelId,
     });

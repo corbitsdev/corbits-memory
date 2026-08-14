@@ -7,11 +7,11 @@ import { formatCaughtError, log } from "../log.ts";
 import { stableStringify } from "../core/hash.ts";
 import { LIVE_GENERATION } from "../core/generation.ts";
 import {
-  knowledgeChunk,
-  knowledgeDocument,
-  knowledgeEdge,
-  knowledgeEntity,
-  knowledgeVersion,
+  memoryChunk,
+  memoryDocument,
+  memoryEdge,
+  memoryEntity,
+  memoryVersion,
   rawCapture,
 } from "../db/schema.ts";
 import {
@@ -24,7 +24,7 @@ import type {
   AdaptedDocument,
   EntityHint,
 } from "../core/schemas/adapted-document.ts";
-import type { KnowledgeEdgeHint } from "../core/schemas/entity-edge.ts";
+import type { MemoryEdgeHint } from "../core/schemas/entity-edge.ts";
 import { createRawSqlClient } from "../core/embed-sql.ts";
 import { activateEmbedModel } from "../core/embed-model-registry.ts";
 import type { EmbedClientConfig } from "../core/embed-client.ts";
@@ -33,7 +33,7 @@ import { toEmbedClientConfig } from "../core/engine-client-config.ts";
 
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 
-// The single doorway a caller uses to reach the knowledge store: parses an
+// The single doorway a caller uses to reach the memory store: parses an
 // already-adapted document into a capture plan (adaptAndPlan), writes
 // document/version/chunk/edge rows in one transaction, then embeds the
 // version's chunks after commit. Unlike a fire-and-forget capture hook, this
@@ -95,7 +95,7 @@ async function insertVersion(
 ): Promise<string> {
   const versionId = newId("kver");
   const authoritySignals = deriveAuthoritySignals(plan);
-  await tx.insert(knowledgeVersion).values({
+  await tx.insert(memoryVersion).values({
     id: versionId,
     tenantId: input.tenantId,
     documentId,
@@ -193,7 +193,7 @@ async function insertOrReuseRawCapture(
   return existing.id;
 }
 
-// No unique constraint backs knowledge_entity — dedupe here on an exact
+// No unique constraint backs memory_entity — dedupe here on an exact
 // (tenantId, kind, identifiers) match, matching what a caller re-emits for
 // the same real-world thing across captures.
 async function upsertEntity(
@@ -205,21 +205,21 @@ async function upsertEntity(
   const identifiers = { value: hint.identifier };
   const rows = await tx
     .select({
-      id: knowledgeEntity.id,
-      identifiers: knowledgeEntity.identifiers,
+      id: memoryEntity.id,
+      identifiers: memoryEntity.identifiers,
     })
-    .from(knowledgeEntity)
+    .from(memoryEntity)
     .where(
       and(
-        eq(knowledgeEntity.tenantId, tenantId),
-        eq(knowledgeEntity.kind, hint.kind),
+        eq(memoryEntity.tenantId, tenantId),
+        eq(memoryEntity.kind, hint.kind),
       ),
     );
   const exists = rows.some(
     (r) => JSON.stringify(r.identifiers) === JSON.stringify(identifiers),
   );
   if (exists) return;
-  await tx.insert(knowledgeEntity).values({
+  await tx.insert(memoryEntity).values({
     id: newId("kent"),
     tenantId,
     kind: hint.kind,
@@ -229,32 +229,32 @@ async function upsertEntity(
   });
 }
 
-// No unique constraint backs knowledge_edge either — dedupe on the full
+// No unique constraint backs memory_edge either — dedupe on the full
 // (tenantId, rel, from, to) tuple so re-ingesting the same document doesn't
 // pile up duplicate relationship rows across versions.
 async function upsertEdge(
   tx: Tx,
   tenantId: string,
   documentId: string,
-  hint: KnowledgeEdgeHint,
+  hint: MemoryEdgeHint,
   now: Date,
 ): Promise<void> {
   const rows = await tx
-    .select({ id: knowledgeEdge.id })
-    .from(knowledgeEdge)
+    .select({ id: memoryEdge.id })
+    .from(memoryEdge)
     .where(
       and(
-        eq(knowledgeEdge.tenantId, tenantId),
-        eq(knowledgeEdge.rel, hint.rel),
-        eq(knowledgeEdge.fromType, "document"),
-        eq(knowledgeEdge.fromRef, documentId),
-        eq(knowledgeEdge.toType, hint.to.type),
-        eq(knowledgeEdge.toRef, hint.to.ref),
+        eq(memoryEdge.tenantId, tenantId),
+        eq(memoryEdge.rel, hint.rel),
+        eq(memoryEdge.fromType, "document"),
+        eq(memoryEdge.fromRef, documentId),
+        eq(memoryEdge.toType, hint.to.type),
+        eq(memoryEdge.toRef, hint.to.ref),
       ),
     )
     .limit(1);
   if (rows[0]) return;
-  await tx.insert(knowledgeEdge).values({
+  await tx.insert(memoryEdge).values({
     id: newId("kedg"),
     tenantId,
     rel: hint.rel,
@@ -286,7 +286,7 @@ async function insertChunksAndGraph(
   }));
 
   if (plan.chunks.length > 0) {
-    await tx.insert(knowledgeChunk).values(
+    await tx.insert(memoryChunk).values(
       plan.chunks.map((chunk, i) => ({
         id: chunkIds[i] as string,
         tenantId,
@@ -332,12 +332,12 @@ async function deriveVersionInTransaction(
   const doc = plan.document;
   const existingRows = await tx
     .select()
-    .from(knowledgeDocument)
+    .from(memoryDocument)
     .where(
       and(
-        eq(knowledgeDocument.tenantId, input.tenantId),
-        eq(knowledgeDocument.adapter, input.adapter),
-        eq(knowledgeDocument.externalRef, doc.externalRef),
+        eq(memoryDocument.tenantId, input.tenantId),
+        eq(memoryDocument.adapter, input.adapter),
+        eq(memoryDocument.externalRef, doc.externalRef),
       ),
     )
     .limit(1);
@@ -346,7 +346,7 @@ async function deriveVersionInTransaction(
   if (!existingDoc) {
     const documentId = newId("kdoc");
     // accessTags is the security boundary for document access.
-    await tx.insert(knowledgeDocument).values({
+    await tx.insert(memoryDocument).values({
       id: documentId,
       tenantId: input.tenantId,
       kind: doc.kind,
@@ -379,23 +379,23 @@ async function deriveVersionInTransaction(
 
   const activeVersionRows = await tx
     .select()
-    .from(knowledgeVersion)
+    .from(memoryVersion)
     .where(
       and(
-        eq(knowledgeVersion.documentId, existingDoc.id),
-        eq(knowledgeVersion.generation, generation),
-        eq(knowledgeVersion.status, "active"),
+        eq(memoryVersion.documentId, existingDoc.id),
+        eq(memoryVersion.generation, generation),
+        eq(memoryVersion.status, "active"),
       ),
     )
-    .orderBy(desc(knowledgeVersion.version))
+    .orderBy(desc(memoryVersion.version))
     .limit(1);
   const activeVersion = activeVersionRows[0] ?? null;
 
   if (activeVersion && activeVersion.contentHash === plan.contentHash) {
     await tx
-      .update(knowledgeDocument)
+      .update(memoryDocument)
       .set({ lastSeenAt: now })
-      .where(eq(knowledgeDocument.id, existingDoc.id));
+      .where(eq(memoryDocument.id, existingDoc.id));
     return {
       status: "noop",
       documentId: existingDoc.id,
@@ -405,9 +405,9 @@ async function deriveVersionInTransaction(
 
   if (activeVersion) {
     await tx
-      .update(knowledgeVersion)
+      .update(memoryVersion)
       .set({ status: "superseded" })
-      .where(eq(knowledgeVersion.id, activeVersion.id));
+      .where(eq(memoryVersion.id, activeVersion.id));
   }
 
   const versionId = await insertVersion(tx, input, existingDoc.id, plan, {
@@ -419,14 +419,14 @@ async function deriveVersionInTransaction(
   });
 
   await tx
-    .update(knowledgeDocument)
+    .update(memoryDocument)
     .set({
       title: doc.title,
       accessTags: doc.accessTags,
       attributes: doc.attributes ?? {},
       lastSeenAt: now,
     })
-    .where(eq(knowledgeDocument.id, existingDoc.id));
+    .where(eq(memoryDocument.id, existingDoc.id));
 
   const insertedChunks = await insertChunksAndGraph(
     tx,

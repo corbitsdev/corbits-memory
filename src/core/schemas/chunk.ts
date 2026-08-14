@@ -2,7 +2,7 @@ import { type } from "arktype";
 
 // chunk_id is a hash of (document_id, version, ordinal); chunks are never
 // reused across versions.
-export const KnowledgeChunkSchema = type({
+export const MemoryChunkSchema = type({
   id: "string",
   tenant_id: "string",
   version_id: "string",
@@ -12,4 +12,4 @@ export const KnowledgeChunkSchema = type({
   "role?": "string",
   created_at: "string",
 });
-export type KnowledgeChunk = typeof KnowledgeChunkSchema.infer;
+export type MemoryChunk = typeof MemoryChunkSchema.infer;

@@ -17,7 +17,7 @@ const VALID_EMBED_API_STYLES = new Set(["openai", "tei", "ollama"]);
 // the trust boundary between config and the client — an invalid value is an
 // operator misconfiguration and must fail loudly, not silently degrade.
 // Built from the engine's own operator-configured embed endpoint — a trusted
-// URL, the same as KNOWLEDGE_DATABASE_URL.
+// URL, the same as DATABASE_URL.
 export function toEmbedClientConfig(
   embed: EngineConfig["embed"],
 ): EmbedClientConfig {
@@ -41,7 +41,7 @@ export function toEmbedClientConfig(
 // `"tei"` below. Absent `baseUrl` => rerank is unconfigured => `undefined`,
 // same degrade-soft precedent as the embed config being absent upstream.
 // Built from the engine's own operator-configured rerank endpoint — a trusted
-// URL, the same as KNOWLEDGE_DATABASE_URL.
+// URL, the same as DATABASE_URL.
 export function toRerankClientConfig(
   rerank: EngineConfig["rerank"],
 ): RerankClientConfig | undefined {

@@ -1,5 +1,5 @@
 import { type } from "arktype";
-import { CreatedByKindSchema, KnowledgeVersionStatusSchema } from "./document.ts";
+import { CreatedByKindSchema, MemoryVersionStatusSchema } from "./document.ts";
 
 // The retrieval contract locked on day one. A SearchHit always pins a
 // version_id (a citation must be reproducible against the exact version it
@@ -31,7 +31,7 @@ export const SearchHitSchema = type({
   document_id: "string",
   version: "number",
   version_id: "string",
-  status: KnowledgeVersionStatusSchema,
+  status: MemoryVersionStatusSchema,
   score: "number",
   title: "string",
   snippet: "string",
