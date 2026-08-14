@@ -56,8 +56,8 @@ export type RawPointer = typeof RawPointerSchema.infer;
 //
 // Two orthogonal "class" axes on the write path:
 // - sourceClass: ranking prior (thread/channel/call/record/native) for
-//   computeAuthority — never written to knowledge.version.source_class.
-// - lineageClass: data-lineage stored on knowledge.version.source_class
+//   computeAuthority — never written to memory.version.source_class.
+// - lineageClass: data-lineage stored on memory.version.source_class
 //   (native|imported|derived). Defaults to native at capture.
 // provenance: how the content was obtained (stated|inferred|unknown);
 // defaults to stated at capture for human/adapter paths.
