@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { loadMemoryConfig } from "./mount-config.ts";
 
 const REQUIRED_ENV = {
-  KNOWLEDGE_DATABASE_URL: "postgres://localhost:5432/test",
+  DATABASE_URL: "postgres://localhost:5432/test",
   EMBED_BASE_URL: "http://embed.example",
   EMBED_MODEL: "test-model",
 };

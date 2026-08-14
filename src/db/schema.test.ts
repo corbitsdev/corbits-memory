@@ -1,59 +1,59 @@
 /**
- * CL-5233: all engine tables live under the knowledge Postgres schema.
+ * CL-5233: all engine tables live under the memory Postgres schema. Renamed from `knowledge` to `memory` for CL-6009.
  */
 import { describe, expect, it } from "bun:test";
 import { getTableName } from "drizzle-orm";
 import {
-  KNOWLEDGE_SCHEMA,
-  knowledgeChunk,
-  knowledgeDocument,
-  knowledgeEdge,
-  knowledgeEmbedModel,
-  knowledgeEntity,
-  knowledgeSchema,
-  knowledgeVersion,
+  MEMORY_SCHEMA,
+  memoryChunk,
+  memoryDocument,
+  memoryEdge,
+  memoryEmbedModel,
+  memoryEntity,
+  memorySchema,
+  memoryVersion,
   rawCapture,
   transformConfig,
   transformRun,
 } from "./schema.ts";
 
 const TABLES = [
-  knowledgeDocument,
-  knowledgeVersion,
-  knowledgeChunk,
-  knowledgeEntity,
-  knowledgeEdge,
+  memoryDocument,
+  memoryVersion,
+  memoryChunk,
+  memoryEntity,
+  memoryEdge,
   rawCapture,
-  knowledgeEmbedModel,
+  memoryEmbedModel,
   transformConfig,
   transformRun,
 ] as const;
 
-describe("knowledge Postgres schema qualification (CL-5233)", () => {
-  it("exports KNOWLEDGE_SCHEMA = knowledge", () => {
-    expect(KNOWLEDGE_SCHEMA).toBe("knowledge");
-    expect(knowledgeSchema.schemaName).toBe("knowledge");
+describe("memory Postgres schema qualification (CL-5233)", () => {
+  it("exports MEMORY_SCHEMA = memory", () => {
+    expect(MEMORY_SCHEMA).toBe("memory");
+    expect(memorySchema.schemaName).toBe("memory");
   });
 
-  it("every table is registered under the knowledge schema", () => {
+  it("every table is registered under the memory schema", () => {
     for (const table of TABLES) {
       // drizzle Table internal schema key
       const schemaName = (table as unknown as { [key: symbol]: unknown })[
         Symbol.for("drizzle:Schema")
       ];
-      expect(schemaName).toBe("knowledge");
-      // bare names drop the redundant knowledge_ prefix
-      expect(getTableName(table)).not.toMatch(/^knowledge_/);
+      expect(schemaName).toBe("memory");
+      // bare names drop the redundant memory_ prefix
+      expect(getTableName(table)).not.toMatch(/^memory_/);
     }
   });
 
-  it("maps legacy knowledge_* names to short table names", () => {
-    expect(getTableName(knowledgeDocument)).toBe("document");
-    expect(getTableName(knowledgeVersion)).toBe("version");
-    expect(getTableName(knowledgeChunk)).toBe("chunk");
-    expect(getTableName(knowledgeEntity)).toBe("entity");
-    expect(getTableName(knowledgeEdge)).toBe("edge");
-    expect(getTableName(knowledgeEmbedModel)).toBe("embed_model");
+  it("maps legacy memory_* names to short table names", () => {
+    expect(getTableName(memoryDocument)).toBe("document");
+    expect(getTableName(memoryVersion)).toBe("version");
+    expect(getTableName(memoryChunk)).toBe("chunk");
+    expect(getTableName(memoryEntity)).toBe("entity");
+    expect(getTableName(memoryEdge)).toBe("edge");
+    expect(getTableName(memoryEmbedModel)).toBe("embed_model");
     expect(getTableName(rawCapture)).toBe("raw_capture");
     expect(getTableName(transformConfig)).toBe("transform_config");
     expect(getTableName(transformRun)).toBe("transform_run");

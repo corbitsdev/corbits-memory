@@ -1,14 +1,14 @@
 import { describe, expect, it } from "bun:test";
 import { type } from "arktype";
 import {
-  KnowledgeDocumentSchema,
-  KnowledgeVersionSchema,
+  MemoryDocumentSchema,
+  MemoryVersionSchema,
 } from "./document.ts";
-import type { KnowledgeDocument, KnowledgeVersion } from "./document.ts";
+import type { MemoryDocument, MemoryVersion } from "./document.ts";
 
-describe("KnowledgeDocumentSchema", () => {
+describe("MemoryDocumentSchema", () => {
   it("round-trips a full fixture", () => {
-    const fixture: KnowledgeDocument = {
+    const fixture: MemoryDocument = {
       id: "doc_1",
       tenant_id: "tenant_1",
       kind: "call_transcript",
@@ -20,12 +20,12 @@ describe("KnowledgeDocumentSchema", () => {
       created_at: "2026-07-19T00:00:00.000Z",
       last_seen_at: "2026-07-19T00:00:00.000Z",
     };
-    const out = KnowledgeDocumentSchema(fixture);
+    const out = MemoryDocumentSchema(fixture);
     expect(out instanceof type.errors ? out.summary : out).toEqual(fixture);
   });
 
   it("rejects a document missing external_ref", () => {
-    const out = KnowledgeDocumentSchema({
+    const out = MemoryDocumentSchema({
       id: "doc_1",
       tenant_id: "tenant_1",
       kind: "call_transcript",
@@ -40,9 +40,9 @@ describe("KnowledgeDocumentSchema", () => {
   });
 });
 
-describe("KnowledgeVersionSchema", () => {
+describe("MemoryVersionSchema", () => {
   it("round-trips a full fixture", () => {
-    const fixture: KnowledgeVersion = {
+    const fixture: MemoryVersion = {
       id: "kv_1",
       tenant_id: "tenant_1",
       document_id: "doc_1",
@@ -58,12 +58,12 @@ describe("KnowledgeVersionSchema", () => {
       created_by_principal_id: "principal_1",
       created_by_kind: "human",
     };
-    const out = KnowledgeVersionSchema(fixture);
+    const out = MemoryVersionSchema(fixture);
     expect(out instanceof type.errors ? out.summary : out).toEqual(fixture);
   });
 
   it("rejects an invalid status", () => {
-    const out = KnowledgeVersionSchema({
+    const out = MemoryVersionSchema({
       id: "kv_1",
       tenant_id: "tenant_1",
       document_id: "doc_1",

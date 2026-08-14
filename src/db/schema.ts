@@ -12,9 +12,9 @@ import {
 } from "drizzle-orm/pg-core";
 
 /** Postgres schema owned by this package — never public. */
-export const KNOWLEDGE_SCHEMA = "knowledge";
+export const MEMORY_SCHEMA = "memory";
 
-export const knowledgeSchema = pgSchema(KNOWLEDGE_SCHEMA);
+export const memorySchema = pgSchema(MEMORY_SCHEMA);
 
 // No built-in `bytea` helper in drizzle-orm/pg-core; raw_capture.raw_bytes
 // holds non-textual raw payloads (binary source formats) as a Buffer.
@@ -24,7 +24,7 @@ const bytea = customType<{ data: Buffer }>({
   },
 });
 
-export const knowledgeDocument = knowledgeSchema.table(
+export const memoryDocument = memorySchema.table(
   "document",
   {
     id: text("id").primaryKey(),
@@ -49,14 +49,14 @@ export const knowledgeDocument = knowledgeSchema.table(
   ],
 );
 
-export const knowledgeVersion = knowledgeSchema.table(
+export const memoryVersion = memorySchema.table(
   "version",
   {
     id: text("id").primaryKey(),
     tenantId: text("tenant_id").notNull(),
     documentId: text("document_id")
       .notNull()
-      .references(() => knowledgeDocument.id, { onDelete: "cascade" }),
+      .references(() => memoryDocument.id, { onDelete: "cascade" }),
     version: integer("version").notNull(),
     supersedesVersionId: text("supersedes_version_id"),
     status: text("status").notNull().default("active"),
@@ -88,17 +88,17 @@ export const knowledgeVersion = knowledgeSchema.table(
   ],
 );
 
-export const knowledgeChunk = knowledgeSchema.table(
+export const memoryChunk = memorySchema.table(
   "chunk",
   {
     id: text("id").primaryKey(),
     tenantId: text("tenant_id").notNull(),
     versionId: text("version_id")
       .notNull()
-      .references(() => knowledgeVersion.id, { onDelete: "cascade" }),
+      .references(() => memoryVersion.id, { onDelete: "cascade" }),
     documentId: text("document_id")
       .notNull()
-      .references(() => knowledgeDocument.id, { onDelete: "cascade" }),
+      .references(() => memoryDocument.id, { onDelete: "cascade" }),
     ordinal: integer("ordinal").notNull(),
     text: text("text").notNull(),
     role: text("role"),
@@ -109,7 +109,7 @@ export const knowledgeChunk = knowledgeSchema.table(
   ],
 );
 
-export const knowledgeEntity = knowledgeSchema.table(
+export const memoryEntity = memorySchema.table(
   "entity",
   {
     id: text("id").primaryKey(),
@@ -122,7 +122,7 @@ export const knowledgeEntity = knowledgeSchema.table(
   (t) => [index("entity_tenant_kind_idx").on(t.tenantId, t.kind)],
 );
 
-export const knowledgeEdge = knowledgeSchema.table(
+export const memoryEdge = memorySchema.table(
   "edge",
   {
     id: text("id").primaryKey(),
@@ -145,7 +145,7 @@ export const knowledgeEdge = knowledgeSchema.table(
 // different config without re-fetching source. Append-only; dedupe on
 // (tenantId, sourceHash) reuses the existing row instead of inserting a
 // duplicate.
-export const rawCapture = knowledgeSchema.table(
+export const rawCapture = memorySchema.table(
   "raw_capture",
   {
     id: text("id").primaryKey(),
@@ -172,7 +172,7 @@ export const rawCapture = knowledgeSchema.table(
   ],
 );
 
-export const knowledgeEmbedModel = knowledgeSchema.table("embed_model", {
+export const memoryEmbedModel = memorySchema.table("embed_model", {
   id: text("id").primaryKey(),
   tenantId: text("tenant_id").notNull(),
   modelKey: text("model_key").notNull(),
@@ -188,7 +188,7 @@ export const knowledgeEmbedModel = knowledgeSchema.table("embed_model", {
 // + retrieval-boost config (see src/core/schemas/transform.ts); unique on
 // (tenant_id, name, version) so re-creating the same name mints a new
 // version rather than colliding.
-export const transformConfig = knowledgeSchema.table(
+export const transformConfig = memorySchema.table(
   "transform_config",
   {
     id: text("id").primaryKey(),
@@ -209,9 +209,9 @@ export const transformConfig = knowledgeSchema.table(
 
 // The replay pipeline — one execution of a transform_config against a (possibly filtered)
 // slice of raw_capture. `generation` is this run's id, written onto every
-// knowledge_version row it derives; unique so a generation always resolves
+// memory_version row it derives; unique so a generation always resolves
 // back to exactly one run (and therefore one config) at search time.
-export const transformRun = knowledgeSchema.table(
+export const transformRun = memorySchema.table(
   "transform_run",
   {
     id: text("id").primaryKey(),

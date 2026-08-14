@@ -4,7 +4,7 @@ import { type } from "arktype";
 // Text Embeddings Inference (TEI) server, or a self-hosted Ollama instance.
 // `apiKey` is an already-resolved secret string: resolving it from the
 // tenant credential store is the CALLER's job. A `baseUrl` is just a trusted
-// URL, the same as `KNOWLEDGE_DATABASE_URL` — self-hosted or managed makes no
+// URL, the same as `DATABASE_URL` — self-hosted or managed makes no
 // difference, and there is no self-host flag anywhere.
 export const EmbedClientConfigSchema = type({
   baseUrl: "string",

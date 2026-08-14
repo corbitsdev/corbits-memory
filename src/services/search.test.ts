@@ -231,8 +231,8 @@ describe("fetchDenseCandidates hnsw tuning", () => {
       unsafe: (sqlText: string) => {
         statements.push(sqlText);
         return Promise.resolve(
-          sqlText.includes('FROM "knowledge"."embed_model"') ||
-            sqlText.includes("FROM knowledge_embed_model")
+          sqlText.includes('FROM "memory"."embed_model"') ||
+            sqlText.includes("FROM memory_embed_model")
             ? [MODEL_ROW]
             : [],
         );
@@ -406,8 +406,8 @@ describe("fetchDenseCandidates kind/entity filtering", () => {
         Promise.resolve(
           // CL-5233 qualified the table; keep the pre-qualify form so an
           // accidental revert still fails this suite the same way.
-          sqlText.includes('FROM "knowledge"."embed_model"') ||
-            sqlText.includes("FROM knowledge_embed_model")
+          sqlText.includes('FROM "memory"."embed_model"') ||
+            sqlText.includes("FROM memory_embed_model")
             ? [MODEL_ROW]
             : [],
         ),

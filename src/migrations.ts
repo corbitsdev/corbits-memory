@@ -1,7 +1,7 @@
 /**
  * Memory-plane (pgvector) schema migrations, callable by host apps.
  * Applies every migrations/*.sql in filename order, each in its own
- * transaction, tracked in knowledge._migrations so re-runs are idempotent
+ * transaction, tracked in memory._migrations so re-runs are idempotent
  * and the ledger never collides with a host's public migration bookkeeping.
  */
 import postgres from "postgres";
@@ -13,7 +13,7 @@ import {
   verifyFtsLanguage,
 } from "./core/fts-language.ts";
 import { createRawSqlClient } from "./core/embed-sql.ts";
-import { KNOWLEDGE_SCHEMA } from "./db/schema.ts";
+import { MEMORY_SCHEMA } from "./db/schema.ts";
 
 const MIGRATIONS_DIR = join(import.meta.dir, "..", "migrations");
 
@@ -33,16 +33,16 @@ export async function runMemoryMigrations(
     // Schema first so the ledger and every later migration can land inside it
     // even when 0001 has not been applied yet (fresh DB) or was skipped.
     await sql.unsafe(
-      `CREATE SCHEMA IF NOT EXISTS "${KNOWLEDGE_SCHEMA}"`,
+      `CREATE SCHEMA IF NOT EXISTS "${MEMORY_SCHEMA}"`,
     );
     await sql.unsafe(
-      `CREATE TABLE IF NOT EXISTS "${KNOWLEDGE_SCHEMA}"."_migrations" (
+      `CREATE TABLE IF NOT EXISTS "${MEMORY_SCHEMA}"."_migrations" (
       "name" text PRIMARY KEY,
       "applied_at" timestamp NOT NULL DEFAULT now()
     )`,
     );
     const appliedRows = (await sql.unsafe(
-      `SELECT name FROM "${KNOWLEDGE_SCHEMA}"."_migrations"`,
+      `SELECT name FROM "${MEMORY_SCHEMA}"."_migrations"`,
     )) as unknown as { name: string }[];
     const applied = new Set(appliedRows.map((row) => row.name));
 
@@ -60,7 +60,7 @@ export async function runMemoryMigrations(
       await sql.begin(async (tx) => {
         await tx.unsafe(ddl);
         await tx.unsafe(
-          `INSERT INTO "${KNOWLEDGE_SCHEMA}"."_migrations" (name) VALUES ($1)`,
+          `INSERT INTO "${MEMORY_SCHEMA}"."_migrations" (name) VALUES ($1)`,
           [file],
         );
       });

@@ -1,7 +1,7 @@
--- Single baseline for the knowledge plane (grant-tag authz from day one).
+-- Single baseline for the memory plane (grant-tag authz from day one).
 -- Document access is access_tags + creator post-filter; no visibility_* columns.
 
-CREATE TABLE IF NOT EXISTS "knowledge"."document" (
+CREATE TABLE IF NOT EXISTS "memory"."document" (
   "id" text PRIMARY KEY,
   "tenant_id" text NOT NULL,
   "kind" text NOT NULL,
@@ -15,9 +15,9 @@ CREATE TABLE IF NOT EXISTS "knowledge"."document" (
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS "document_tenant_adapter_external_ref_uniq"
-  ON "knowledge"."document" ("tenant_id", "adapter", "external_ref");
+  ON "memory"."document" ("tenant_id", "adapter", "external_ref");
 
-CREATE TABLE IF NOT EXISTS "knowledge"."raw_capture" (
+CREATE TABLE IF NOT EXISTS "memory"."raw_capture" (
   "id" text PRIMARY KEY,
   "tenant_id" text NOT NULL,
   "adapter" text NOT NULL,
@@ -31,15 +31,15 @@ CREATE TABLE IF NOT EXISTS "knowledge"."raw_capture" (
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS "raw_capture_tenant_source_hash_uniq"
-  ON "knowledge"."raw_capture" ("tenant_id", "source_hash");
+  ON "memory"."raw_capture" ("tenant_id", "source_hash");
 
 CREATE INDEX IF NOT EXISTS "raw_capture_tenant_adapter_external_ref_idx"
-  ON "knowledge"."raw_capture" ("tenant_id", "adapter", "external_ref");
+  ON "memory"."raw_capture" ("tenant_id", "adapter", "external_ref");
 
-CREATE TABLE IF NOT EXISTS "knowledge"."version" (
+CREATE TABLE IF NOT EXISTS "memory"."version" (
   "id" text PRIMARY KEY,
   "tenant_id" text NOT NULL,
-  "document_id" text NOT NULL REFERENCES "knowledge"."document" ("id") ON DELETE CASCADE,
+  "document_id" text NOT NULL REFERENCES "memory"."document" ("id") ON DELETE CASCADE,
   "version" integer NOT NULL,
   "supersedes_version_id" text,
   "status" text NOT NULL DEFAULT 'active',
@@ -55,7 +55,7 @@ CREATE TABLE IF NOT EXISTS "knowledge"."version" (
   "actor_count" integer NOT NULL DEFAULT 1,
   "has_social_signal" boolean NOT NULL DEFAULT false,
   "source_class" text NOT NULL DEFAULT 'native',
-  "raw_capture_id" text REFERENCES "knowledge"."raw_capture" ("id"),
+  "raw_capture_id" text REFERENCES "memory"."raw_capture" ("id"),
   "generation" text NOT NULL DEFAULT 'live',
   CONSTRAINT "version_status_check"
     CHECK ("status" IN ('active', 'superseded', 'deprecated', 'archived', 'tombstoned')),
@@ -66,16 +66,16 @@ CREATE TABLE IF NOT EXISTS "knowledge"."version" (
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS "version_document_generation_version_uniq"
-  ON "knowledge"."version" ("document_id", "generation", "version");
+  ON "memory"."version" ("document_id", "generation", "version");
 
 CREATE INDEX IF NOT EXISTS "version_document_status_idx"
-  ON "knowledge"."version" ("document_id", "status");
+  ON "memory"."version" ("document_id", "status");
 
-CREATE TABLE IF NOT EXISTS "knowledge"."chunk" (
+CREATE TABLE IF NOT EXISTS "memory"."chunk" (
   "id" text PRIMARY KEY,
   "tenant_id" text NOT NULL,
-  "version_id" text NOT NULL REFERENCES "knowledge"."version" ("id") ON DELETE CASCADE,
-  "document_id" text NOT NULL REFERENCES "knowledge"."document" ("id") ON DELETE CASCADE,
+  "version_id" text NOT NULL REFERENCES "memory"."version" ("id") ON DELETE CASCADE,
+  "document_id" text NOT NULL REFERENCES "memory"."document" ("id") ON DELETE CASCADE,
   "ordinal" integer NOT NULL,
   "text" text NOT NULL,
   "role" text,
@@ -83,18 +83,18 @@ CREATE TABLE IF NOT EXISTS "knowledge"."chunk" (
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS "chunk_version_ordinal_uniq"
-  ON "knowledge"."chunk" ("version_id", "ordinal");
+  ON "memory"."chunk" ("version_id", "ordinal");
 
--- {{FTS_LANGUAGE}} is substituted by runKnowledgeMigrations from FTS_LANGUAGE
+-- {{FTS_LANGUAGE}} is substituted by runMemoryMigrations from FTS_LANGUAGE
 -- (or opts.ftsLanguage). Must match the language used at query time.
-ALTER TABLE "knowledge"."chunk"
+ALTER TABLE "memory"."chunk"
   ADD COLUMN IF NOT EXISTS "text_fts" tsvector
   GENERATED ALWAYS AS (to_tsvector('{{FTS_LANGUAGE}}', "text")) STORED;
 
 CREATE INDEX IF NOT EXISTS "chunk_text_fts_idx"
-  ON "knowledge"."chunk" USING GIN ("text_fts");
+  ON "memory"."chunk" USING GIN ("text_fts");
 
-CREATE TABLE IF NOT EXISTS "knowledge"."entity" (
+CREATE TABLE IF NOT EXISTS "memory"."entity" (
   "id" text PRIMARY KEY,
   "tenant_id" text NOT NULL,
   "kind" text NOT NULL,
@@ -104,9 +104,9 @@ CREATE TABLE IF NOT EXISTS "knowledge"."entity" (
 );
 
 CREATE INDEX IF NOT EXISTS "entity_tenant_kind_idx"
-  ON "knowledge"."entity" ("tenant_id", "kind");
+  ON "memory"."entity" ("tenant_id", "kind");
 
-CREATE TABLE IF NOT EXISTS "knowledge"."edge" (
+CREATE TABLE IF NOT EXISTS "memory"."edge" (
   "id" text PRIMARY KEY,
   "tenant_id" text NOT NULL,
   "rel" text NOT NULL,
@@ -127,12 +127,12 @@ CREATE TABLE IF NOT EXISTS "knowledge"."edge" (
 );
 
 CREATE INDEX IF NOT EXISTS "edge_from_idx"
-  ON "knowledge"."edge" ("tenant_id", "from_type", "from_ref");
+  ON "memory"."edge" ("tenant_id", "from_type", "from_ref");
 
 CREATE INDEX IF NOT EXISTS "edge_to_idx"
-  ON "knowledge"."edge" ("tenant_id", "to_type", "to_ref");
+  ON "memory"."edge" ("tenant_id", "to_type", "to_ref");
 
-CREATE TABLE IF NOT EXISTS "knowledge"."embed_model" (
+CREATE TABLE IF NOT EXISTS "memory"."embed_model" (
   "id" text PRIMARY KEY,
   "tenant_id" text NOT NULL,
   "model_key" text NOT NULL,
@@ -145,7 +145,7 @@ CREATE TABLE IF NOT EXISTS "knowledge"."embed_model" (
     CHECK ("status" IN ('active', 'retired'))
 );
 
-CREATE TABLE IF NOT EXISTS "knowledge"."transform_config" (
+CREATE TABLE IF NOT EXISTS "memory"."transform_config" (
   "id" text PRIMARY KEY,
   "tenant_id" text NOT NULL,
   "name" text NOT NULL,
@@ -156,10 +156,10 @@ CREATE TABLE IF NOT EXISTS "knowledge"."transform_config" (
     UNIQUE ("tenant_id", "name", "version")
 );
 
-CREATE TABLE IF NOT EXISTS "knowledge"."transform_run" (
+CREATE TABLE IF NOT EXISTS "memory"."transform_run" (
   "id" text PRIMARY KEY,
   "tenant_id" text NOT NULL,
-  "config_id" text NOT NULL REFERENCES "knowledge"."transform_config" ("id"),
+  "config_id" text NOT NULL REFERENCES "memory"."transform_config" ("id"),
   "scope" jsonb NOT NULL DEFAULT '{}',
   "generation" text NOT NULL,
   "status" text NOT NULL DEFAULT 'running',
@@ -173,7 +173,7 @@ CREATE TABLE IF NOT EXISTS "knowledge"."transform_run" (
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS "transform_run_generation_uniq"
-  ON "knowledge"."transform_run" ("generation");
+  ON "memory"."transform_run" ("generation");
 
 CREATE INDEX IF NOT EXISTS "transform_run_tenant_config_idx"
-  ON "knowledge"."transform_run" ("tenant_id", "config_id");
+  ON "memory"."transform_run" ("tenant_id", "config_id");

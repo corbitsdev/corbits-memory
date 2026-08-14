@@ -161,7 +161,7 @@ There is no `visibility_mode`, principal-id array, block list, or dual-write ACL
 column. Share sugar only mints tags via `resolveAccessTags`.
 
 Fresh databases apply the baseline migrations (`0001_extensions.sql` +
-`0002_knowledge_baseline.sql`) with `access_tags` from day one.
+`0002_memory_baseline.sql`) with `access_tags` from day one.
 
 ## Non-goals
 

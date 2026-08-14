@@ -33,7 +33,7 @@ config (or an injected store).
 ## Boundaries
 
 - **Runtime**: Bun + Hono, mounted on the host app. **DB**: own pgvector
-  Postgres (`KNOWLEDGE_DATABASE_URL`) unless `documentStore` is injected.
+  Postgres (`DATABASE_URL`) unless `documentStore` is injected.
   **Types**: arktype at every route boundary.
 - **No auth of its own.** Interchange resolves the caller and puts `principal`
   + `tenant` on context; routes read identity from there

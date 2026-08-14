@@ -1,16 +1,16 @@
 import { type } from "arktype";
 
-export const KnowledgeVersionStatusSchema = type(
+export const MemoryVersionStatusSchema = type(
   "'active'|'superseded'|'deprecated'|'archived'|'tombstoned'",
 );
-export type KnowledgeVersionStatus = typeof KnowledgeVersionStatusSchema.infer;
+export type MemoryVersionStatus = typeof MemoryVersionStatusSchema.infer;
 
 export const CreatedByKindSchema = type("'human'|'agent'|'system'|'adapter'");
 export type CreatedByKind = typeof CreatedByKindSchema.infer;
 
 // The stable logical row for a captured source, deduped on (tenant_id,
 // adapter, external_ref). Document access is grant tags only.
-export const KnowledgeDocumentSchema = type({
+export const MemoryDocumentSchema = type({
   id: "string",
   tenant_id: "string",
   kind: "string",
@@ -22,18 +22,18 @@ export const KnowledgeDocumentSchema = type({
   created_at: "string",
   last_seen_at: "string",
 });
-export type KnowledgeDocument = typeof KnowledgeDocumentSchema.infer;
+export type MemoryDocument = typeof MemoryDocumentSchema.infer;
 
 // The versioned body of a document. Chunks belong to a version_id, never
 // reused across versions.
-export const KnowledgeVersionSchema = type({
+export const MemoryVersionSchema = type({
   id: "string",
   tenant_id: "string",
   document_id: "string",
   version: "number",
   version_id: "string",
   supersedes_version_id: "string | null",
-  status: KnowledgeVersionStatusSchema,
+  status: MemoryVersionStatusSchema,
   content_hash: "string",
   occurred_at: "string",
   ingested_at: "string",
@@ -43,4 +43,4 @@ export const KnowledgeVersionSchema = type({
   created_by_kind: CreatedByKindSchema,
   "generator_agent_id?": "string",
 });
-export type KnowledgeVersion = typeof KnowledgeVersionSchema.infer;
+export type MemoryVersion = typeof MemoryVersionSchema.infer;

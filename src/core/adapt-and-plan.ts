@@ -7,7 +7,7 @@ import type {
   AdaptedDocumentChunk,
   EntityHint,
 } from "./schemas/adapted-document.ts";
-import type { KnowledgeEdgeHint } from "./schemas/entity-edge.ts";
+import type { MemoryEdgeHint } from "./schemas/entity-edge.ts";
 
 /**
  * Thrown when an AdaptedDocument fails adaptAndPlan's own defensive checks
@@ -37,7 +37,7 @@ export type CapturePlan = {
   contentHash: string;
   chunks: CapturePlanChunk[];
   entityHints: EntityHint[];
-  edges: KnowledgeEdgeHint[];
+  edges: MemoryEdgeHint[];
 };
 
 export type AdaptAndPlanOptions = {

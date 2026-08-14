@@ -24,7 +24,7 @@ src/
     deps.ts               # RouteDeps, caller(c) (context identity), grantGuard
     add.ts, search.ts, list.ts
   db/
-    schema.ts             # Drizzle table defs (knowledge.* schema)
+    schema.ts             # Drizzle table defs (memory.* schema)
     client.ts             # createDb(config) -> { db (drizzle), sql (raw postgres-js) }
   services/
     capture.ts            # captureDocument, deriveFromRawCapture — the write path
@@ -51,7 +51,7 @@ singletons except the logger). Nothing has import-time side effects, so unit
 tests exercise the routes and services directly without a listening server.
 
 Mounting does **not** verify the FTS language against the database at boot —
-see the `knowledge_chunk` section below. A host is expected to either run
+see the `memory_chunk` section below. A host is expected to either run
 `runMemoryMigrations` itself (which verifies) or wire its own readiness
 probe to call `verifyFtsLanguage`; without one of those, a language mismatch
 surfaces as a runtime failure on the plane's first query, not at mount time.
@@ -75,7 +75,7 @@ fallback)` parses a positive integer or throws.
 
 | Var | Required? | Default | Notes |
 |---|---|---|---|
-|  `KNOWLEDGE_DATABASE_URL` | **yes** | — | the engine's own pgvector Postgres |
+|  `DATABASE_URL` | **yes** | — | the engine's own pgvector Postgres |
 | `DB_POOL_MAX` | no | `8` | postgres-js pool size |
 | `FTS_LANGUAGE` | no | `english` | text search config for the lexical channel; fixed into the generated column at migration time — changing it later requires rebuilding the column (recipe below), and `runMemoryMigrations` fails loudly if config and column disagree. Unqualified `pg_catalog` config names only — a schema-qualified config (`myschema.mycfg`) is rejected explicitly, both when configuring and when read back from an already-migrated column. |
 | `EMBED_BASE_URL` | **yes** | — | embed endpoint root, no path suffix |
@@ -99,7 +99,7 @@ embed/rerank endpoint the engine calls — its own `EngineConfig.embed`/
 the embed-model-registry probe/activation, and `toRerankClientConfig`) and a
 `transform_config`'s replay embed override (`buildEmbedClientConfig` in
 `services/transform.ts`) — is treated as a trusted URL, exactly like
-`KNOWLEDGE_DATABASE_URL`. There is no private-IP / SSRF filtering and no `allowSelfHost`
+`DATABASE_URL`. There is no private-IP / SSRF filtering and no `allowSelfHost`
 knob anywhere: a self-hosted endpoint on `localhost` or a private IP is just a
 URL, indistinguishable from a managed provider. Model/replay endpoints are
 configured by the operator (env) or named by a trusted caller in a
@@ -110,10 +110,10 @@ egress control front the endpoints with an allowlisting proxy.
 
 All tables are Drizzle-defined in `db/schema.ts`, DDL'd in `migrations/`
 (applied by `scripts/db-setup.ts`, tracked in a `_migrations` ledger table so
-re-running is a no-op). No knowledge table has a foreign key into any
+re-running is a no-op). No memory table has a foreign key into any
 control-plane table — `tenant_id`/`principal_id`/source refs are plain `text`.
 
-### `knowledge_document`
+### `memory_document`
 The stable logical row for a captured source. Unique on
 `(tenant_id, adapter, external_ref)` — this triple is the dedupe/identity key
 every capture upserts against. Document access is **grant tags**:
@@ -121,10 +121,10 @@ every capture upserts against. Document access is **grant tags**:
 `docs/AUTHZ-DOCUMENT-ACCESS.md`). `attributes` is a flat jsonb bag of scalars.
 `last_seen_at` bumps on every re-capture, even a content-hash NOOP.
 
-### `knowledge_version`
+### `memory_version`
 The versioned body of a document. `version` is a monotonic integer scoped to
 `(document_id, generation)` — **not** globally per-document — per the
-`knowledge_version_document_generation_version_uniq` unique index (baseline
+`memory_version_document_generation_version_uniq` unique index (baseline
 schema). `status` tracks `'active'|'superseded'|'deprecated'|'archived'|'tombstoned'`;
 only one `active` row exists per `(document_id, generation)` at a time (the
 capture path enforces this by flipping the prior active row to `superseded`
@@ -140,7 +140,7 @@ replay-generation tag: the normal add path always writes
 so a replayed corpus's versions never collide with, or even become visible
 alongside, the live ones unless a caller explicitly searches that generation.
 
-### `knowledge_chunk`
+### `memory_chunk`
 An ordered slice of a version's text, keyed by `(version_id, ordinal)`
 (unique). Carries a generated-always `text_fts tsvector` column (GIN-indexed)
 that powers the lexical search channel — this is the only place FTS is
@@ -171,36 +171,36 @@ alter an existing one. One-time recipe (verified against a live
 
 ```sql
 BEGIN;
-DROP INDEX IF EXISTS knowledge_chunk_text_fts_idx;
-ALTER TABLE knowledge_chunk DROP COLUMN text_fts;
-ALTER TABLE knowledge_chunk ADD COLUMN text_fts tsvector
+DROP INDEX IF EXISTS memory_chunk_text_fts_idx;
+ALTER TABLE memory_chunk DROP COLUMN text_fts;
+ALTER TABLE memory_chunk ADD COLUMN text_fts tsvector
   GENERATED ALWAYS AS (to_tsvector('<new_language>', "text")) STORED;
 COMMIT;
 
 -- Separate statement/connection — CREATE INDEX CONCURRENTLY is rejected
 -- inside any transaction block, unconditionally, since Postgres 8.2. It
 -- cannot be combined with the BEGIN/COMMIT block above.
-CREATE INDEX CONCURRENTLY knowledge_chunk_text_fts_idx ON knowledge_chunk USING gin (text_fts);
+CREATE INDEX CONCURRENTLY memory_chunk_text_fts_idx ON memory_chunk USING gin (text_fts);
 ```
 
 Both `ALTER TABLE` statements take an `ACCESS EXCLUSIVE` lock and force a
 full table rewrite (dropping then re-adding a `STORED` generated column
-always rewrites) — plan for a stall on `knowledge_chunk` for the duration on
+always rewrites) — plan for a stall on `memory_chunk` for the duration on
 a populated database; run in a maintenance window. Only unqualified
 `pg_catalog` config names are supported; a schema-qualified config on this
 column is rejected explicitly by `verifyFtsLanguage` (with this same recipe
 in the error) rather than silently mis-parsed.
 
-### `knowledge_entity` / `knowledge_edge`
-Lightweight graph rows. `knowledge_entity` has no unique constraint; dedupe on
+### `memory_entity` / `memory_edge`
+Lightweight graph rows. `memory_entity` has no unique constraint; dedupe on
 `(tenant_id, kind, identifiers)` is done in application code
 (`upsertEntity` in `capture.ts`, an exact-match linear scan per kind). Same for
-`knowledge_edge` (dedupe on the full `(tenant_id, rel, from, to)` tuple,
+`memory_edge` (dedupe on the full `(tenant_id, rel, from, to)` tuple,
 `upsertEdge`). `rel` is constrained (DB CHECK + arktype) to
 `'about'|'produced_by'|'links'|'parent'|'mentions'|'waiting_on'`; `from_type`/
 `to_type` to `'document'|'entity'|'native'`.
 
-### `knowledge_embed_model`
+### `memory_embed_model`
 Per-tenant registry of which embed model is currently active, and the
 dimensionality it was discovered at (`discoverModelDims`/`probeEmbedDims` —
 dims are **never** hard-coded, always probed live against the endpoint).
@@ -210,18 +210,18 @@ most-recently-`updated_at` row with `status = 'active'` for that tenant
 (`resolveActiveEmbedTable`) — there is no per-generation embed-model scoping
 (see "Known limitation" under Raw + replay below).
 
-### Dynamic per-model vector tables: `knowledge_embedding_<key>`
+### Dynamic per-model vector tables: `memory_embedding_<key>`
 Not in `db/schema.ts` (no fixed shape — dimensionality varies by model) and
 not in any migration file. Created at runtime by
 `activateEmbedModel` (`embed-model-registry.ts`) the first time a given
 `(baseUrl, modelId)` pair is used:
 ```sql
-CREATE TABLE IF NOT EXISTS knowledge_embedding_<key> (
+CREATE TABLE IF NOT EXISTS memory_embedding_<key> (
   chunk_id text PRIMARY KEY,
   tenant_id text NOT NULL,
   embedding vector(<dims>),
-  CONSTRAINT knowledge_embedding_<key>_chunk_fk
-    FOREIGN KEY (chunk_id) REFERENCES knowledge_chunk (id) ON DELETE CASCADE
+  CONSTRAINT memory_embedding_<key>_chunk_fk
+    FOREIGN KEY (chunk_id) REFERENCES memory_chunk (id) ON DELETE CASCADE
 )
 ```
 plus a `(tenant_id, chunk_id)` index (created on every activation, so it
@@ -231,9 +231,9 @@ EXISTS` cannot add the FK to a table created before it existed; that gap is
 accepted (no populated pre-FK installs exist). If hard deletes are ever
 introduced against such a table, run once, per embedding table:
 ```sql
-ALTER TABLE knowledge_embedding_<key>
-  ADD CONSTRAINT knowledge_embedding_<key>_chunk_fk
-  FOREIGN KEY (chunk_id) REFERENCES knowledge_chunk (id) ON DELETE CASCADE;
+ALTER TABLE memory_embedding_<key>
+  ADD CONSTRAINT memory_embedding_<key>_chunk_fk
+  FOREIGN KEY (chunk_id) REFERENCES memory_chunk (id) ON DELETE CASCADE;
 ```
 plus an HNSW index: `vector_cosine_ops` up to 2000 dims (falling back to
 `ivfflat` if the Postgres/pgvector build lacks the `hnsw` access method), or
@@ -248,8 +248,8 @@ at activation instead. The dense query's `ORDER BY` is generated by
 `cosineDistanceExpr` from the same module so it always matches the indexed
 expression. The table name is
 validated against `EMBED_TABLE_NAME_PATTERN`
-(`/^knowledge_embedding_[a-f0-9]{16}$/`) both when computed and again every
-time it's read back from `knowledge_embed_model`, before ever being
+(`/^memory_embedding_[a-f0-9]{16}$/`) both when computed and again every
+time it's read back from `memory_embed_model`, before ever being
 string-interpolated into raw SQL — this is the only place in the codebase a
 computed identifier is spliced into DDL/DML.
 
@@ -301,7 +301,7 @@ returns the run summary either way.
    a new one, all inside the same transaction as the derived rows.
 3. **`deriveVersionInTransaction`** — the single derivation core shared by
    live capture and replay:
-   - No existing `knowledge_document` for `(tenantId, adapter, externalRef)`
+   - No existing `memory_document` for `(tenantId, adapter, externalRef)`
      → insert a new document row + a version at `version = 1`,
      `supersedesVersionId = null`.
    - Existing document, and its current `active` version (scoped to this
@@ -365,11 +365,11 @@ search); otherwise it throws `MemorySearchInputError` (400).
 2. **Lexical channel** — `fetchLexicalCandidates`: Postgres full-text search
    (`ts_rank` against `plainto_tsquery` in the configured `FTS_LANGUAGE`,
    bound as a `regconfig` parameter, over
-   `knowledge_chunk.text_fts`), joined to `knowledge_version` (filtered to
-   `status = 'active'` and the resolved `generation`) and `knowledge_document`
+   `memory_chunk.text_fts`), joined to `memory_version` (filtered to
+   `status = 'active'` and the resolved `generation`) and `memory_document`
    (tenant-scoped only — document access is grant-tag post-filter in the plane),
    optionally further filtered by
-   `kinds` and/or `entityIds` (via a sub-select against `knowledge_edge`).
+   `kinds` and/or `entityIds` (via a sub-select against `memory_edge`).
    Overfetches up to `overfetchLimit` rows, non-deduped, per-chunk.
 3. **Dense channel** — `fetchDenseCandidates`: embeds the query
    (`embedTexts`), resolves the tenant's single active embedding table
@@ -379,7 +379,7 @@ search); otherwise it throws `MemorySearchInputError` (400).
    `(e.embedding::halfvec(N)) <=> $vector::halfvec(N)` expression above that
    so the halfvec HNSW index is used)
    against that table joined back to
-   `knowledge_chunk`/`knowledge_version`/`knowledge_document` with the
+   `memory_chunk`/`memory_version`/`memory_document` with the
    **same tenant-only scope** as the lexical channel (no mini-ACL in SQL).
    Returns `null` (not an error) when there's no active embed
    model yet or the query is empty; a thrown error from the embed call or
@@ -511,11 +511,11 @@ timeline maps different columns:
 
 | Wire field | Source column / meaning |
 |---|---|
-| `at` | `knowledge_document.last_seen_at` (ISO) — re-captures rise in the feed |
-| `title` | `knowledge_document.title` |
-| `source` | `knowledge_document.adapter` (HTTP add defaults to `"http"`, not `"api"`) |
-| `tenantId` | `knowledge_document.tenant_id` |
-| `principalId` | `knowledge_version.created_by_principal_id` of the active live version (empty string when null) — the capturing actor stored on the version, not the request principal of a later timeline read |
+| `at` | `memory_document.last_seen_at` (ISO) — re-captures rise in the feed |
+| `title` | `memory_document.title` |
+| `source` | `memory_document.adapter` (HTTP add defaults to `"http"`, not `"api"`) |
+| `tenantId` | `memory_document.tenant_id` |
+| `principalId` | `memory_version.created_by_principal_id` of the active live version (empty string when null) — the capturing actor stored on the version, not the request principal of a later timeline read |
 
 ### Document access (grant tags)
 
@@ -523,7 +523,7 @@ Document access is Interchange authz — **not** a mini-ACL.
 
 - Write path: `resolveAccessTags` always writes `memory.owner:<caller>` and
   merges optional `accessTags` / share sugar (`tenant`, peer `principals`,
-  explicit `tags`). Stored on `knowledge.document.access_tags`.
+  explicit `tags`). Stored on `memory.document.access_tags`.
 - Read path (search + list): `canAccessDocument` — creator always allowed;
   otherwise `authorize(grantStore, principal, tenant, tag, "search")` for any
   tag on the document.
@@ -549,15 +549,15 @@ docker compose up -d                                   # pgvector + Ollama + rer
 docker compose exec ollama ollama pull nomic-embed-text
 cp .env.example .env
 bun install
-bun run db:setup                                       # apply the knowledge schema, idempotent
+bun run db:setup                                       # apply the memory schema, idempotent
 bun run test                                           # unit suite (no external services)
 ```
 
-`compose.yml` provisions the pgvector Postgres (`knowledge` db, host port
+`compose.yml` provisions the pgvector Postgres (`memory` db, host port
 `5434`), an Ollama embeddings server (`:11434`), and a TEI reranker (`:8085`).
 The engine **never embeds internally** — `EMBED_BASE_URL` must point at a real
 endpoint. A model endpoint is just a URL + capability options, trusted the same
-as `KNOWLEDGE_DATABASE_URL`:
+as `DATABASE_URL`:
 
 - **Local default**: Ollama at `http://localhost:11434`
   (`EMBED_API_STYLE=ollama`, `EMBED_MODEL=nomic-embed-text`).

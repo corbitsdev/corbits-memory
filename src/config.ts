@@ -3,14 +3,14 @@
  *
  * This is the low-level engine config consumed by the DB client and internal
  * services. The SDK's mount-level config (`MemoryConfig`, see
- * mount-config.ts) carries this as its `knowledge` sub-object. There is no
+ * mount-config.ts) carries this as its `memory` sub-object. There is no
  * standalone server here — the SDK mounts onto a host Interchange app, so there
  * is no port, service token, or process entrypoint.
  */
 export type EngineConfig = {
   databaseUrl: string;
   dbPoolMax: number;
-  // Must match the language the knowledge_chunk.text_fts column was built
+  // Must match the language the memory_chunk.text_fts column was built
   // with (runMemoryMigrations verifies this against the catalog).
   // Required and concrete: loadMemoryConfig / createMemory resolve
   // the default (DEFAULT_FTS_LANGUAGE) once via parseFtsLanguage so services
@@ -18,7 +18,7 @@ export type EngineConfig = {
   // DEFAULT_FTS_LANGUAGE (or parseFtsLanguage(undefined)) explicitly.
   ftsLanguage: string;
   // A model endpoint (embed or rerank) is just a URL + capability options,
-  // trusted the same as KNOWLEDGE_DATABASE_URL — including a self-hosted endpoint on
+  // trusted the same as DATABASE_URL — including a self-hosted endpoint on
   // localhost or a private IP. Self-hosted or managed makes no difference:
   // there is no self-host flag anywhere in the engine.
   embed: {

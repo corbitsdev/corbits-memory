@@ -1,6 +1,6 @@
 import { getLogger } from "@intx/log";
 
-/** Category-bound logger for the knowledge engine (uses the host's sinks). */
+/** Category-bound logger for the memory engine (uses the host's sinks). */
 export const log = getLogger(["memory"]);
 
 // Some `@intx/log` sinks do not render a call's context object into the

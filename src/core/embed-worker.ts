@@ -30,7 +30,7 @@ function assertValidTableName(tableName: string): void {
 
 /**
  * Embeds and stores vectors for a known, already-inserted set of
- * knowledge_chunk rows — the capture service's counterpart to a pending-chunk
+ * memory_chunk rows — the capture service's counterpart to a pending-chunk
  * scanner: the caller already knows exactly which chunks are new (it just
  * inserted them), so there is no LEFT JOIN discovery step here.
  *

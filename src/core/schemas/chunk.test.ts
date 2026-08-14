@@ -1,8 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import { type } from "arktype";
-import { KnowledgeChunkSchema } from "./chunk.ts";
+import { MemoryChunkSchema } from "./chunk.ts";
 
-describe("KnowledgeChunkSchema", () => {
+describe("MemoryChunkSchema", () => {
   it("round-trips a full fixture", () => {
     const fixture = {
       id: "chunk_1",
@@ -14,12 +14,12 @@ describe("KnowledgeChunkSchema", () => {
       role: "summary",
       created_at: "2026-07-19T00:00:00.000Z",
     };
-    const out = KnowledgeChunkSchema(fixture);
+    const out = MemoryChunkSchema(fixture);
     expect(out instanceof type.errors ? out.summary : out).toEqual(fixture);
   });
 
   it("parses without the optional role", () => {
-    const out = KnowledgeChunkSchema({
+    const out = MemoryChunkSchema({
       id: "chunk_1",
       tenant_id: "tenant_1",
       version_id: "kv_1",
@@ -32,7 +32,7 @@ describe("KnowledgeChunkSchema", () => {
   });
 
   it("rejects a chunk missing version_id", () => {
-    const out = KnowledgeChunkSchema({
+    const out = MemoryChunkSchema({
       id: "chunk_1",
       tenant_id: "tenant_1",
       document_id: "doc_1",

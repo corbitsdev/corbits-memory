@@ -3,10 +3,10 @@ import type { Db, RawSql } from "../db/client.ts";
 import type { EngineConfig } from "../config.ts";
 import { LIVE_GENERATION } from "../core/generation.ts";
 import {
-  knowledgeChunk,
-  knowledgeDocument,
-  knowledgeEdge,
-  knowledgeVersion,
+  memoryChunk,
+  memoryDocument,
+  memoryEdge,
+  memoryVersion,
 } from "../db/schema.ts";
 import { createRawSqlClient } from "../core/embed-sql.ts";
 import {
@@ -146,7 +146,7 @@ const ADAPTER_OPEN_TYPES: Record<string, string> = {
 };
 
 // The routable open target: source row via the external_ref suffix when the
-// adapter maps to a deep-linkable kind; generic knowledge doc otherwise.
+// adapter maps to a deep-linkable kind; generic memory doc otherwise.
 function openTarget(
   adapter: string,
   externalRef: string,
@@ -157,7 +157,7 @@ function openTarget(
   if (openType && externalRef.startsWith(prefix)) {
     return { type: openType, id: externalRef.slice(prefix.length) };
   }
-  return { type: "knowledge", id: documentId };
+  return { type: "memory", id: documentId };
 }
 
 export function toHit(
@@ -285,16 +285,16 @@ export async function attachEntityIds(
   if (documentIds.length === 0) return new Map();
   const edges = await db
     .select({
-      documentId: knowledgeEdge.fromRef,
-      entityId: knowledgeEdge.toRef,
+      documentId: memoryEdge.fromRef,
+      entityId: memoryEdge.toRef,
     })
-    .from(knowledgeEdge)
+    .from(memoryEdge)
     .where(
       and(
-        eq(knowledgeEdge.tenantId, tenantId),
-        eq(knowledgeEdge.fromType, "document"),
-        eq(knowledgeEdge.toType, "entity"),
-        inArray(knowledgeEdge.fromRef, documentIds),
+        eq(memoryEdge.tenantId, tenantId),
+        eq(memoryEdge.fromType, "document"),
+        eq(memoryEdge.toType, "entity"),
+        inArray(memoryEdge.fromRef, documentIds),
       ),
     );
   const map = new Map<string, string[]>();
@@ -347,13 +347,13 @@ export async function fetchLexicalCandidates(
   } = params;
 
   const conditions = [
-    eq(knowledgeChunk.tenantId, tenantId),
-    eq(knowledgeVersion.status, "active"),
-    eq(knowledgeVersion.generation, generation),
+    eq(memoryChunk.tenantId, tenantId),
+    eq(memoryVersion.status, "active"),
+    eq(memoryVersion.generation, generation),
   ];
 
   if (kinds && kinds.length > 0) {
-    conditions.push(inArray(knowledgeDocument.kind, kinds));
+    conditions.push(inArray(memoryDocument.kind, kinds));
   }
 
   let rankExpr = sql<number>`0::double precision`;
@@ -361,56 +361,56 @@ export async function fetchLexicalCandidates(
     // Bound as a parameter and cast to regconfig — never spliced — and
     // required to match the language the generated column was built with
     // (verified against the catalog by runMemoryMigrations).
-    rankExpr = sql<number>`ts_rank("knowledge"."chunk"."text_fts", plainto_tsquery(${ftsLanguage}::regconfig, ${query}))`;
+    rankExpr = sql<number>`ts_rank("memory"."chunk"."text_fts", plainto_tsquery(${ftsLanguage}::regconfig, ${query}))`;
     conditions.push(
-      sql`"knowledge"."chunk"."text_fts" @@ plainto_tsquery(${ftsLanguage}::regconfig, ${query})`,
+      sql`"memory"."chunk"."text_fts" @@ plainto_tsquery(${ftsLanguage}::regconfig, ${query})`,
     );
   }
 
   if (entityIds && entityIds.length > 0) {
     const matchingDocIds = db
-      .select({ documentId: knowledgeEdge.fromRef })
-      .from(knowledgeEdge)
+      .select({ documentId: memoryEdge.fromRef })
+      .from(memoryEdge)
       .where(
         and(
-          eq(knowledgeEdge.tenantId, tenantId),
-          eq(knowledgeEdge.fromType, "document"),
-          eq(knowledgeEdge.toType, "entity"),
-          inArray(knowledgeEdge.toRef, entityIds),
+          eq(memoryEdge.tenantId, tenantId),
+          eq(memoryEdge.fromType, "document"),
+          eq(memoryEdge.toType, "entity"),
+          inArray(memoryEdge.toRef, entityIds),
         ),
       );
-    conditions.push(inArray(knowledgeDocument.id, matchingDocIds));
+    conditions.push(inArray(memoryDocument.id, matchingDocIds));
   }
 
   const rows = await db
     .select({
-      chunkId: knowledgeChunk.id,
-      documentId: knowledgeChunk.documentId,
-      versionId: knowledgeChunk.versionId,
-      version: knowledgeVersion.version,
-      status: knowledgeVersion.status,
-      title: knowledgeDocument.title,
-      kind: knowledgeDocument.kind,
-      adapter: knowledgeDocument.adapter,
-      externalRef: knowledgeDocument.externalRef,
-      createdByKind: knowledgeVersion.createdByKind,
-      generatorAgentId: knowledgeVersion.generatorAgentId,
-      snippetText: knowledgeChunk.text,
+      chunkId: memoryChunk.id,
+      documentId: memoryChunk.documentId,
+      versionId: memoryChunk.versionId,
+      version: memoryVersion.version,
+      status: memoryVersion.status,
+      title: memoryDocument.title,
+      kind: memoryDocument.kind,
+      adapter: memoryDocument.adapter,
+      externalRef: memoryDocument.externalRef,
+      createdByKind: memoryVersion.createdByKind,
+      generatorAgentId: memoryVersion.generatorAgentId,
+      snippetText: memoryChunk.text,
       rank: rankExpr,
-      occurredAt: knowledgeVersion.occurredAt,
-      authority: knowledgeVersion.authority,
+      occurredAt: memoryVersion.occurredAt,
+      authority: memoryVersion.authority,
     })
-    .from(knowledgeChunk)
+    .from(memoryChunk)
     .innerJoin(
-      knowledgeVersion,
-      eq(knowledgeChunk.versionId, knowledgeVersion.id),
+      memoryVersion,
+      eq(memoryChunk.versionId, memoryVersion.id),
     )
     .innerJoin(
-      knowledgeDocument,
-      eq(knowledgeChunk.documentId, knowledgeDocument.id),
+      memoryDocument,
+      eq(memoryChunk.documentId, memoryDocument.id),
     )
     .where(and(...conditions))
-    .orderBy(desc(rankExpr), desc(knowledgeVersion.occurredAt))
+    .orderBy(desc(rankExpr), desc(memoryVersion.occurredAt))
     .limit(overfetchLimit);
 
   return rows as CandidateRow[];
@@ -453,7 +453,7 @@ export function hnswEfSearch(overfetchLimit: number): number {
 
 // Dense channel: embeds the query, then runs an ANN cosine-distance query
 // against the tenant's ACTIVE embedding table only (never a superseded or
-// inactive model's table), joined back to knowledge_chunk/version/document.
+// inactive model's table), joined back to memory_chunk/version/document.
 // Tenant + status + generation only — document access is post-filtered via
 // grant tags (same as the lexical channel).
 // Returns `null` (not an error) when there is no active embed model
@@ -516,7 +516,7 @@ export async function fetchDenseCandidates(
   if (entityIds && entityIds.length > 0) {
     params.push(entityIds);
     entityClause = `AND kd.id IN (
-      SELECT ke.from_ref FROM knowledge_edge ke
+      SELECT ke.from_ref FROM memory_edge ke
       WHERE ke.tenant_id = $1 AND ke.from_type = 'document' AND ke.to_type = 'entity'
         AND ke.to_ref = ANY($${params.length}::text[])
     )`;
@@ -529,9 +529,9 @@ export async function fetchDenseCandidates(
            kv.created_by_kind AS created_by_kind, kv.generator_agent_id AS generator_agent_id,
            c.text AS snippet_text, kv.occurred_at AS occurred_at, kv.authority AS authority
     FROM ${activeTable.tableName} e
-    JOIN "knowledge"."chunk" c ON c.id = e.chunk_id
-    JOIN "knowledge"."version" kv ON kv.id = c.version_id
-    JOIN "knowledge"."document" kd ON kd.id = c.document_id
+    JOIN "memory"."chunk" c ON c.id = e.chunk_id
+    JOIN "memory"."version" kv ON kv.id = c.version_id
+    JOIN "memory"."document" kd ON kd.id = c.document_id
     WHERE e.tenant_id = $1 AND c.tenant_id = $1 AND kv.status = 'active'
       AND kv.generation = ${generationParam}
       ${kindClause}
