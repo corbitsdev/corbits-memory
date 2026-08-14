@@ -52,7 +52,7 @@ describe("MemoryEdgeSchema", () => {
 describe("MemoryEdgeHintSchema", () => {
   it("parses a full fixture", () => {
     const out = MemoryEdgeHintSchema({
-      rel: "produced_by",
+      rel: "authored_by",
       to: { type: "native", ref: "principal_1" },
     });
     expect(out instanceof type.errors).toBe(false);
@@ -60,9 +60,19 @@ describe("MemoryEdgeHintSchema", () => {
 
   it("rejects a hint whose to is missing ref", () => {
     const out = MemoryEdgeHintSchema({
-      rel: "produced_by",
+      rel: "authored_by",
       to: { type: "native" },
     });
     expect(out instanceof type.errors).toBe(true);
+  });
+
+  it("accepts version and chunk endpoint types", () => {
+    for (const endpointType of ["version", "chunk"] as const) {
+      const out = MemoryEdgeHintSchema({
+        rel: "derived_from",
+        to: { type: endpointType, ref: "id_1" },
+      });
+      expect(out instanceof type.errors).toBe(false);
+    }
   });
 });

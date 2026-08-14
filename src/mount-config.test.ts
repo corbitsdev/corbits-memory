@@ -54,6 +54,8 @@ describe("loadMemoryConfig — EMBED_TIMEOUT_MS / RERANK_TIMEOUT_MS", () => {
 
   it("rejects a non-positive-integer EMBED_TIMEOUT_MS", () => {
     process.env.EMBED_TIMEOUT_MS = "not-a-number";
-    expect(() => loadMemoryConfig()).toThrow("EMBED_TIMEOUT_MS must be a positive integer");
+    expect(() => loadMemoryConfig()).toThrow(
+      "EMBED_TIMEOUT_MS must be a positive integer",
+    );
   });
 });

@@ -26,6 +26,14 @@ export type MemoryHttpClient = {
   add(body: MemoryAddBody, signal?: AbortSignal): Promise<unknown>;
   search(body: MemorySearchBody, signal?: AbortSignal): Promise<unknown>;
   list(limit?: number, signal?: AbortSignal): Promise<unknown>;
+  feed(
+    opts?: {
+      after?: number;
+      limit?: number;
+      excludeGenerator?: string;
+    },
+    signal?: AbortSignal,
+  ): Promise<unknown>;
 };
 
 /** Cap hub error text embedded in tool errors (avoid huge/secret-ish dumps). */
@@ -123,6 +131,23 @@ export function createMemoryHttpClient(
           ? `?limit=${encodeURIComponent(String(limit))}`
           : "";
       return request(`/list${qs}`, {
+        method: "GET",
+        ...(signal !== undefined ? { signal } : {}),
+      });
+    },
+    feed(opts, signal) {
+      const params = new URLSearchParams();
+      if (opts?.after !== undefined) {
+        params.set("after", String(opts.after));
+      }
+      if (opts?.limit !== undefined) {
+        params.set("limit", String(opts.limit));
+      }
+      if (opts?.excludeGenerator !== undefined) {
+        params.set("exclude_generator", opts.excludeGenerator);
+      }
+      const qs = params.toString();
+      return request(`/feed${qs ? `?${qs}` : ""}`, {
         method: "GET",
         ...(signal !== undefined ? { signal } : {}),
       });

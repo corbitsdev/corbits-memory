@@ -3,6 +3,7 @@ import { createInMemoryGrantStore } from "@intx/authz";
 import { PgDialect } from "drizzle-orm/pg-core";
 
 import {
+  activeTimelineVersionJoin,
   filterTimelineRows,
   timelineWhere,
   type TimelineRow,
@@ -94,5 +95,23 @@ describe("timelineWhere", () => {
     expect(params).toContain("tenant_a");
     expect(sql).not.toContain("visibility_mode");
     expect(sql).not.toContain("visibility_principal_ids");
+  });
+});
+
+describe("activeTimelineVersionJoin", () => {
+  it("filters active status and live generation by default", () => {
+    const { sql, params } = dialect.sqlToQuery(activeTimelineVersionJoin()!);
+    expect(sql).toContain("status");
+    expect(sql).toContain("generation");
+    expect(params).toContain("active");
+    expect(params).toContain("live");
+  });
+
+  it("accepts a replay generation tag", () => {
+    const { params } = dialect.sqlToQuery(
+      activeTimelineVersionJoin("replay_run_1")!,
+    );
+    expect(params).toContain("replay_run_1");
+    expect(params).not.toContain("live");
   });
 });

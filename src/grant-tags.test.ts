@@ -43,13 +43,13 @@ describe("resolveAccessTags", () => {
       principalId: "u1",
       tenantId: "t1",
       accessTags: ["memory.space:eng"],
-      share: { tags: ["knowledge.project:ke"] },
+      share: { tags: ["custom.project:ke"] },
     });
     expect(tags).toEqual(
       expect.arrayContaining([
         ownerTag("u1"),
         "memory.space:eng",
-        "knowledge.project:ke",
+        "custom.project:ke",
       ]),
     );
   });

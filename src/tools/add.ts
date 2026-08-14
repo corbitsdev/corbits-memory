@@ -12,6 +12,30 @@ function parseAddArgs(args: Record<string, unknown>): MemoryAddBody {
   if (parsed.access_tags !== undefined) {
     body.access_tags = parsed.access_tags;
   }
+  if (parsed.kind !== undefined) {
+    body.kind = parsed.kind;
+  }
+  if (parsed.generator_agent_id !== undefined) {
+    body.generator_agent_id = parsed.generator_agent_id;
+  }
+  if (parsed.provenance !== undefined) {
+    body.provenance = parsed.provenance;
+  }
+  if (parsed.lineage_class !== undefined) {
+    body.lineage_class = parsed.lineage_class;
+  }
+  if (parsed.temporal_class !== undefined) {
+    body.temporal_class = parsed.temporal_class;
+  }
+  if (parsed.derived_from !== undefined) {
+    body.derived_from = parsed.derived_from;
+  }
+  if (parsed.valid_from !== undefined) {
+    body.valid_from = parsed.valid_from;
+  }
+  if (parsed.valid_until !== undefined) {
+    body.valid_until = parsed.valid_until;
+  }
   if (parsed.share !== undefined) {
     // Rebuild share field-by-field — arktype keeps undeclared nested keys.
     const share: NonNullable<MemoryAddBody["share"]> = {};
@@ -33,15 +57,17 @@ function parseAddArgs(args: Record<string, unknown>): MemoryAddBody {
  * Installable tool: POST /api/tenants/:tenantId/memory/add.
  *
  * Tenant and auth come from env (`memoryTenantId`, `memoryAuthToken`);
- * model args never carry identity.
+ * model args never carry identity. Distiller claims pass
+ * `generator_agent_id` + `derived_from` for loop-safety and lineage.
  */
 export const memoryAdd = defineMemoryHttpTool({
   id: "@corbits/memory/add",
   name: "memory_add",
   description:
-    "Store a note in tenant memory. Returns { documentId }. " +
-    "Identity is the authenticated principal on the hub; do not " +
-    "pass tenant or principal ids.",
+    "Store a note in tenant memory. Returns { documentId, versionId }. " +
+    "For distilled claims set generator_agent_id, provenance=inferred, " +
+    "lineage_class=derived, and derived_from source version ids. " +
+    "Identity is the authenticated principal on the hub.",
   inputSchema: {
     type: "object",
     properties: {
@@ -57,7 +83,46 @@ export const memoryAdd = defineMemoryHttpTool({
         type: "array",
         items: { type: "string" },
         description:
-          "Optional grant-pattern tags controlling document visibility",
+          "Optional grant-pattern tags controlling document visibility " +
+          "(distiller: copy from source feed entry, never widen)",
+      },
+      kind: {
+        type: "string",
+        description: "Document kind (default note)",
+      },
+      generator_agent_id: {
+        type: "string",
+        description:
+          "Agent id that authored this version (e.g. resident-distiller). " +
+          "Enables feed excludeGenerator loop-safety.",
+      },
+      provenance: {
+        type: "string",
+        enum: ["stated", "inferred", "unknown"],
+        description: "How content was obtained (inferred for distilled claims)",
+      },
+      lineage_class: {
+        type: "string",
+        enum: ["native", "imported", "derived"],
+        description: "Data lineage (derived for distilled claims)",
+      },
+      temporal_class: {
+        type: "string",
+        enum: ["event", "deadline", "state", "lesson"],
+        description: "Temporal ranking class",
+      },
+      derived_from: {
+        type: "array",
+        items: { type: "string" },
+        description: "Source version ids this claim is derived from",
+      },
+      valid_from: {
+        type: "string",
+        description: "Optional validity start (ISO)",
+      },
+      valid_until: {
+        type: "string",
+        description: "Optional validity end (ISO)",
       },
       share: {
         type: "object",

@@ -25,6 +25,16 @@ export const AddRequest = type({
   text: "string >= 1",
   "access_tags?": "string[]",
   "share?": ShareBody,
+  "kind?": "string",
+  /** Distiller / agent identity on the written version (loop-safety + attribution). */
+  "generator_agent_id?": "string >= 1",
+  "provenance?": "'stated'|'inferred'|'unknown'",
+  "lineage_class?": "'native'|'imported'|'derived'",
+  "temporal_class?": "'event'|'deadline'|'state'|'lesson'",
+  /** Source version ids this claim is derived from (minted as derived_from edges). */
+  "derived_from?": "string[]",
+  "valid_from?": "string",
+  "valid_until?": "string",
 });
 
 export type AddRequest = typeof AddRequest.infer;
@@ -36,6 +46,7 @@ export const SearchRequest = type({
   "entity_ids?": "string[]",
   "sources?": "string[]",
   "includeEvidence?": "boolean",
+  "includeDeprecated?": "boolean",
 });
 
 export type SearchRequest = typeof SearchRequest.infer;
@@ -71,6 +82,48 @@ export function parseListLimitString(
     return null;
   }
   return n;
+}
+
+/** HTTP query schema for GET /memory/feed. */
+export const FeedQuery = type({
+  "after?": "string",
+  "limit?": "string",
+  "exclude_generator?": "string",
+});
+
+export type FeedQuery = typeof FeedQuery.infer;
+
+export type ParsedFeedQuery = {
+  after?: number;
+  limit?: number;
+  excludeGenerator?: string;
+};
+
+/**
+ * Parse feed query params. Returns `{ ok: false, error }` on invalid numbers.
+ */
+export function parseFeedQuery(
+  q: FeedQuery,
+): { ok: true; value: ParsedFeedQuery } | { ok: false; error: string } {
+  const value: ParsedFeedQuery = {};
+  if (q.after !== undefined && q.after !== "") {
+    const n = Number(q.after);
+    if (!Number.isInteger(n) || n < 0) {
+      return { ok: false, error: "after must be a non-negative integer" };
+    }
+    value.after = n;
+  }
+  if (q.limit !== undefined && q.limit !== "") {
+    const n = Number(q.limit);
+    if (!Number.isInteger(n) || n < 1 || n > 100) {
+      return { ok: false, error: "limit must be an integer from 1 to 100" };
+    }
+    value.limit = n;
+  }
+  if (q.exclude_generator !== undefined && q.exclude_generator !== "") {
+    value.excludeGenerator = q.exclude_generator;
+  }
+  return { ok: true, value };
 }
 
 /** Coerce LLM-stringified integers before arktype number.integer checks. */

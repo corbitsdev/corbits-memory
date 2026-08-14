@@ -111,7 +111,15 @@ export interface ActivateEmbedModelResult {
   modelKey: string;
 }
 
-export async function activateEmbedModel(
+/**
+ * Ensure the per-model embedding table and registry row exist without making
+ * this model the tenant's active dense-search target.
+ *
+ * Used by transform/replay so a staged embed model flip never steals
+ * `resolveActiveEmbedTable` from live. Idempotent: CREATE TABLE IF NOT EXISTS
+ * + registry upsert that never promotes status to `active`.
+ */
+export async function ensureEmbedModel(
   client: EmbedRegistrySqlClient,
   tenantId: string,
   config: EmbedClientConfig,
@@ -122,11 +130,14 @@ export async function activateEmbedModel(
   const tableName = embeddingTableName(modelKey);
   const bare = embeddingTableBareName(modelKey);
 
+  // status stays 'ready' on insert; ON CONFLICT never overwrites an existing
+  // status (so an already-active model remains active) and never bumps
+  // updated_at (so a ready model cannot leapfrog resolveActiveEmbedTable).
   await client.query(
     `INSERT INTO "memory"."embed_model" (id, tenant_id, model_key, model_id, dims, status, created_at, updated_at)
-     VALUES ($1, $2, $3, $4, $5, 'active', now(), now())
+     VALUES ($1, $2, $3, $4, $5, 'ready', now(), now())
      ON CONFLICT (tenant_id, model_key)
-     DO UPDATE SET model_id = EXCLUDED.model_id, dims = EXCLUDED.dims, updated_at = now()`,
+     DO UPDATE SET model_id = EXCLUDED.model_id, dims = EXCLUDED.dims`,
     [randomUUID(), tenantId, modelKey, config.modelId, dims],
   );
 
@@ -148,7 +159,7 @@ export async function activateEmbedModel(
   );
   // Composite over bare tenant_id: the read path filters tenant_id plus a
   // chunk_id set; this is a B-tree membership filter (fetchChunkVectors also
-  // selects embedding). Runs on every activation so a pre-FK table still gets
+  // selects embedding). Runs on every ensure so a pre-FK table still gets
   // the index.
   await client.query(
     `CREATE INDEX IF NOT EXISTS ${bare}_tenant_chunk_idx ON ${tableName} (tenant_id, chunk_id)`,
@@ -178,7 +189,7 @@ export async function activateEmbedModel(
     // cosineDistanceExpr emits for these dims, or the planner ignores the
     // index. No ivfflat fallback on this path: halfvec requires
     // pgvector >= 0.7.0 and every such release has hnsw, so a failure here
-    // means the extension is too old for halfvec at all — let activation
+    // means the extension is too old for halfvec at all — let ensure
     // fail loudly at this boundary rather than accept an unindexable model.
     // IF NOT EXISTS also retrofits the index onto a table created before
     // halfvec support existed; on a large populated table this build can
@@ -192,10 +203,29 @@ export async function activateEmbedModel(
   return { tableName, dims, modelId: config.modelId, modelKey };
 }
 
+/**
+ * Ensure the table exists, then promote this model to the tenant's active
+ * dense-search target (`status='active'`, `updated_at=now()`). Other active
+ * rows for the tenant are demoted to `ready` so `resolveActiveEmbedTable`
+ * cannot pick a stale peer by updated_at race. Live capture uses this path;
+ * transform/replay must use `ensureEmbedModel` only.
+ */
+export async function activateEmbedModel(
+  client: EmbedRegistrySqlClient,
+  tenantId: string,
+  config: EmbedClientConfig,
+  fetchImpl: typeof fetch = fetch,
+): Promise<ActivateEmbedModelResult> {
+  const result = await ensureEmbedModel(client, tenantId, config, fetchImpl);
+  await setActiveEmbedModelExclusive(client, tenantId, result.modelKey);
+  return result;
+}
+
 export interface ActiveEmbedTable {
   tableName: string;
   dims: number;
   modelId: string;
+  modelKey?: string;
 }
 
 export async function resolveActiveEmbedTable(
@@ -217,5 +247,112 @@ export async function resolveActiveEmbedTable(
     tableName: embeddingTableName(modelKey),
     dims: row.dims as number,
     modelId: row.model_id as string,
+    modelKey,
+  };
+}
+
+/**
+ * Promote an already-registered embed model to the tenant's active dense
+ * target by `model_key` only (no embed endpoint probe). Used by demote to
+ * restore the pre-promote live model without needing baseUrl/modelId.
+ *
+ * Throws if the registry row is missing — demote must not silently leave
+ * dense search on the promoted model. Demotes other active rows for the
+ * tenant to `ready`.
+ */
+export async function activateEmbedModelByKey(
+  client: EmbedRegistrySqlClient,
+  tenantId: string,
+  modelKey: string,
+): Promise<ActiveEmbedTable> {
+  if (!/^[a-f0-9]{16}$/.test(modelKey)) {
+    throw new Error(`activateEmbedModelByKey: invalid modelKey "${modelKey}"`);
+  }
+  const rows = await client.query(
+    `SELECT model_key, model_id, dims FROM "memory"."embed_model"
+     WHERE tenant_id = $1 AND model_key = $2`,
+    [tenantId, modelKey],
+  );
+  const row = rows[0];
+  if (!row) {
+    throw new Error(
+      `activateEmbedModelByKey: no embed_model row for tenant=${tenantId} model_key=${modelKey}`,
+    );
+  }
+  await setActiveEmbedModelExclusive(client, tenantId, modelKey);
+  return {
+    tableName: embeddingTableName(modelKey),
+    dims: row.dims as number,
+    modelId: row.model_id as string,
+    modelKey,
+  };
+}
+
+/**
+ * Clear every active embed model for the tenant (status → ready). Used when
+ * demoting a promote that had no prior live model so dense search degrades
+ * cleanly instead of remaining on the promoted table after the corpus swap.
+ */
+export async function clearActiveEmbedModels(
+  client: EmbedRegistrySqlClient,
+  tenantId: string,
+): Promise<void> {
+  await client.query(
+    `UPDATE "memory"."embed_model"
+     SET status = 'ready', updated_at = now()
+     WHERE tenant_id = $1 AND status = 'active'`,
+    [tenantId],
+  );
+}
+
+/** Make `modelKey` the sole active model for the tenant (single statement). */
+async function setActiveEmbedModelExclusive(
+  client: EmbedRegistrySqlClient,
+  tenantId: string,
+  modelKey: string,
+): Promise<void> {
+  // One round-trip: demote every other active row and activate the target.
+  // Concurrent activate still races at the app level; this removes the
+  // two-UPDATE window where zero or two actives can briefly exist.
+  await client.query(
+    `WITH demoted AS (
+       UPDATE "memory"."embed_model"
+       SET status = 'ready', updated_at = now()
+       WHERE tenant_id = $1 AND status = 'active' AND model_key <> $2
+       RETURNING 1
+     )
+     UPDATE "memory"."embed_model"
+     SET status = 'active', updated_at = now()
+     WHERE tenant_id = $1 AND model_key = $2`,
+    [tenantId, modelKey],
+  );
+}
+
+/**
+ * Resolve any registered embed table by model_key (active or ready).
+ * Used when searching a non-live generation whose transform_config embeds
+ * with a model that is not the tenant's active one.
+ */
+export async function resolveEmbedTableByModelKey(
+  client: EmbedRegistrySqlClient,
+  tenantId: string,
+  modelKey: string,
+): Promise<ActiveEmbedTable | null> {
+  if (!/^[a-f0-9]{16}$/.test(modelKey)) {
+    throw new Error(`resolveEmbedTableByModelKey: invalid modelKey "${modelKey}"`);
+  }
+  const rows = await client.query(
+    `SELECT model_key, model_id, dims FROM "memory"."embed_model"
+     WHERE tenant_id = $1 AND model_key = $2
+     LIMIT 1`,
+    [tenantId, modelKey],
+  );
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    tableName: embeddingTableName(modelKey),
+    dims: row.dims as number,
+    modelId: row.model_id as string,
+    modelKey,
   };
 }

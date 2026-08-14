@@ -35,6 +35,14 @@ export type DocumentStoreAddParams = {
   adapter?: string;
   /** Document kind (default engine store uses `"note"`). */
   kind?: string;
+  /** Claim / distiller fields — engine store only; vendors may ignore. */
+  generatorAgentId?: string;
+  provenance?: "stated" | "inferred" | "unknown";
+  lineageClass?: "native" | "imported" | "derived";
+  temporalClass?: "event" | "deadline" | "state" | "lesson";
+  derivedFrom?: string[];
+  validFrom?: string;
+  validUntil?: string;
 };
 
 export type DocumentStoreSearchParams = {
@@ -47,6 +55,8 @@ export type DocumentStoreSearchParams = {
   kinds?: string[];
   /** Narrow local retrieval by linked entity ids (unset/`[]` = no filter). */
   entityIds?: string[];
+  /** Include deprecated versions (CL-5871). */
+  includeDeprecated?: boolean;
   /**
    * Host grant store for grant-tag document access (default engine + fakes).
    * Vendor stores may ignore (principal-bucket only).
@@ -66,6 +76,24 @@ export type DocumentStoreSearchItem = {
   adapter?: string;
   externalRef?: string;
   updatedAt?: string;
+  /**
+   * Optional attribution block (CL-5870). Engine store always fills this;
+   * vendor stores may omit.
+   */
+  attribution?: {
+    versionId: string;
+    provenance?: string;
+    sourceClass?: string;
+    temporalClass?: string;
+    createdByKind?: string;
+    generatorAgentId?: string | null;
+    occurredAt?: string;
+    validUntil?: string | null;
+    evidence?: "strong" | "weak" | "none";
+    supports?: number;
+    contradicts?: number;
+    derivedFrom?: string[];
+  };
 };
 
 export type DocumentStoreSearchResult = {
@@ -90,17 +118,70 @@ export type DocumentStoreListEvent = {
   principalId: string;
 };
 
+export type DocumentStoreFeedParams = {
+  tenantId: string;
+  principalId: string;
+  after?: number;
+  limit?: number;
+  excludeGenerator?: string;
+  grants?: GrantStore;
+  conditionRegistry?: ConditionRegistry;
+};
+
+export type DocumentStoreFeedEntry = {
+  feedSeq: number;
+  versionId: string;
+  documentId: string;
+  kind: string;
+  title: string;
+  status: string;
+  createdByKind: string;
+  generatorAgentId: string | null;
+  provenance: string;
+  occurredAt: string;
+  createdAt: string;
+  /** Grant-pattern tags — distiller copies onto claims (never widen). */
+  accessTags: string[];
+};
+
+export type DocumentStoreFeedResult = {
+  entries: DocumentStoreFeedEntry[];
+  nextCursor: number | null;
+};
+
 /**
  * Durable document plane. Default implementation is the engine's pgvector
  * store. Hosts inject a DocumentStore (or fakes) via `options.documentStore`
  * to replace local Postgres entirely — this is the only product path for
  * swapping backends.
  */
+export type DocumentStoreAddResult = {
+  documentId: string;
+  /** Active version written (or existing active on noop). */
+  versionId: string;
+};
+
 export type DocumentStore = {
-  add(params: DocumentStoreAddParams): Promise<{ documentId: string }>;
+  add(params: DocumentStoreAddParams): Promise<DocumentStoreAddResult>;
   search(params: DocumentStoreSearchParams): Promise<DocumentStoreSearchResult>;
   list(params: DocumentStoreListParams): Promise<DocumentStoreListEvent[]>;
+  /**
+   * Cursor pull of new live versions (CL-5868). Engine-only; vendor stores
+   * may omit (plane returns 501).
+   */
+  feed?(params: DocumentStoreFeedParams): Promise<DocumentStoreFeedResult>;
   close(): Promise<void>;
+  /**
+   * Append access tags after insert (used by share materialization to stamp
+   * `memory.doc:<id>` once the document id is known). Optional — stores that
+   * omit it leave peer share grants without a matching tag (fail-closed).
+   * Tenant is required so a forged documentId cannot retag another tenant.
+   */
+  appendAccessTags?(
+    tenantId: string,
+    documentId: string,
+    tags: readonly string[],
+  ): Promise<void>;
 };
 
 /**

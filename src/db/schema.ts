@@ -1,4 +1,5 @@
 import {
+  bigint,
   boolean,
   customType,
   integer,
@@ -72,11 +73,23 @@ export const memoryVersion = memorySchema.table(
     actorCount: integer("actor_count").notNull().default(1),
     hasSocialSignal: boolean("has_social_signal").notNull().default(false),
     sourceClass: text("source_class").notNull().default("native"),
+    // How content was obtained: stated (asserted), inferred (derived claim),
+    // unknown (legacy / unset). Orthogonal to created_by_kind and source_class.
+    provenance: text("provenance").notNull().default("unknown"),
+    // Ranking temporal class + optional validity window (docs/TEMPORAL.md).
+    temporalClass: text("temporal_class").notNull().default("event"),
+    validFrom: timestamp("valid_from"),
+    validUntil: timestamp("valid_until"),
+    // Retention class (CL-5871) — when to forget, not how to rank.
+    retentionClass: text("retention_class").notNull().default("standard"),
     rawCaptureId: text("raw_capture_id").references(() => rawCapture.id),
     // Replay-generation tag — 'live' for the normal /capture path; a replay tags every
     // version it writes with its own transform_run id instead, so a replayed
     // corpus never collides with (or supersedes) the live one.
     generation: text("generation").notNull().default("live"),
+    // Monotonic commit marker for capture-feed pull (CL-5868). Assigned by
+    // Postgres bigserial (see migrations/0006_capture_feed.sql); not set in app.
+    feedSeq: bigint("feed_seq", { mode: "number" }),
   },
   (t) => [
     uniqueIndex("version_document_generation_version_uniq").on(
@@ -85,6 +98,7 @@ export const memoryVersion = memorySchema.table(
       t.version,
     ),
     index("version_document_status_idx").on(t.documentId, t.status),
+    index("version_feed_seq_idx").on(t.tenantId, t.generation, t.feedSeq),
   ],
 );
 
@@ -227,6 +241,11 @@ export const transformRun = memorySchema.table(
     error: text("error"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     completedAt: timestamp("completed_at"),
+    /** Generation tag assigned to the prior live corpus on promote (for demote). */
+    archivedLiveGeneration: text("archived_live_generation"),
+    /** Pre-promote active embed model_key (for demote dense restore). */
+    archivedLiveModelKey: text("archived_live_model_key"),
+    promotedAt: timestamp("promoted_at"),
   },
   (t) => [
     uniqueIndex("transform_run_generation_uniq").on(t.generation),

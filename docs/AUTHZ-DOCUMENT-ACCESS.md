@@ -78,18 +78,28 @@ There is **no** `share.private` key. Owner-only is the default when `share` is o
 Tag minting is **not** grant minting. For peer share to work in product:
 
 1. When Alice adds with `share: { principals: ["bob"] }`, the document is tagged
-   `memory.owner:alice` and `memory.owner:bob`.
-2. Bob sees it only if the host has granted Bob `search` on `memory.owner:bob`
-   (or a pattern that matches). **Recommended host bootstrap:** every principal
-   receives `search` (and optionally `add` side-effects as you prefer) on
-   `memory.owner:<self>` at signup, or a single pattern grant such as
-   `memory.owner:*` only if that matches your tenancy model.
-3. Space/tenant tags work the same way: host must issue grants on
-   `memory.space:eng` / `memory.tenant:<id>` for non-creators to match.
+   `memory.owner:alice` and (after insert) `memory.doc:<documentId>`.
+2. When the host grant store implements `WritableGrantStore.putGrant`, memory
+   **materializes** an allow/`search` grant for Bob on `memory.doc:<documentId>`
+   (origin `system`, conditions carry `memoryShare` / `sharedBy` / `sourceVersionId`
+   for audit). Peers can then pass `canAccessDocument` without a separate
+   bootstrap grant on `memory.owner:bob`.
+3. Without a writable grant store, tags alone are written and peers still need
+   host-side grants (fail-closed empty search). Log warns on this path.
+4. `share.tenant` / `share.tags` still only mint tags — hosts issue role/pattern
+   grants on those resources (no auto-principal grants).
 
-Without (2), `share.principals` is a silent no-op for peers (fail-closed; looks
-like empty search). Document this in host mount guides — do not reintroduce a
-document mini-ACL in this package.
+### Audience widening (write-narrow-then-widen)
+
+Distiller / claim writes that propose tags **beyond** the source document's
+audience must not silently widen:
+
+1. `splitAudienceWiden(sourceTags, proposed)` → write with `allowed` only.
+2. After **source-owner** approval, append `needsApproval` tags and materialize
+   any peer grants; store `shareWidenReceipt` on version attributes.
+
+Ask-on-read (`authorize` effect `"ask"`) remains **fail-closed** in
+`canAccessDocument` (design-only; no flag in v1).
 
 **Removed:** `visibility: { mode: private|principals|tenant }`, `blockPrincipalIds`, product `acl.mode` / `acl.allow` / `acl.block` as security.
 

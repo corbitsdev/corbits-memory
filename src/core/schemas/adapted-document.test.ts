@@ -15,7 +15,7 @@ describe("AdaptedDocumentSchema", () => {
       entityHints: [{ kind: "person", identifier: "jane@example.com" }],
       edges: [
         { rel: "about", to: { type: "entity", ref: "acme-co" } },
-        { rel: "produced_by", to: { type: "native", ref: "principal_1" } },
+        { rel: "authored_by", to: { type: "native", ref: "principal_1" } },
       ],
       chunks: [
         { ordinal: 0, text: "Opening remarks.", role: "summary" },

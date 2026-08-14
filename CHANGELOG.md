@@ -7,14 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
+### Fixed
 
+- Feed `nextCursor` advances past the examined raw page after grant-tag
+  post-filter (a fully denied page no longer stalls the consumer forever).
+- Distiller default system prompt uses the configured `agentId` for
+  `exclude_generator` / `generator_agent_id` (not only the package default id).
+
+### Changed
+
+- **Product narrative:** default path is **add → ingest elements → process**
+  (one host pipeline). Pull feed + `createResidentDistiller` are optional
+  multi-writer / backfill process helpers, not the primary ingest story.
+  See `PRODUCT.md`, `docs/DISTILLER.md`, `docs/FEED.md`.
+- **Breaking:** Postgres schema renamed from `knowledge` to **`memory`**. Fresh
+  installs only — drop/recreate the old schema (or rename) on existing DBs.
+  Citation `open.type` is now `"memory"`.
+- **Breaking:** env var is `DATABASE_URL` (was `KNOWLEDGE_DATABASE_URL`); pass
+  `memory.databaseUrl` on config as an alternative. No deprecated alias.
+- `add` (plane + HTTP) returns `{ documentId, versionId }` so share-grant audit
+  and provenance can name the version that carried the write.
 - Interchange `defineTool` factories at `@corbits/memory/tools` (`memory_add`,
   `memory_search`, `memory_list`) — HTTP clients for mounted hub routes with
   install env `memoryBaseUrl` / `memoryTenantId` / `memoryAuthToken`. Declared
   via `package.json` `interchange.tools` and `exports["./tools"]`.
 
-### Changed
+### Previously
 
 - **Breaking:** package and public surface renamed from `@corbits/knowledge-engine`
   to `@corbits/memory`. Public APIs: `createMemory` (optional `app` registers HTTP),
@@ -45,15 +63,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   mini-ACL. Share sugar only mints tags. See `docs/AUTHZ-DOCUMENT-ACCESS.md`.
 - **Breaking:** Postgres baseline is two files (`0001_extensions` +
   `0002_memory_baseline`) with `access_tags` and no `visibility_*` columns.
-  Fresh installs only — drop/recreate the memory schema on existing DBs.
+  Fresh installs only — drop/recreate the `memory` schema on existing DBs.
 - **Breaking:** `grantStore` + `conditionRegistry` are top-level `createMemory`
   options (no nested `grants: { … }`).
 
 ### Added
 
 - Optional `TextExtractor` + `file` XOR `content` on `add`
-- `share` sugar on `add` (maps to access tags only: owner, tenant, peers)
+- `share` sugar on `add` (maps to access tags; principals also materialize
+  grants when the host grant store is writable); `grantsMaterialized` on the
+  add result when peers were requested
 - `access_tags` on `memory.document` (baseline schema)
+- Claim-bearing schema, temporal model, transform/replay, share grants
+  (resident memory distillation foundation — CL-5865/5866/5872/5873)
+- Living relevancy: corroboration factor from supports/contradicts edges;
+  strong evidence gate (CL-5867). See `docs/RELEVANCY.md`
+- Capture feed: `memory.feed` + `GET .../memory/feed` with `feed_seq` cursor
+  (CL-5868). See `docs/FEED.md`
+- **Wire attribution (CL-5870):** search hits carry additive `attribution`
+  (versionId, provenance, source/temporal class, createdByKind,
+  generatorAgentId, occurredAt/validUntil, corroboration counts, derivedFrom)
+- **Retention (CL-5871):** `retention_class` on versions; plane APIs
+  `deprecateVersion` / `tombstoneDocument` / `hardDeleteDocument` /
+  `sweepEphemeral` / `setRetentionClass`; `includeDeprecated` on search.
+  See `docs/RETENTION.md`
+- **Resident distiller (CL-5869):** `@corbits/memory/distiller` —
+  `createResidentDistiller({ inference })` schedule workflow + `runDistillTick`
+  + `buildDistilledClaim`. Claim-aware `add` (generator_agent_id, provenance,
+  derived_from, …). `memory_feed` tool. Feed entries include `accessTags`.
+  See `docs/DISTILLER.md`
 
 ### Removed
 

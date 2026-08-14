@@ -9,6 +9,7 @@
         "@intx/authz": "0.2.2",
         "@intx/hub-api": "0.2.2",
         "@intx/log": "0.2.2",
+        "@intx/workflow": "0.2.2",
         "arktype": "^2.1.29",
         "drizzle-orm": "^0.45.1",
         "hono": "^4.9.0",

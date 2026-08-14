@@ -25,6 +25,8 @@ const SearchResponse = type({
     score: "number",
     kind: "string",
     citation: "unknown",
+    "attribution?": "unknown",
+    "updatedAt?": "string",
   }).array(),
   "evidence?": "'strong'|'weak'|'none'",
   "degraded?": "string[]",
@@ -59,8 +61,15 @@ export function mountSearchRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
     grantGuard(deps, "search"),
     validator("json", SearchRequest),
     async (c) => {
-      const { query, limit, kinds, entity_ids, sources, includeEvidence } =
-        c.req.valid("json");
+      const {
+        query,
+        limit,
+        kinds,
+        entity_ids,
+        sources,
+        includeEvidence,
+        includeDeprecated,
+      } = c.req.valid("json");
       const { scopeId, subjectId } = caller(c);
       try {
         const result = await deps.memory.search({
@@ -74,6 +83,9 @@ export function mountSearchRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
           ...(kinds !== undefined ? { kinds } : {}),
           ...(entity_ids !== undefined ? { entityIds: entity_ids } : {}),
           ...(sources !== undefined ? { sources } : {}),
+          ...(includeDeprecated !== undefined
+            ? { includeDeprecated }
+            : {}),
         });
         return c.json(result);
       } catch (err) {

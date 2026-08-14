@@ -2,15 +2,19 @@ import { describe, expect, it, mock } from "bun:test";
 import type { EmbedClientConfig } from "./embed-client.ts";
 import {
   activateEmbedModel,
+  activateEmbedModelByKey,
+  clearActiveEmbedModels,
   computeModelKey,
   cosineDistanceExpr,
   DimsOutOfBoundsError,
   discoverModelDims,
   EMBED_TABLE_NAME_PATTERN,
   embeddingTableName,
+  ensureEmbedModel,
   type EmbedRegistrySqlClient,
   HALFVEC_INDEX_MAX_DIMS,
   resolveActiveEmbedTable,
+  resolveEmbedTableByModelKey,
   VECTOR_INDEX_MAX_DIMS,
 } from "./embed-model-registry.ts";
 
@@ -272,6 +276,131 @@ describe("resolveActiveEmbedTable", () => {
       tableName: `"memory"."embedding_${modelKey}"`,
       dims: 768,
       modelId: baseConfig.modelId,
+      modelKey,
     });
+  });
+});
+
+describe("ensureEmbedModel", () => {
+  it("inserts with status='ready' (never active) so live dense search is untouched", async () => {
+    const { client, queries } = createMockClient();
+    await ensureEmbedModel(client, "tenant-1", baseConfig, fixtureFetch(768));
+
+    const insertQuery = queries.find((q) =>
+      q.sql.includes('INSERT INTO "memory"."embed_model"'),
+    );
+    expect(insertQuery?.sql).toContain("'ready'");
+    expect(insertQuery?.sql).not.toContain("'active'");
+
+    // No UPDATE ... SET status='active' issued by ensure.
+    expect(
+      queries.some((q) => q.sql.includes("SET status = 'active'")),
+    ).toBe(false);
+  });
+
+  it("still creates the per-model table + indexes (table usable on replay)", async () => {
+    const { client, queries } = createMockClient();
+    const result = await ensureEmbedModel(client, "tenant-1", baseConfig, fixtureFetch(768));
+    const createTableQuery = queries.find((q) => q.sql.includes("CREATE TABLE IF NOT EXISTS"));
+    expect(createTableQuery?.sql).toContain(result.tableName);
+    expect(queries.some((q) => q.sql.includes("USING hnsw"))).toBe(true);
+  });
+});
+
+describe("activateEmbedModel (split)", () => {
+  it("ensures then issues UPDATE ... SET status='active', updated_at=now()", async () => {
+    const { client, queries } = createMockClient();
+    await activateEmbedModel(client, "tenant-1", baseConfig, fixtureFetch(768));
+
+    const updateQuery = queries.find((q) =>
+      q.sql.includes("SET status = 'active'"),
+    );
+    expect(updateQuery).toBeDefined();
+    expect(updateQuery?.sql).toContain("updated_at = now()");
+  });
+
+  it("ensure then activate does not leave only-ready when activate follows", async () => {
+    const { client, queries } = createMockClient();
+    await ensureEmbedModel(client, "tenant-1", baseConfig, fixtureFetch(768));
+    const ensureQueries = queries.length;
+    await activateEmbedModel(client, "tenant-1", baseConfig, fixtureFetch(768));
+    // activate always issues the exclusive active UPDATE after ensure work
+    expect(
+      queries.slice(ensureQueries).some((q) => q.sql.includes("SET status = 'active'")),
+    ).toBe(true);
+    expect(
+      queries.slice(ensureQueries).some((q) => q.sql.includes("SET status = 'ready'")),
+    ).toBe(true);
+  });
+});
+
+describe("clearActiveEmbedModels", () => {
+  it("demotes every active row for the tenant to ready", async () => {
+    const { client, queries } = createMockClient();
+    await clearActiveEmbedModels(client, "tenant-1");
+    expect(queries).toHaveLength(1);
+    expect(queries[0]?.sql).toContain("SET status = 'ready'");
+    expect(queries[0]?.sql).toContain("status = 'active'");
+    expect(queries[0]?.params).toEqual(["tenant-1"]);
+  });
+});
+
+describe("activateEmbedModelByKey", () => {
+  it("selects by model_key then exclusives-activates without probing embed", async () => {
+    const modelKey = "abcdef0123456789";
+    const queries: Array<{ sql: string; params: readonly unknown[] }> = [];
+    const client: EmbedRegistrySqlClient = {
+      query: (sql, params) => {
+        queries.push({ sql, params });
+        return Promise.resolve([
+          { model_key: modelKey, model_id: "text-embed-3", dims: 768 },
+        ]);
+      },
+    };
+    const result = await activateEmbedModelByKey(client, "tenant-1", modelKey);
+    expect(result.modelKey).toBe(modelKey);
+    expect(result.dims).toBe(768);
+    expect(queries[0]?.sql).toContain("SELECT model_key");
+    expect(queries.some((q) => q.sql.includes("SET status = 'ready'"))).toBe(true);
+    expect(queries.some((q) => q.sql.includes("SET status = 'active'"))).toBe(true);
+  });
+
+  it("throws when the registry row is missing", async () => {
+    const client: EmbedRegistrySqlClient = {
+      query: () => Promise.resolve([]),
+    };
+    await expect(
+      activateEmbedModelByKey(client, "tenant-1", "abcdef0123456789"),
+    ).rejects.toThrow(/no embed_model row/);
+  });
+
+  it("rejects an invalid model_key format", async () => {
+    const client: EmbedRegistrySqlClient = { query: () => Promise.resolve([]) };
+    await expect(
+      activateEmbedModelByKey(client, "tenant-1", "not-a-key"),
+    ).rejects.toThrow(/invalid modelKey/);
+  });
+});
+
+describe("resolveEmbedTableByModelKey", () => {
+  it("returns null when no row for this model_key", async () => {
+    const client: EmbedRegistrySqlClient = { query: () => Promise.resolve([]) };
+    expect(await resolveEmbedTableByModelKey(client, "tenant-1", "abcdef0123456789")).toBeNull();
+  });
+
+  it("returns the table info regardless of status (ready or active)", async () => {
+    const modelKey = "abcdef0123456789";
+    const client: EmbedRegistrySqlClient = {
+      query: () =>
+        Promise.resolve([{ model_key: modelKey, model_id: "m", dims: 512 }]),
+    };
+    const result = await resolveEmbedTableByModelKey(client, "tenant-1", modelKey);
+    expect(result?.dims).toBe(512);
+    expect(result?.tableName).toBe(`"memory"."embedding_${modelKey}"`);
+  });
+
+  it("rejects an invalid model_key format", async () => {
+    const client: EmbedRegistrySqlClient = { query: () => Promise.resolve([]) };
+    expect(() => resolveEmbedTableByModelKey(client, "tenant-1", "not-a-key")).toThrow();
   });
 });

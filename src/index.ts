@@ -6,8 +6,10 @@
  * `tenantId` in-process. Authz is the host grant store — this package
  * authenticates nothing itself.
  *
- * Inference is host-owned and ephemeral (call your model, then add/search).
- * Core does not mount an ingest agent or bake LLM into the write path.
+ * Distiller is first-class: `createResidentDistiller` / `runDistillTick` from
+ * `@corbits/memory/distiller` (or re-exported below). Inference stays host-
+ * injected; the package ships the workflow + tick helpers so apps opt in
+ * with a few lines.
  */
 import type { Hono } from "hono";
 import { createRequireGrant, type TenantEnv } from "@intx/hub-api";
@@ -40,9 +42,13 @@ export type {
   Memory,
   MemoryOptions,
   MemoryListParams,
+  MemoryFeedParams,
+  MemoryFeedEntry,
+  MemoryFeedResult,
   MemoryShare,
   SearchHit,
   SearchItem,
+  SearchAttribution,
   SearchResult,
   TextExtractor,
   TimelineEvent,
@@ -56,10 +62,20 @@ export {
   LIST_LIMIT_MAX,
 } from "./memory.ts";
 
+// Installer discovery — grant *requirements* (not live grants)
+export {
+  MEMORY_CAPABILITY_IDS,
+  MEMORY_GRANT_REQUIREMENTS,
+  type MemoryGrantRequirement,
+  type MemoryGrantSource,
+  type MemoryGrantSurface,
+} from "./grant-requirements.ts";
+
 // Ports — pluggable storage and live sources
 export type {
   DocumentStore,
   DocumentStoreAddParams,
+  DocumentStoreAddResult,
   DocumentStoreSearchItem,
   DocumentStoreSearchParams,
   DocumentStoreSearchResult,
@@ -73,6 +89,107 @@ export {
   createFakeDocumentStore,
   createFakeSourceProvider,
 } from "./ports/fakes.ts";
+
+export type { WritableGrantStore } from "./ports/writable-grant-store.ts";
+export {
+  createInMemoryWritableGrantStore,
+  isWritableGrantStore,
+} from "./ports/writable-grant-store.ts";
+
+// Share materialization (CL-5873)
+export {
+  buildShareGrants,
+  documentTag,
+  materializeShareGrants,
+  MEMORY_SHARE_CONDITION_KEY,
+  MEMORY_SHARE_CONDITION_REGISTRY,
+  shareWidenReceipt,
+  splitAudienceWiden,
+  type MaterializeShareGrantsInput,
+  type MemoryShareCondition,
+  type ShareWidenReceipt,
+} from "./services/share-grants.ts";
+
+
+// Transform / replay surface (CL-5872)
+export {
+  createTransformConfig,
+  demoteGeneration,
+  listTransformConfigs,
+  promoteGeneration,
+  resolveGenerationSearchParams,
+  runTransform,
+  TransformConfigNotFoundError,
+  TransformPromoteError,
+  type GenerationSearchParams,
+  type TransformConfigRow,
+  type TransformRunRow,
+} from "./services/transform.ts";
+
+// Capture feed (CL-5868)
+export {
+  fetchFeed,
+  FEED_LIMIT_DEFAULT,
+  FEED_LIMIT_MAX,
+  FEED_LIMIT_MIN,
+  type FeedArgs,
+  type FeedEntry,
+  type FeedResult,
+} from "./services/feed.ts";
+
+// Retention / forgetting (CL-5871)
+export {
+  deprecateVersion,
+  hardDeleteDocument,
+  setRetentionClass,
+  sweepEphemeral,
+  tombstoneDocument,
+  type RetentionMutationResult,
+} from "./services/retention.ts";
+
+// Resident distiller (CL-5869) — also `@corbits/memory/distiller`
+export {
+  RESIDENT_DISTILLER_AGENT_ID,
+  RESIDENT_DISTILLER_CRON_DEFAULT,
+  RESIDENT_DISTILLER_WORKFLOW_ID,
+  buildDistilledClaim,
+  createResidentDistiller,
+  resolveNextCursor,
+  runDistillTick,
+  shouldProcessFeedEntry,
+  type BuildDistilledClaimArgs,
+  type CreateResidentDistillerOpts,
+  type DistillOutcome,
+  type DistillTickFeedEntry,
+  type DistillTickPage,
+  type DistillTickResult,
+  type DistilledClaimWrite,
+  type FeedEntryLike,
+  type ResidentDistiller,
+  type RunDistillTickArgs,
+} from "./distiller/index.ts";
+
+// Corroboration / living relevancy (CL-5867)
+export {
+  corroborationFactor,
+  CORROBORATION_COUNT_LOG_CAP,
+  CORROBORATION_STRONG_FLOOR,
+  effectiveAuthority,
+  meetsStrongEvidenceGate,
+  type CorroborationCounts,
+  type StrongEvidenceSignals,
+} from "./core/corroboration.ts";
+
+// Embed model registry (ensure vs activate)
+export {
+  activateEmbedModel,
+  activateEmbedModelByKey,
+  clearActiveEmbedModels,
+  ensureEmbedModel,
+  resolveActiveEmbedTable,
+  resolveEmbedTableByModelKey,
+} from "./core/embed-model-registry.ts";
+
 
 // Migrations
 export { runMemoryMigrations } from "./migrations.ts";

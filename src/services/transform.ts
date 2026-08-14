@@ -4,7 +4,11 @@ import type { Db, RawSql } from "../db/client.ts";
 import type { EngineConfig } from "../config.ts";
 import { newId } from "../core/id.ts";
 import { formatCaughtError, log } from "../log.ts";
-import { rawCapture, transformConfig, transformRun } from "../db/schema.ts";
+import {
+  rawCapture,
+  transformConfig,
+  transformRun,
+} from "../db/schema.ts";
 import {
   TransformConfigParamsSchema,
   type TransformConfigParams,
@@ -17,6 +21,9 @@ import type { Chunker } from "../core/chunk/types.ts";
 import { EmbedClientConfigSchema, type EmbedClientConfig } from "../core/embed-client.ts";
 import type { RerankClientConfig } from "../core/rerank-client.ts";
 import { deriveFromRawCapture, type CaptureInput } from "./capture.ts";
+import { LIVE_GENERATION } from "../core/generation.ts";
+import { activateEmbedModel, activateEmbedModelByKey, clearActiveEmbedModels, resolveActiveEmbedTable } from "../core/embed-model-registry.ts";
+import { createRawSqlClient } from "../core/embed-sql.ts";
 
 export class TransformConfigNotFoundError extends Error {
   constructor(configId: string) {
@@ -46,6 +53,9 @@ export interface TransformRunRow {
   error: string | null;
   createdAt: Date;
   completedAt: Date | null;
+  archivedLiveGeneration: string | null;
+  archivedLiveModelKey: string | null;
+  promotedAt: Date | null;
 }
 
 // Parses the jsonb `params` column at this trust boundary — the row was
@@ -161,6 +171,9 @@ async function loadTransformRun(
     error: row.error,
     createdAt: row.createdAt,
     completedAt: row.completedAt,
+    archivedLiveGeneration: row.archivedLiveGeneration ?? null,
+    archivedLiveModelKey: row.archivedLiveModelKey ?? null,
+    promotedAt: row.promotedAt ?? null,
   };
 }
 
@@ -225,21 +238,35 @@ export interface GenerationSearchParams {
   mmrLambda: number | undefined;
   overfetch: number | undefined;
   rerank: RerankClientConfig | undefined;
+  /** Fully-resolved embed client for this generation's transform_config. */
+  embed: EmbedClientConfig | undefined;
 }
 
 // Resolves a search-time `generation` (a transform_run id, per the 1:1
 // `transform_run.generation` uniqueness) back to its config's tuning knobs.
-// Returns `null` when the generation isn't a known replay run (including
-// 'live', which the caller should never even ask this for) — hybridSearch
-// falls back to its own engine defaults for every field in that case.
+// Returns `null` when the generation isn't a known replay run for this tenant
+// (including 'live', which the caller should never even ask this for) —
+// hybridSearch falls back to its own engine defaults for every field in that
+// case. Tenant is required so a cross-tenant generation id cannot resolve
+// another tenant's embed overrides (which may carry apiKey).
+//
+// `engineEmbed` is required to fully resolve a partial transform embed
+// override (same merge rules as runTransform).
 export async function resolveGenerationSearchParams(
   db: Db,
   generation: string,
+  engineEmbed: EngineConfig["embed"] | undefined,
+  tenantId: string,
 ): Promise<GenerationSearchParams | null> {
   const runRows = await db
     .select({ configId: transformRun.configId })
     .from(transformRun)
-    .where(eq(transformRun.generation, generation))
+    .where(
+      and(
+        eq(transformRun.generation, generation),
+        eq(transformRun.tenantId, tenantId),
+      ),
+    )
     .limit(1);
   const run = runRows[0];
   if (!run) return null;
@@ -247,18 +274,28 @@ export async function resolveGenerationSearchParams(
   const configRows = await db
     .select({ params: transformConfig.params })
     .from(transformConfig)
-    .where(eq(transformConfig.id, run.configId))
+    .where(
+      and(
+        eq(transformConfig.id, run.configId),
+        eq(transformConfig.tenantId, tenantId),
+      ),
+    )
     .limit(1);
   const configRow = configRows[0];
   if (!configRow) return null;
 
   const params = parseConfigParams(configRow.params);
+  const embed =
+    engineEmbed !== undefined
+      ? buildEmbedClientConfig(params.embed, engineEmbed)
+      : undefined;
   return {
     authorityWeight: params.authorityWeight,
     recencyHalfLifeDays: params.recencyHalfLifeDays,
     mmrLambda: params.mmrLambda,
     overfetch: params.overfetch,
     rerank: buildRerankClientConfig(params.rerank),
+    embed,
   };
 }
 
@@ -441,4 +478,192 @@ export async function runTransform(
     .where(eq(transformRun.id, runId));
 
   return loadTransformRun(deps.db, runId);
+}
+
+export class TransformPromoteError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "TransformPromoteError";
+  }
+}
+
+/**
+ * True when a transform_run may be promoted to live. Exported for unit tests.
+ * Only completed runs are promotable — failed/running leave a partial corpus.
+ */
+export function isPromotableRunStatus(
+  status: TransformRunRow["status"],
+): status is "completed" {
+  return status === "completed";
+}
+
+/**
+ * Promote a completed staged generation to live.
+ *
+ * 1. Snapshot the current active embed model_key (for demote restore).
+ * 2. Activate the run's embed model first so a failed activate leaves versions
+ *    untouched (brief dense mismatch window is preferred over committed corpus
+ *    with no matching dense table).
+ * 3. Swap generations: live → archive tag, staged → live.
+ * 4. Record archive tag + prior model_key + promoted_at for demote.
+ *
+ * Does not delete versions. Demote reverses the generation swap and re-activates
+ * the prior live embed model when recorded.
+ */
+export async function promoteGeneration(
+  deps: { db: Db; sql: RawSql; config: EngineConfig },
+  input: { tenantId: string; generation: string },
+): Promise<TransformRunRow> {
+  if (input.generation === LIVE_GENERATION) {
+    throw new TransformPromoteError("cannot promote the live generation onto itself");
+  }
+
+  const runRows = await deps.db
+    .select()
+    .from(transformRun)
+    .where(
+      and(
+        eq(transformRun.generation, input.generation),
+        eq(transformRun.tenantId, input.tenantId),
+      ),
+    )
+    .limit(1);
+  const run = runRows[0];
+  if (!run) {
+    throw new TransformPromoteError(
+      `no transform_run for generation ${input.generation}`,
+    );
+  }
+  if (run.promotedAt) {
+    throw new TransformPromoteError(
+      `generation ${input.generation} is already promoted`,
+    );
+  }
+  if (!isPromotableRunStatus(run.status as TransformRunRow["status"])) {
+    throw new TransformPromoteError(
+      `generation ${input.generation} is not completed (status=${run.status})`,
+    );
+  }
+
+  const configRow = await loadTransformConfig(deps.db, run.configId);
+  if (configRow.tenantId !== input.tenantId) {
+    throw new TransformPromoteError(
+      `transform_config tenant mismatch for generation ${input.generation}`,
+    );
+  }
+  const embed = buildEmbedClientConfig(configRow.params.embed, deps.config.embed);
+  const archiveGen = `archive_${run.id}_${Date.now()}`;
+  const readClient = createRawSqlClient(deps.sql);
+
+  // Snapshot prior active model before we flip dense search.
+  const priorActive = await resolveActiveEmbedTable(readClient, input.tenantId);
+  const priorModelKey = priorActive?.modelKey ?? null;
+
+  // Activate the staged embed model and swap generation tags inside one
+  // Postgres transaction. resolveActiveEmbedTable and the live-generation
+  // filter used by search are otherwise readable independently, which opens
+  // a window where dense search resolves the newly-active (staged) table
+  // while `version` rows are still tagged with the pre-swap generation —
+  // a silent, empty-result degradation of live dense search. Doing both
+  // writes in one transaction means any concurrent reader sees only the
+  // fully-pre-promote or fully-post-promote state, never the half-way one.
+  // A thrown error here rolls back the embed activation too, so no separate
+  // restore-on-failure step is needed.
+  await deps.sql.begin(async (txSql) => {
+    const txClient = createRawSqlClient(txSql);
+    await activateEmbedModel(txClient, input.tenantId, embed);
+
+    // 1) archive current live
+    await txSql.unsafe(
+      `UPDATE "memory"."version" SET generation = $1 WHERE tenant_id = $2 AND generation = $3`,
+      [archiveGen, input.tenantId, LIVE_GENERATION],
+    );
+    // 2) promote staged → live
+    await txSql.unsafe(
+      `UPDATE "memory"."version" SET generation = $1 WHERE tenant_id = $2 AND generation = $3`,
+      [LIVE_GENERATION, input.tenantId, input.generation],
+    );
+    // 3) bookkeeping — generation column stays the original run id for lookup;
+    //    versions now live under 'live'. Search by generation=runId after
+    //    promote finds nothing (expected); demote restores.
+    await txSql.unsafe(
+      `UPDATE "memory"."transform_run" SET archived_live_generation = $1, archived_live_model_key = $2, promoted_at = now() WHERE id = $3`,
+      [archiveGen, priorModelKey, run.id],
+    );
+  });
+
+  return loadTransformRun(deps.db, run.id);
+}
+
+/**
+ * Demote a previously promoted generation: swap archive back to live and
+ * move the demoted live corpus back onto the run's generation tag. Restores
+ * the pre-promote active embed model when one was recorded.
+ */
+export async function demoteGeneration(
+  deps: { db: Db; sql: RawSql; config: EngineConfig },
+  input: { tenantId: string; generation: string },
+): Promise<TransformRunRow> {
+  const runRows = await deps.db
+    .select()
+    .from(transformRun)
+    .where(
+      and(
+        eq(transformRun.generation, input.generation),
+        eq(transformRun.tenantId, input.tenantId),
+      ),
+    )
+    .limit(1);
+  const run = runRows[0];
+  if (!run) {
+    throw new TransformPromoteError(
+      `no transform_run for generation ${input.generation}`,
+    );
+  }
+  if (!run.promotedAt || !run.archivedLiveGeneration) {
+    throw new TransformPromoteError(
+      `generation ${input.generation} is not currently promoted`,
+    );
+  }
+
+  const archiveGen = run.archivedLiveGeneration;
+  const priorModelKey = run.archivedLiveModelKey ?? null;
+
+  // Restore prior dense target and rewrite generation tags inside one
+  // Postgres transaction — see promoteGeneration for why: doing these as
+  // separate writes lets a concurrent reader observe the restored model
+  // paired with not-yet-swapped generation tags (or vice versa), silently
+  // emptying live dense search for the duration of the gap. A thrown error
+  // here rolls back the restore too, so demote is all-or-nothing.
+  await deps.sql.begin(async (txSql) => {
+    const txClient = createRawSqlClient(txSql);
+    if (priorModelKey) {
+      try {
+        await activateEmbedModelByKey(txClient, input.tenantId, priorModelKey);
+      } catch (err) {
+        throw new TransformPromoteError(
+          `cannot demote: failed to restore prior embed model ${priorModelKey}: ${formatCaughtError(err)}`,
+        );
+      }
+    } else {
+      await clearActiveEmbedModels(txClient, input.tenantId);
+    }
+
+    // live (promoted) → back to run generation
+    await txSql.unsafe(
+      `UPDATE "memory"."version" SET generation = $1 WHERE tenant_id = $2 AND generation = $3`,
+      [input.generation, input.tenantId, LIVE_GENERATION],
+    );
+    // archive → live
+    await txSql.unsafe(
+      `UPDATE "memory"."version" SET generation = $1 WHERE tenant_id = $2 AND generation = $3`,
+      [LIVE_GENERATION, input.tenantId, archiveGen],
+    );
+    await txSql.unsafe(
+      `UPDATE "memory"."transform_run" SET archived_live_generation = NULL, archived_live_model_key = NULL, promoted_at = NULL WHERE id = $1`,
+      [run.id],
+    );
+  });
+
+  return loadTransformRun(deps.db, run.id);
 }

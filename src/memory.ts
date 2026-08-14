@@ -8,7 +8,7 @@ import {
 } from "./grant-tags.ts";
 
 import type { EngineConfig } from "./config.ts";
-import { log } from "./log.ts";
+import { formatCaughtError, log } from "./log.ts";
 import { createDb, type Db, type RawSql } from "./db/client.ts";
 import { createFtsVerification, parseFtsLanguage } from "./core/fts-language.ts";
 import { createRawSqlClient } from "./core/embed-sql.ts";
@@ -26,6 +26,38 @@ import {
   listTimelineEvents,
   type TimelineEvent,
 } from "./services/timeline.ts";
+import {
+  fetchFeed,
+  feedPageAfterAccessFilter,
+  type FeedEntry,
+} from "./services/feed.ts";
+
+import {
+  createTransformConfig,
+  demoteGeneration,
+  listTransformConfigs,
+  promoteGeneration,
+  runTransform,
+  type TransformConfigRow,
+  type TransformRunRow,
+} from "./services/transform.ts";
+import {
+  deprecateVersion,
+  hardDeleteDocument,
+  setRetentionClass,
+  sweepEphemeral,
+  tombstoneDocument,
+} from "./services/retention.ts";
+import {
+  documentTag,
+  materializeShareGrants,
+  MEMORY_SHARE_CONDITION_REGISTRY,
+} from "./services/share-grants.ts";
+
+import {
+  isWritableGrantStore,
+} from "./ports/writable-grant-store.ts";
+import type { TransformConfigParams, TransformScope } from "./core/schemas/transform.ts";
 import {
   LIVE_TIMEOUT_MS,
   mergeLocalLiveV1,
@@ -115,6 +147,8 @@ export type MemorySearchParams = MemoryIdentity & {
    * Omit to include all mounted sources plus local.
    */
   sources?: string[];
+  /** Include deprecated versions in local retrieval (CL-5871). Default false. */
+  includeDeprecated?: boolean;
 };
 
 export type MemoryShare = ShareSugar;
@@ -137,13 +171,51 @@ export type MemoryAddParams = MemoryIdentity & {
    */
   accessTags?: string[];
   /**
-   * Share sugar — only mints tags (tenant / peer owners / explicit tags).
+   * Share sugar — mints tags, and when the host grant store is writable,
+   * materializes peer grants on `memory.doc:<id>` (CL-5873).
    */
   share?: ShareSugar;
   attributes?: Record<string, string | number | boolean | null>;
+  /**
+   * Claim / distiller identity (optional). When `generatorAgentId` is set the
+   * version is written as agent-authored so the capture feed can exclude it
+   * via `excludeGenerator` (loop-safety).
+   */
+  generatorAgentId?: string;
+  provenance?: "stated" | "inferred" | "unknown";
+  lineageClass?: "native" | "imported" | "derived";
+  temporalClass?: "event" | "deadline" | "state" | "lesson";
+  /** Source version ids → `derived_from` edges on the new version. */
+  derivedFrom?: string[];
+  validFrom?: string;
+  validUntil?: string;
 };
 
-export type MemoryAddResult = { documentId: string };
+export type MemoryAddResult = {
+  documentId: string;
+  versionId: string;
+  /**
+   * When `share.principals` was non-empty: true if peer grants were written
+   * to a WritableGrantStore; false if materialization was skipped (no writable
+   * store or soft failure). Omitted when no peer share was requested.
+   */
+  grantsMaterialized?: boolean;
+};
+
+export type SearchAttribution = {
+  versionId: string;
+  provenance?: string;
+  sourceClass?: string;
+  temporalClass?: string;
+  createdByKind?: string;
+  generatorAgentId?: string | null;
+  occurredAt?: string;
+  validUntil?: string | null;
+  evidence?: "strong" | "weak" | "none";
+  supports?: number;
+  contradicts?: number;
+  derivedFrom?: string[];
+};
 
 export type SearchItem = {
   documentId: string;
@@ -154,6 +226,8 @@ export type SearchItem = {
   citation: SearchHit["citation"];
   /** ISO timestamp for merge recency when the store provides it. */
   updatedAt?: string;
+  /** Additive provenance / temporal / corroboration for render-time attribution. */
+  attribution?: SearchAttribution;
 };
 
 export type SearchResult = {
@@ -165,6 +239,34 @@ export type SearchResult = {
 
 export type MemoryListParams = MemoryIdentity & {
   limit?: number;
+};
+
+export type MemoryFeedParams = MemoryIdentity & {
+  /** Exclusive cursor (last seen feedSeq). Default 0. */
+  after?: number;
+  limit?: number;
+  excludeGenerator?: string;
+};
+
+export type MemoryFeedEntry = {
+  feedSeq: number;
+  versionId: string;
+  documentId: string;
+  kind: string;
+  title: string;
+  status: string;
+  createdByKind: string;
+  generatorAgentId: string | null;
+  provenance: string;
+  occurredAt: string;
+  createdAt: string;
+  /** Grant-pattern tags for claim writes (≤ source access). */
+  accessTags: string[];
+};
+
+export type MemoryFeedResult = {
+  entries: MemoryFeedEntry[];
+  nextCursor: number | null;
 };
 
 export class MemoryError extends Error {
@@ -181,7 +283,62 @@ export type Memory = {
   search(params: MemorySearchParams): Promise<SearchResult>;
   add(params: MemoryAddParams): Promise<MemoryAddResult>;
   list(params: MemoryListParams): Promise<TimelineEvent[]>;
+  /**
+   * Cursor pull of new live versions (engine store only). Grant-checked like
+   * search. See docs/FEED.md.
+   */
+  feed?(params: MemoryFeedParams): Promise<MemoryFeedResult>;
   close(): Promise<void>;
+  /**
+   * Transform / replay surface (engine DocumentStore only). Present when the
+   * plane was built with engine config; absent on custom/fake stores.
+   * Calling through a stub that omits these is a TypeScript error; runtime
+   * throws MemoryError(501) only if a partial implementation is forced.
+   */
+  createTransformConfig?(input: {
+    tenantId: string;
+    name: string;
+    params: TransformConfigParams;
+  }): Promise<TransformConfigRow>;
+  listTransformConfigs?(tenantId: string): Promise<TransformConfigRow[]>;
+  runTransform?(input: {
+    configId: string;
+    scope?: TransformScope;
+  }): Promise<TransformRunRow>;
+  promoteGeneration?(input: {
+    tenantId: string;
+    generation: string;
+  }): Promise<TransformRunRow>;
+  demoteGeneration?(input: {
+    tenantId: string;
+    generation: string;
+  }): Promise<TransformRunRow>;
+  /**
+   * Retention write paths (engine store only). See docs/RETENTION.md (CL-5871).
+   */
+  deprecateVersion?(input: {
+    tenantId: string;
+    versionId: string;
+    reason?: string;
+  }): Promise<{ versionId: string; documentId: string; status: string } | null>;
+  tombstoneDocument?(input: {
+    tenantId: string;
+    documentId: string;
+    reason?: string;
+  }): Promise<{ versions: number }>;
+  hardDeleteDocument?(input: {
+    tenantId: string;
+    documentId: string;
+  }): Promise<{ deleted: boolean; reason?: string }>;
+  sweepEphemeral?(input: {
+    tenantId: string;
+    now?: Date;
+  }): Promise<{ versionsDeprecated: number }>;
+  setRetentionClass?(input: {
+    tenantId: string;
+    versionId: string;
+    retentionClass: "durable" | "standard" | "ephemeral" | "source_only";
+  }): Promise<{ versionId: string; documentId: string; status: string } | null>;
 };
 
 export type { TimelineEvent };
@@ -220,9 +377,14 @@ export function resolveGrantConfig(
   options: Pick<MemoryOptions, "grantStore" | "conditionRegistry">,
 ): GrantConfig | undefined {
   if (!options.grantStore) return undefined;
+  // Merge memoryShare evaluator under host keys so share grants with
+  // conditions are not fail-closed-skipped by @intx/authz.
   return {
     grantStore: options.grantStore,
-    conditionRegistry: options.conditionRegistry ?? {},
+    conditionRegistry: {
+      ...MEMORY_SHARE_CONDITION_REGISTRY,
+      ...(options.conditionRegistry ?? {}),
+    },
   };
 }
 
@@ -258,7 +420,10 @@ function resolveListLimit(limit: number | undefined): number | undefined {
   return limit;
 }
 
-function hitsToSearchItems(hits: readonly SearchHit[]): SearchItem[] {
+function hitsToSearchItems(
+  hits: readonly SearchHit[],
+  evidence?: HybridSearchResult["evidence"],
+): SearchItem[] {
   return hits.map((h) => ({
     documentId: h.document_id,
     title: h.title,
@@ -266,6 +431,24 @@ function hitsToSearchItems(hits: readonly SearchHit[]): SearchItem[] {
     score: h.score,
     kind: h.kind,
     citation: h.citation,
+    attribution: {
+      versionId: h.version_id,
+      createdByKind: h.created_by_kind,
+      ...(h.generator_agent_id !== undefined
+        ? { generatorAgentId: h.generator_agent_id }
+        : {}),
+      ...(h.provenance !== undefined ? { provenance: h.provenance } : {}),
+      ...(h.source_class !== undefined ? { sourceClass: h.source_class } : {}),
+      ...(h.temporal_class !== undefined
+        ? { temporalClass: h.temporal_class }
+        : {}),
+      ...(h.occurred_at !== undefined ? { occurredAt: h.occurred_at } : {}),
+      ...(h.valid_until !== undefined ? { validUntil: h.valid_until } : {}),
+      ...(h.supports !== undefined ? { supports: h.supports } : {}),
+      ...(h.contradicts !== undefined ? { contradicts: h.contradicts } : {}),
+      ...(h.derived_from !== undefined ? { derivedFrom: h.derived_from } : {}),
+      ...(evidence !== undefined ? { evidence } : {}),
+    },
   }));
 }
 
@@ -327,6 +510,8 @@ export function createMemory(options: MemoryOptions = {}): Memory {
     ...(grantStore !== undefined ? { grantStore } : {}),
     ...(conditionRegistry !== undefined ? { conditionRegistry } : {}),
   });
+
+  let transformDeps: EngineTransformDeps | undefined;
   const store =
     documentStore ??
     (() => {
@@ -336,8 +521,11 @@ export function createMemory(options: MemoryOptions = {}): Memory {
           "config is required when documentStore is not provided",
         );
       }
-      return createEngineDocumentStore(config);
+      const engine = createEngineDocumentStore(config);
+      transformDeps = engine.deps;
+      return engine.store;
     })();
+
   return createPlaneFromStore(
     store,
     grants,
@@ -345,6 +533,7 @@ export function createMemory(options: MemoryOptions = {}): Memory {
       ...(textExtractor ? { textExtractor } : {}),
       ...(sources ? { sources } : {}),
     },
+    transformDeps,
   );
 }
 
@@ -452,14 +641,22 @@ function mergeToSearchResult(params: {
     ...(params.sources !== undefined ? { sources: params.sources } : {}),
   });
 
-  const items: SearchItem[] = merged.items.map((it) => ({
-    documentId: it.documentId,
-    title: it.title,
-    snippet: it.snippet,
-    score: it.score,
-    kind: it.kind,
-    citation: it.citation,
-  }));
+  const items: SearchItem[] = merged.items.map((it) => {
+    // Preserve local attribution when merge kept a local hit (same documentId).
+    const local = params.localItems.find((l) => l.documentId === it.documentId);
+    return {
+      documentId: it.documentId,
+      title: it.title,
+      snippet: it.snippet,
+      score: it.score,
+      kind: it.kind,
+      citation: it.citation,
+      ...(local?.attribution !== undefined
+        ? { attribution: local.attribution }
+        : {}),
+      ...(local?.updatedAt !== undefined ? { updatedAt: local.updatedAt } : {}),
+    };
+  });
 
   const degraded: DegradeFlag[] = [
     ...(params.localDegraded ?? []),
@@ -507,6 +704,7 @@ function createPlaneFromStore(
   store: DocumentStore,
   grants: GrantConfig | undefined,
   options: MemoryOptions,
+  transformDeps?: EngineTransformDeps,
 ): Memory {
   async function searchMerged(
     params: MemorySearchParams,
@@ -527,6 +725,9 @@ function createPlaneFromStore(
         ...(params.entityIds !== undefined
           ? { entityIds: params.entityIds }
           : {}),
+        ...(params.includeDeprecated !== undefined
+          ? { includeDeprecated: params.includeDeprecated }
+          : {}),
         ...(grants !== undefined ? { grants: grants.grantStore } : {}),
         ...(grants?.conditionRegistry !== undefined
           ? { conditionRegistry: grants.conditionRegistry }
@@ -540,6 +741,9 @@ function createPlaneFromStore(
         kind: it.kind,
         citation: it.citation,
         ...(it.updatedAt !== undefined ? { updatedAt: it.updatedAt } : {}),
+        ...(it.attribution !== undefined
+          ? { attribution: it.attribution }
+          : {}),
       }));
       localDegraded = local.degraded as DegradeFlag[] | undefined;
       localEvidence = local.evidence;
@@ -628,7 +832,7 @@ function createPlaneFromStore(
         params.externalRef ??
         `memory:${params.tenantId}:${crypto.randomUUID()}`;
 
-      return store.add({
+      const result = await store.add({
         tenantId: params.tenantId,
         principalId: params.principalId,
         title,
@@ -640,7 +844,82 @@ function createPlaneFromStore(
           : {}),
         ...(params.adapter !== undefined ? { adapter: params.adapter } : {}),
         ...(params.kind !== undefined ? { kind: params.kind } : {}),
+        ...(params.generatorAgentId !== undefined
+          ? { generatorAgentId: params.generatorAgentId }
+          : {}),
+        ...(params.provenance !== undefined
+          ? { provenance: params.provenance }
+          : {}),
+        ...(params.lineageClass !== undefined
+          ? { lineageClass: params.lineageClass }
+          : {}),
+        ...(params.temporalClass !== undefined
+          ? { temporalClass: params.temporalClass }
+          : {}),
+        ...(params.derivedFrom !== undefined
+          ? { derivedFrom: params.derivedFrom }
+          : {}),
+        ...(params.validFrom !== undefined
+          ? { validFrom: params.validFrom }
+          : {}),
+        ...(params.validUntil !== undefined
+          ? { validUntil: params.validUntil }
+          : {}),
       });
+
+      // Share materialization (CL-5873): stamp document-scoped tag + write
+      // peer grants when the host store is writable. Tag mint alone is not
+      // enough for peers without host bootstrap grants on owner tags. The
+      // document is already durably committed by store.add() above, so a
+      // failure here must not throw (that would surface as add() failing
+      // for a document that in fact exists, inviting a caller retry that
+      // creates a duplicate) — it downgrades grantsMaterialized instead.
+      // grantsMaterialized is only ever true when BOTH the access tag was
+      // actually stamped AND the peer grant was actually written; either
+      // alone leaves canAccessDocument unable to find a match for peers.
+      let grantsMaterialized: boolean | undefined;
+      const peers = params.share?.principals;
+      if (peers && peers.length > 0) {
+        grantsMaterialized = false;
+        try {
+          const docTag = documentTag(result.documentId);
+          let tagStamped = false;
+          if (store.appendAccessTags) {
+            await store.appendAccessTags(params.tenantId, result.documentId, [docTag]);
+            tagStamped = true;
+          } else {
+            log.warn(
+              "memory.add: share.principals set but DocumentStore has no appendAccessTags; peer grants may not match",
+              { documentId: result.documentId },
+            );
+          }
+          if (isWritableGrantStore(grants?.grantStore)) {
+            await materializeShareGrants(grants.grantStore, {
+              tenantId: params.tenantId,
+              sharedByPrincipalId: params.principalId,
+              documentId: result.documentId,
+              sourceVersionId: result.versionId,
+              share: params.share ?? {},
+            });
+            grantsMaterialized = tagStamped;
+          } else {
+            log.warn(
+              "memory.add: share.principals set without WritableGrantStore; tags only (peers need host grants)",
+              { documentId: result.documentId },
+            );
+          }
+        } catch (err) {
+          log.error(
+            "memory.add: share materialization failed after document commit; peers may not have access",
+            { documentId: result.documentId, error: formatCaughtError(err) },
+          );
+          grantsMaterialized = false;
+        }
+      }
+
+      return grantsMaterialized === undefined
+        ? result
+        : { ...result, grantsMaterialized };
     },
 
     async list(params) {
@@ -656,20 +935,151 @@ function createPlaneFromStore(
       });
     },
 
+    async feed(params) {
+      if (!store.feed) {
+        throw new MemoryError(
+          501,
+          "feed requires the engine DocumentStore",
+        );
+      }
+      return store.feed({
+        tenantId: params.tenantId,
+        principalId: params.principalId,
+        ...(params.after !== undefined ? { after: params.after } : {}),
+        ...(params.limit !== undefined ? { limit: params.limit } : {}),
+        ...(params.excludeGenerator !== undefined
+          ? { excludeGenerator: params.excludeGenerator }
+          : {}),
+        ...(grants !== undefined ? { grants: grants.grantStore } : {}),
+        ...(grants?.conditionRegistry !== undefined
+          ? { conditionRegistry: grants.conditionRegistry }
+          : {}),
+      });
+    },
+
     async close() {
       await store.close();
+    },
+
+    async createTransformConfig(input) {
+      if (!transformDeps) {
+        throw new MemoryError(
+          501,
+          "transform APIs require the engine DocumentStore",
+        );
+      }
+      return createTransformConfig({ db: transformDeps.db }, input);
+    },
+
+    async listTransformConfigs(tenantId) {
+      if (!transformDeps) {
+        throw new MemoryError(
+          501,
+          "transform APIs require the engine DocumentStore",
+        );
+      }
+      return listTransformConfigs({ db: transformDeps.db }, tenantId);
+    },
+
+    async runTransform(input) {
+      if (!transformDeps) {
+        throw new MemoryError(
+          501,
+          "transform APIs require the engine DocumentStore",
+        );
+      }
+      return runTransform(transformDeps, input);
+    },
+
+    async promoteGeneration(input) {
+      if (!transformDeps) {
+        throw new MemoryError(
+          501,
+          "transform APIs require the engine DocumentStore",
+        );
+      }
+      return promoteGeneration(transformDeps, input);
+    },
+
+    async demoteGeneration(input) {
+      if (!transformDeps) {
+        throw new MemoryError(
+          501,
+          "transform APIs require the engine DocumentStore",
+        );
+      }
+      return demoteGeneration(transformDeps, input);
+    },
+
+    async deprecateVersion(input) {
+      if (!transformDeps) {
+        throw new MemoryError(
+          501,
+          "retention APIs require the engine DocumentStore",
+        );
+      }
+      return deprecateVersion(transformDeps.db, input);
+    },
+
+    async tombstoneDocument(input) {
+      if (!transformDeps) {
+        throw new MemoryError(
+          501,
+          "retention APIs require the engine DocumentStore",
+        );
+      }
+      return tombstoneDocument(transformDeps.db, input);
+    },
+
+    async hardDeleteDocument(input) {
+      if (!transformDeps) {
+        throw new MemoryError(
+          501,
+          "retention APIs require the engine DocumentStore",
+        );
+      }
+      return hardDeleteDocument(transformDeps.db, input);
+    },
+
+    async sweepEphemeral(input) {
+      if (!transformDeps) {
+        throw new MemoryError(
+          501,
+          "retention APIs require the engine DocumentStore",
+        );
+      }
+      return sweepEphemeral(transformDeps.db, input);
+    },
+
+    async setRetentionClass(input) {
+      if (!transformDeps) {
+        throw new MemoryError(
+          501,
+          "retention APIs require the engine DocumentStore",
+        );
+      }
+      return setRetentionClass(transformDeps.db, input);
     },
   };
 
   return plane;
 }
 
+type EngineTransformDeps = {
+  db: Db;
+  sql: RawSql;
+  config: EngineConfig;
+};
+
 /**
  * Default DocumentStore: engine pgvector + hybrid search + timeline.
  * Owns construction-time rerank validation, FTS verification, and grant-tag
  * post-filter for document access. The plane never opens Postgres itself.
  */
-function createEngineDocumentStore(config: MemoryConfig): DocumentStore {
+function createEngineDocumentStore(config: MemoryConfig): {
+  store: DocumentStore;
+  deps: EngineTransformDeps;
+} {
   // Catch a chunk-size / reranker-limit mismatch at construction time, rather
   // than silently on every find once the reranker starts rejecting batches.
   // Throws instead of warning: a mismatch means every rerank call for this
@@ -722,6 +1132,7 @@ function createEngineDocumentStore(config: MemoryConfig): DocumentStore {
     k?: number;
     kinds?: string[];
     entityIds?: string[];
+    includeDeprecated?: boolean;
     grants?: DocumentStoreSearchParams["grants"];
     conditionRegistry?: DocumentStoreSearchParams["conditionRegistry"];
   }): Promise<HybridSearchResult> {
@@ -735,6 +1146,9 @@ function createEngineDocumentStore(config: MemoryConfig): DocumentStore {
         ...(params.kinds !== undefined ? { kinds: params.kinds } : {}),
         ...(params.entityIds !== undefined
           ? { entityIds: params.entityIds }
+          : {}),
+        ...(params.includeDeprecated !== undefined
+          ? { includeDeprecated: params.includeDeprecated }
           : {}),
       });
 
@@ -812,80 +1226,196 @@ function createEngineDocumentStore(config: MemoryConfig): DocumentStore {
   }
 
   return {
-    async add(params) {
-      await ensureVerified();
+    store: {
+      async add(params) {
+        await ensureVerified();
 
-      const adapter = params.adapter ?? "http";
-      const externalRef =
-        params.externalRef ??
-        `memory:${params.tenantId}:${crypto.randomUUID()}`;
-      const accessTags = params.accessTags ?? [ownerTag(params.principalId)];
+        const adapter = params.adapter ?? "http";
+        const externalRef =
+          params.externalRef ??
+          `memory:${params.tenantId}:${crypto.randomUUID()}`;
+        const accessTags = params.accessTags ?? [ownerTag(params.principalId)];
 
-      const captureResult = await captureDocument(deps, {
-        tenantId: params.tenantId,
-        adapter,
-        occurredAt: new Date().toISOString(),
-        document: {
-          kind: params.kind ?? "note",
-          title: params.title,
-          externalRef,
-          accessTags,
-          entityHints: [],
-          chunks: [{ ordinal: 0, text: params.text }],
-          actor: { kind: "human", principalId: params.principalId },
-          contentHash: "", // recomputed canonically in adapt-and-plan
-          ...(params.attributes !== undefined
-            ? { attributes: params.attributes }
+        const generatorAgentId = params.generatorAgentId?.trim() || undefined;
+        const actor = generatorAgentId
+          ? {
+              kind: "agent" as const,
+              agentId: generatorAgentId,
+              principalId: params.principalId,
+            }
+          : { kind: "human" as const, principalId: params.principalId };
+
+        const edges =
+          params.derivedFrom && params.derivedFrom.length > 0
+            ? params.derivedFrom.map((versionId) => ({
+                rel: "derived_from" as const,
+                to: { type: "version" as const, ref: versionId },
+              }))
+            : undefined;
+
+        const captureResult = await captureDocument(deps, {
+          tenantId: params.tenantId,
+          adapter,
+          occurredAt: new Date().toISOString(),
+          document: {
+            kind: params.kind ?? "note",
+            title: params.title,
+            externalRef,
+            accessTags,
+            entityHints: [],
+            chunks: [{ ordinal: 0, text: params.text }],
+            actor,
+            contentHash: "", // recomputed canonically in adapt-and-plan
+            ...(params.attributes !== undefined
+              ? { attributes: params.attributes }
+              : {}),
+            ...(params.provenance !== undefined
+              ? { provenance: params.provenance }
+              : generatorAgentId
+                ? { provenance: "inferred" as const }
+                : {}),
+            ...(params.lineageClass !== undefined
+              ? { lineageClass: params.lineageClass }
+              : generatorAgentId
+                ? { lineageClass: "derived" as const }
+                : {}),
+            ...(params.temporalClass !== undefined
+              ? { temporalClass: params.temporalClass }
+              : {}),
+            ...(params.validFrom !== undefined
+              ? { validFrom: params.validFrom }
+              : {}),
+            ...(params.validUntil !== undefined
+              ? { validUntil: params.validUntil }
+              : {}),
+            ...(edges !== undefined ? { edges } : {}),
+          },
+        });
+        return {
+          documentId: captureResult.documentId,
+          versionId: captureResult.versionId,
+        };
+      },
+
+      async appendAccessTags(tenantId, documentId, tags) {
+        if (tags.length === 0) return;
+        // Union into existing access_tags array (postgres text[]). Tenant
+        // filter is defense-in-depth against a forged documentId.
+        await sql`
+          UPDATE "memory"."document"
+          SET access_tags = (
+            SELECT ARRAY(
+              SELECT DISTINCT t
+              FROM unnest(
+                COALESCE(access_tags, '{}'::text[]) || ${[...tags]}::text[]
+              ) AS t
+            )
+          )
+          WHERE id = ${documentId}
+            AND tenant_id = ${tenantId}
+        `;
+      },
+
+      async search(params) {
+        const result = await retrieve({
+          tenantId: params.tenantId,
+          principalId: params.principalId,
+          query: params.query,
+          ...(params.limit !== undefined ? { k: params.limit } : {}),
+          ...(params.kinds !== undefined ? { kinds: params.kinds } : {}),
+          ...(params.entityIds !== undefined
+            ? { entityIds: params.entityIds }
             : {}),
-        },
-      });
-      return { documentId: captureResult.documentId };
-    },
-
-    async search(params) {
-      const result = await retrieve({
-        tenantId: params.tenantId,
-        principalId: params.principalId,
-        query: params.query,
-        ...(params.limit !== undefined ? { k: params.limit } : {}),
-        ...(params.kinds !== undefined ? { kinds: params.kinds } : {}),
-        ...(params.entityIds !== undefined
-          ? { entityIds: params.entityIds }
-          : {}),
-        ...(params.grants !== undefined ? { grants: params.grants } : {}),
-        ...(params.conditionRegistry !== undefined
-          ? { conditionRegistry: params.conditionRegistry }
-          : {}),
-      });
-      const items = hitsToSearchItems(result.hits);
-      if (params.includeEvidence) {
+          ...(params.includeDeprecated !== undefined
+            ? { includeDeprecated: params.includeDeprecated }
+            : {}),
+          ...(params.grants !== undefined ? { grants: params.grants } : {}),
+          ...(params.conditionRegistry !== undefined
+            ? { conditionRegistry: params.conditionRegistry }
+            : {}),
+        });
+        const items = hitsToSearchItems(result.hits, result.evidence);
+        if (params.includeEvidence) {
+          return {
+            items,
+            evidence: result.evidence,
+            ...(result.degraded ? { degraded: result.degraded } : {}),
+          };
+        }
         return {
           items,
-          evidence: result.evidence,
           ...(result.degraded ? { degraded: result.degraded } : {}),
         };
-      }
-      return {
-        items,
-        ...(result.degraded ? { degraded: result.degraded } : {}),
-      };
-    },
+      },
 
-    async list(params) {
-      return listTimelineEvents({
-        db,
-        tenantId: params.tenantId,
-        principalId: params.principalId,
-        ...(params.limit !== undefined ? { limit: params.limit } : {}),
-        ...(params.grants !== undefined ? { grants: params.grants } : {}),
-        ...(params.conditionRegistry !== undefined
-          ? { conditionRegistry: params.conditionRegistry }
-          : {}),
-      });
-    },
+      async list(params) {
+        return listTimelineEvents({
+          db,
+          tenantId: params.tenantId,
+          principalId: params.principalId,
+          ...(params.limit !== undefined ? { limit: params.limit } : {}),
+          ...(params.grants !== undefined ? { grants: params.grants } : {}),
+          ...(params.conditionRegistry !== undefined
+            ? { conditionRegistry: params.conditionRegistry }
+            : {}),
+        });
+      },
 
-    async close() {
-      await sql.end({ timeout: 5 });
+      async feed(params) {
+        await ensureVerified();
+        const raw = await fetchFeed(db, {
+          tenantId: params.tenantId,
+          ...(params.after !== undefined ? { after: params.after } : {}),
+          ...(params.limit !== undefined ? { limit: params.limit } : {}),
+          ...(params.excludeGenerator !== undefined
+            ? { excludeGenerator: params.excludeGenerator }
+            : {}),
+        });
+
+        const allowed: FeedEntry[] = [];
+        for (const entry of raw.entries) {
+          if (!params.grants) {
+            if (entry.createdByPrincipalId === params.principalId) {
+              allowed.push(entry);
+            }
+            continue;
+          }
+          const ok = await canAccessDocument({
+            grants: params.grants,
+            tenantId: params.tenantId,
+            principalId: params.principalId,
+            createdByPrincipalId: entry.createdByPrincipalId,
+            accessTags: entry.accessTags,
+            ...(params.conditionRegistry !== undefined
+              ? { conditionRegistry: params.conditionRegistry }
+              : {}),
+          });
+          if (ok) allowed.push(entry);
+        }
+
+        const entries = allowed.map((e) => ({
+          feedSeq: e.feedSeq,
+          versionId: e.versionId,
+          documentId: e.documentId,
+          kind: e.kind,
+          title: e.title,
+          status: e.status,
+          createdByKind: e.createdByKind,
+          generatorAgentId: e.generatorAgentId,
+          provenance: e.provenance,
+          occurredAt: e.occurredAt,
+          createdAt: e.createdAt,
+          accessTags: e.accessTags,
+        }));
+        // nextCursor must advance past the *raw* page even when ACL filters
+        // every entry — otherwise a denied page stalls the consumer forever.
+        return feedPageAfterAccessFilter(raw, entries);
+      },
+
+      async close() {
+        await sql.end({ timeout: 5 });
+      },
     },
+    deps,
   };
 }

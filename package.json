@@ -1,15 +1,30 @@
 {
   "name": "@corbits/memory",
   "version": "0.1.2",
-  "description": "Mountable memory add/search/list SDK for Interchange hubs",
+  "description": "Mountable memory add/search/list SDK for Interchange hubs — includes resident distiller",
   "exports": {
     ".": "./src/index.ts",
     "./migrations": "./src/migrations.ts",
     "./config": "./src/mount-config.ts",
-    "./tools": "./src/tools/index.ts"
+    "./tools": "./src/tools/index.ts",
+    "./distiller": "./src/distiller/index.ts"
   },
   "interchange": {
-    "tools": "./src/tools/index.ts"
+    "tools": "./src/tools/index.ts",
+    "grantRequirements": [
+      {
+        "resource": "memory",
+        "action": "add",
+        "source": "tenant",
+        "surfaces": ["tools", "distiller", "routes"]
+      },
+      {
+        "resource": "memory",
+        "action": "search",
+        "source": "tenant",
+        "surfaces": ["tools", "distiller", "routes"]
+      }
+    ]
   },
   "license": "LGPL-2.1-only",
   "type": "module",
@@ -28,6 +43,7 @@
     "@intx/authz": "0.2.2",
     "@intx/hub-api": "0.2.2",
     "@intx/log": "0.2.2",
+    "@intx/workflow": "0.2.2",
     "arktype": "^2.1.29",
     "drizzle-orm": "^0.45.1",
     "hono": "^4.9.0",

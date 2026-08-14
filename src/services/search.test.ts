@@ -6,6 +6,7 @@ import {
   fetchDenseCandidates,
   hnswEfSearch,
   snippet,
+  toHit,
   type CandidateRow,
 } from "./search.ts";
 
@@ -26,6 +27,8 @@ function candidate(overrides: Partial<CandidateRow> = {}): CandidateRow {
     rank: 1,
     occurredAt: new Date("2026-01-01T00:00:00Z"),
     authority: 0.5,
+    temporalClass: "event",
+    validUntil: null,
     ...overrides,
   };
 }
@@ -132,25 +135,23 @@ describe("deriveHybridEvidence", () => {
     expect(deriveHybridEvidence(lexicalRows, 1)).toBe("weak");
   });
 
-  // The bug this fix closes: a query resolved mostly through the DENSE
-  // channel has a low (or zero) lexical ts_rank, so before this fix
-  // deriveHybridEvidence always fell through to deriveEvidence(lexicalRows)
-  // and reported "weak" — even when the cross-encoder rerank was highly
-  // confident and authority was high. The reranked-path floor now reports
-  // "strong" in that case instead.
-  it("reports 'strong' when reranked + high rerank score + high authority, even though lexical ts_rank is low", () => {
+  // Living relevancy (CL-5867): strong also needs the corroboration gate —
+  // stated human OR supports ≥ floor. High authority alone is not enough.
+  it("reports 'strong' when reranked + high rerank score + high authority + supports, even though lexical ts_rank is low", () => {
     const lowLexicalRows = [candidate({ rank: 0.001, authority: 0.9 })];
     const evidence = deriveHybridEvidence(lowLexicalRows, 1, {
       rerankScore: 0.85,
       authority: 0.9,
+      supports: 2,
     });
     expect(evidence).toBe("strong");
   });
 
-  it("reports 'strong' even with NO lexical rows at all, given a confident reranked top hit", () => {
+  it("reports 'strong' even with NO lexical rows at all, given a confident reranked top hit with supports", () => {
     const evidence = deriveHybridEvidence([], 1, {
       rerankScore: 0.85,
       authority: 0.9,
+      supports: 2,
     });
     expect(evidence).toBe("strong");
   });
@@ -159,6 +160,7 @@ describe("deriveHybridEvidence", () => {
     const evidence = deriveHybridEvidence([], 1, {
       rerankScore: 0.2,
       authority: 0.9,
+      supports: 5,
     });
     expect(evidence).toBe("weak");
   });
@@ -167,12 +169,41 @@ describe("deriveHybridEvidence", () => {
     const evidence = deriveHybridEvidence([], 1, {
       rerankScore: 0.9,
       authority: 0.1,
+      supports: 5,
     });
     expect(evidence).toBe("weak");
   });
 
+  it("reports 'weak' when high score/authority but no corroboration gate (no supports, not stated human)", () => {
+    const evidence = deriveHybridEvidence([], 1, {
+      rerankScore: 0.9,
+      authority: 0.9,
+      supports: 0,
+      provenance: "inferred",
+      createdByKind: "agent",
+    });
+    expect(evidence).toBe("weak");
+  });
+
+  it("reports 'strong' for stated human without supports when score floors clear", () => {
+    const evidence = deriveHybridEvidence([], 1, {
+      rerankScore: 0.85,
+      authority: 0.9,
+      supports: 0,
+      provenance: "stated",
+      createdByKind: "human",
+    });
+    expect(evidence).toBe("strong");
+  });
+
   it("falls back to the lexical evidence path when reranking did not run (no rerankedTop)", () => {
-    const strongLexicalRows = [candidate({ rank: 0.9, authority: 0.9 })];
+    const strongLexicalRows = [
+      candidate({
+        rank: 0.9,
+        authority: 0.9,
+        supports: 2,
+      }),
+    ];
     expect(deriveHybridEvidence(strongLexicalRows, 1)).toBe("strong");
   });
 });
@@ -231,8 +262,7 @@ describe("fetchDenseCandidates hnsw tuning", () => {
       unsafe: (sqlText: string) => {
         statements.push(sqlText);
         return Promise.resolve(
-          sqlText.includes('FROM "memory"."embed_model"') ||
-            sqlText.includes("FROM memory_embed_model")
+          sqlText.includes('FROM "memory"."embed_model"')
             ? [MODEL_ROW]
             : [],
         );
@@ -374,6 +404,7 @@ describe("fetchDenseCandidates kind/entity filtering", () => {
       unsafe: (sqlText: string, params?: unknown[]) => Promise<unknown[]>;
       savepoint: (fn: (sp: FakeTx) => Promise<unknown>) => Promise<unknown>;
     };
+    const statements: string[] = [];
     function evaluate(sqlText: string, params: unknown[]): unknown[] {
       let rows = DENSE_ROWS;
       const kindMatch = sqlText.match(/kd\.kind = ANY\(\$(\d+)/);
@@ -394,6 +425,7 @@ describe("fetchDenseCandidates kind/entity filtering", () => {
     }
     const tx: FakeTx = {
       unsafe: (sqlText: string, params: unknown[] = []) => {
+        statements.push(sqlText);
         if (sqlText.includes("ORDER BY")) {
           return Promise.resolve(evaluate(sqlText, params));
         }
@@ -402,18 +434,21 @@ describe("fetchDenseCandidates kind/entity filtering", () => {
       savepoint: (fn: (sp: FakeTx) => Promise<unknown>) => fn(tx),
     };
     const rawSql = {
-      unsafe: (sqlText: string) =>
-        Promise.resolve(
-          // CL-5233 qualified the table; keep the pre-qualify form so an
-          // accidental revert still fails this suite the same way.
-          sqlText.includes('FROM "memory"."embed_model"') ||
-            sqlText.includes("FROM memory_embed_model")
+      unsafe: (sqlText: string) => {
+        statements.push(sqlText);
+        return Promise.resolve(
+          // CL-5233 qualified the table — only the fully-qualified form matches.
+          sqlText.includes('FROM "memory"."embed_model"')
             ? [MODEL_ROW]
             : [],
-        ),
+        );
+      },
       begin: (cb: (t: FakeTx) => Promise<unknown>) => cb(tx),
     };
-    return rawSql as unknown as Parameters<typeof fetchDenseCandidates>[0]["sql"];
+    return {
+      rawSql: rawSql as unknown as Parameters<typeof fetchDenseCandidates>[0]["sql"],
+      statements,
+    };
   }
 
   function baseArgs(sql: Parameters<typeof fetchDenseCandidates>[0]["sql"]) {
@@ -433,8 +468,9 @@ describe("fetchDenseCandidates kind/entity filtering", () => {
   }
 
   it("excludes a semantically-similar chunk whose document kind does not match `kinds`", async () => {
+    const fake = fakeRawSql();
     const rows = await fetchDenseCandidates({
-      ...baseArgs(fakeRawSql()),
+      ...baseArgs(fake.rawSql),
       kinds: ["task"],
     });
     const chunkIds = rows?.map((r) => r.chunkId) ?? [];
@@ -443,8 +479,9 @@ describe("fetchDenseCandidates kind/entity filtering", () => {
   });
 
   it("excludes a semantically-similar chunk whose document is not linked to any requested entityId", async () => {
+    const fake = fakeRawSql();
     const rows = await fetchDenseCandidates({
-      ...baseArgs(fakeRawSql()),
+      ...baseArgs(fake.rawSql),
       entityIds: ["e-match"],
     });
     const chunkIds = rows?.map((r) => r.chunkId) ?? [];
@@ -452,21 +489,103 @@ describe("fetchDenseCandidates kind/entity filtering", () => {
     expect(chunkIds).not.toContain("chunk-note");
   });
 
+  it("entity filter targets memory.edge (not pre-rename knowledge_edge)", async () => {
+    const fake = fakeRawSql();
+    await fetchDenseCandidates({
+      ...baseArgs(fake.rawSql),
+      entityIds: ["e-match"],
+    });
+    const denseSelect = fake.statements.find(
+      (s) => s.includes("ORDER BY") && s.includes("ke."),
+    );
+    expect(denseSelect).toBeDefined();
+    expect(denseSelect).toContain('FROM "memory"."edge" ke');
+    expect(denseSelect).not.toContain("knowledge_edge");
+  });
+
   it("applies no kind/entity predicate — and returns every semantically-similar chunk — when neither filter is provided", async () => {
-    const rows = await fetchDenseCandidates(baseArgs(fakeRawSql()));
+    const fake = fakeRawSql();
+    const rows = await fetchDenseCandidates(baseArgs(fake.rawSql));
     const chunkIds = rows?.map((r) => r.chunkId) ?? [];
     expect(chunkIds).toContain("chunk-task");
     expect(chunkIds).toContain("chunk-note");
   });
 
   it("treats an empty kinds/entityIds array as no filter, same as lexical", async () => {
+    const fake = fakeRawSql();
     const rows = await fetchDenseCandidates({
-      ...baseArgs(fakeRawSql()),
+      ...baseArgs(fake.rawSql),
       kinds: [],
       entityIds: [],
     });
     const chunkIds = rows?.map((r) => r.chunkId) ?? [];
     expect(chunkIds).toContain("chunk-task");
     expect(chunkIds).toContain("chunk-note");
+  });
+});
+
+describe("toHit — wire attribution (CL-5870)", () => {
+  it("surfaces provenance, temporal, corroboration, and derived_from on the hit", () => {
+    const hit = toHit(
+      candidate({
+        provenance: "inferred",
+        sourceClass: "derived",
+        temporalClass: "state",
+        validUntil: new Date("2026-12-01T00:00:00Z"),
+        supports: 2,
+        contradicts: 0,
+        derivedFrom: ["kv_source_1", "kv_source_2"],
+        generatorAgentId: "resident-distiller",
+        createdByKind: "agent",
+      }),
+    );
+    expect(hit.version_id).toBe("ver_1");
+    expect(hit.provenance).toBe("inferred");
+    expect(hit.source_class).toBe("derived");
+    expect(hit.temporal_class).toBe("state");
+    expect(hit.valid_until).toBe("2026-12-01T00:00:00.000Z");
+    expect(hit.supports).toBe(2);
+    expect(hit.contradicts).toBe(0);
+    expect(hit.derived_from).toEqual(["kv_source_1", "kv_source_2"]);
+    expect(hit.generator_agent_id).toBe("resident-distiller");
+    expect(hit.created_by_kind).toBe("agent");
+  });
+
+  it("omits optional attribution fields when absent (additive wire)", () => {
+    const hit = toHit(candidate());
+    expect(hit.provenance).toBeUndefined();
+    expect(hit.source_class).toBeUndefined();
+    expect(hit.derived_from).toBeUndefined();
+    expect(hit.generator_agent_id).toBeUndefined();
+    expect(hit.supports).toBe(0);
+    expect(hit.contradicts).toBe(0);
+    expect(hit.temporal_class).toBe("event");
+  });
+
+  it("distinguishes stated human vs inferred agent attribution shapes", () => {
+    const human = toHit(
+      candidate({
+        provenance: "stated",
+        sourceClass: "native",
+        createdByKind: "human",
+        generatorAgentId: null,
+      }),
+    );
+    const distilled = toHit(
+      candidate({
+        provenance: "inferred",
+        sourceClass: "derived",
+        createdByKind: "agent",
+        generatorAgentId: "resident-distiller",
+        derivedFrom: ["kv_raw"],
+      }),
+    );
+    expect(human.provenance).toBe("stated");
+    expect(human.created_by_kind).toBe("human");
+    expect(human.generator_agent_id).toBeUndefined();
+    expect(distilled.provenance).toBe("inferred");
+    expect(distilled.created_by_kind).toBe("agent");
+    expect(distilled.generator_agent_id).toBe("resident-distiller");
+    expect(distilled.derived_from).toEqual(["kv_raw"]);
   });
 });

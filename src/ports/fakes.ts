@@ -86,7 +86,17 @@ export function createFakeDocumentStore(): DocumentStore {
         row.externalRef = params.externalRef;
       }
       docs.push(row);
-      return { documentId };
+      return { documentId, versionId: `fake_ver_${seq}` };
+    },
+
+    async appendAccessTags(tenantId, documentId, tags) {
+      const row = docs.find(
+        (d) => d.documentId === documentId && d.tenantId === tenantId,
+      );
+      if (!row) return;
+      const set = new Set(row.accessTags);
+      for (const t of tags) set.add(t);
+      row.accessTags = [...set];
     },
 
     async search(

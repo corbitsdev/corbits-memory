@@ -1,5 +1,11 @@
 import { type } from "arktype";
-import { CreatedByKindSchema, MemoryVersionStatusSchema } from "./document.ts";
+import {
+  CreatedByKindSchema,
+  LineageClassSchema,
+  MemoryVersionStatusSchema,
+  ProvenanceModeSchema,
+  TemporalClassSchema,
+} from "./document.ts";
 
 // The retrieval contract locked on day one. A SearchHit always pins a
 // version_id (a citation must be reproducible against the exact version it
@@ -41,6 +47,15 @@ export const SearchHitSchema = type({
   citation: SearchHitCitationSchema,
   entity_ids: "string[]",
   channels_matched: SearchChannelSchema.array(),
+  // Additive attribution (CL-5870) — optional so older fixtures still parse.
+  "provenance?": ProvenanceModeSchema,
+  "source_class?": LineageClassSchema,
+  "temporal_class?": TemporalClassSchema,
+  "occurred_at?": "string",
+  "valid_until?": "string | null",
+  "supports?": "number.integer >= 0",
+  "contradicts?": "number.integer >= 0",
+  "derived_from?": "string[]",
 });
 export type SearchHit = typeof SearchHitSchema.infer;
 

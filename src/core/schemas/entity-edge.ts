@@ -1,4 +1,9 @@
 import { type } from "arktype";
+import {
+  EDGE_RELS,
+  EDGE_REF_TYPES_ADAPTER,
+  arktypeStringUnion,
+} from "../enums.ts";
 
 // A real-world thing (person, org, deal, ...) a document or chunk mentions.
 // Kept lightweight — identity keys only (email, domain, ...), not another
@@ -12,11 +17,18 @@ export const MemoryEntitySchema = type({
 });
 export type MemoryEntity = typeof MemoryEntitySchema.infer;
 
-export const MemoryEdgeRefTypeSchema = type("'document'|'entity'|'native'");
+// Adapter-facing endpoint kinds. `native` is a planning-time hint resolved
+// to an entity row at the capture write boundary; it is never stored on
+// memory.edge.
+export const MemoryEdgeRefTypeSchema = type(
+  arktypeStringUnion(EDGE_REF_TYPES_ADAPTER) as
+    "'document'|'version'|'chunk'|'entity'|'native'",
+);
 export type MemoryEdgeRefType = typeof MemoryEdgeRefTypeSchema.infer;
 
 export const MemoryEdgeRelSchema = type(
-  "'about'|'produced_by'|'links'|'parent'|'mentions'|'waiting_on'",
+  arktypeStringUnion(EDGE_RELS) as
+    "'mentions'|'about'|'authored_by'|'involves'|'part_of'|'derived_from'|'supports'|'contradicts'|'supersedes'",
 );
 export type MemoryEdgeRel = typeof MemoryEdgeRelSchema.infer;
 

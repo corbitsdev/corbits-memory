@@ -21,6 +21,9 @@ function parseSearchArgs(args: Record<string, unknown>): MemorySearchBody {
   if (parsed.includeEvidence !== undefined) {
     body.includeEvidence = parsed.includeEvidence;
   }
+  if (parsed.includeDeprecated !== undefined) {
+    body.includeDeprecated = parsed.includeDeprecated;
+  }
   return body;
 }
 
@@ -34,8 +37,10 @@ export const memorySearch = defineMemoryHttpTool({
   name: "memory_search",
   description:
     "Hybrid semantic + keyword search over tenant memory. " +
-    "Returns ranked items (and optional evidence). Identity is " +
-    "the authenticated principal on the hub.",
+    "Returns ranked items with optional additive attribution " +
+    "(provenance, temporal class, corroboration, derivedFrom) and evidence. " +
+    "Attribute stated content to the actor; treat inferred as own-voice claims. " +
+    "Identity is the authenticated principal on the hub.",
   inputSchema: {
     type: "object",
     properties: {
@@ -69,6 +74,11 @@ export const memorySearch = defineMemoryHttpTool({
         type: "boolean",
         description:
           "Include evidence strength on the response (hub default true)",
+      },
+      includeDeprecated: {
+        type: "boolean",
+        description:
+          "Include deprecated versions in results (default false)",
       },
     },
     required: ["query"],

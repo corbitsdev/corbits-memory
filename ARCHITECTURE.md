@@ -9,7 +9,8 @@ plane and the protected routes that read and write it.
 The store was detachable from a larger backend, then mountable:
 
 - No memory table has a foreign key into any control-plane table — cross-refs
-  (`tenant_id`, `principal_id`, source refs) are plain `text`.
+  (`tenant_id`, `principal_id`, source refs) are plain `text`. Tables live in
+  the **`memory`** schema (same Postgres URL as the host is fine).
 - Embedding and reranking go out as plain HTTP to configured model endpoints.
 - Document access is Interchange grant tags on the row (`accessTags` + creator),
   not a private ACL engine inside this package.
@@ -21,7 +22,11 @@ talks to its DocumentStore. No second server.
 ## Product path
 
 ```
-tools / ingestion  →  /api/tenants/:tenantId/memory/*  →  Memory plane  →  DocumentStore
+add  →  ingest elements (store/chunk/embed)  →  process (optional, host)
+```
+
+```
+tools / host ingest workflow  →  /api/tenants/:tenantId/memory/*  →  Memory plane  →  DocumentStore
          ↑
    Interchange auth + principal + grants
 ```
@@ -29,6 +34,11 @@ tools / ingestion  →  /api/tenants/:tenantId/memory/*  →  Memory plane  → 
 Mount is intentionally small. The host already has `app`, grants, and
 principal middleware; memory only needs to be handed those and the vector
 config (or an injected store).
+
+**Ingest elements** run on the default store inside `add` (raw capture, chunks,
+edges, embed). **Process** (claims, LLM link/classify) is host-owned inference,
+preferably in the same workflow body as the add. Capture **feed** + distiller
+helpers are optional multi-writer / backfill — not the primary path.
 
 ## Boundaries
 

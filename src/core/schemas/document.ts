@@ -1,4 +1,11 @@
 import { type } from "arktype";
+import {
+  LINEAGE_CLASSES,
+  PROVENANCE_MODES,
+  RETENTION_CLASSES,
+  TEMPORAL_CLASSES,
+  arktypeStringUnion,
+} from "../enums.ts";
 
 export const MemoryVersionStatusSchema = type(
   "'active'|'superseded'|'deprecated'|'archived'|'tombstoned'",
@@ -7,6 +14,28 @@ export type MemoryVersionStatus = typeof MemoryVersionStatusSchema.infer;
 
 export const CreatedByKindSchema = type("'human'|'agent'|'system'|'adapter'");
 export type CreatedByKind = typeof CreatedByKindSchema.infer;
+
+export const LineageClassSchema = type(
+  arktypeStringUnion(LINEAGE_CLASSES) as "'native'|'imported'|'derived'",
+);
+export type LineageClass = typeof LineageClassSchema.infer;
+
+export const ProvenanceModeSchema = type(
+  arktypeStringUnion(PROVENANCE_MODES) as "'stated'|'inferred'|'unknown'",
+);
+export type ProvenanceMode = typeof ProvenanceModeSchema.infer;
+
+export const TemporalClassSchema = type(
+  arktypeStringUnion(TEMPORAL_CLASSES) as
+    "'event'|'deadline'|'state'|'lesson'",
+);
+export type TemporalClass = typeof TemporalClassSchema.infer;
+
+export const RetentionClassSchema = type(
+  arktypeStringUnion(RETENTION_CLASSES) as
+    "'durable'|'standard'|'ephemeral'|'source_only'",
+);
+export type RetentionClass = typeof RetentionClassSchema.infer;
 
 // The stable logical row for a captured source, deduped on (tenant_id,
 // adapter, external_ref). Document access is grant tags only.
@@ -26,6 +55,9 @@ export type MemoryDocument = typeof MemoryDocumentSchema.infer;
 
 // The versioned body of a document. Chunks belong to a version_id, never
 // reused across versions.
+// occurred_at is effective time the content refers to (event time / state
+// effective time / deadline establishment). ingested_at is when the plane
+// learned it. Validity window is optional (deadline/state claims).
 export const MemoryVersionSchema = type({
   id: "string",
   tenant_id: "string",
@@ -42,5 +74,11 @@ export const MemoryVersionSchema = type({
   created_by_principal_id: "string | null",
   created_by_kind: CreatedByKindSchema,
   "generator_agent_id?": "string",
+  provenance: ProvenanceModeSchema,
+  source_class: LineageClassSchema,
+  temporal_class: TemporalClassSchema,
+  retention_class: RetentionClassSchema,
+  "valid_from?": "string | null",
+  "valid_until?": "string | null",
 });
 export type MemoryVersion = typeof MemoryVersionSchema.infer;
