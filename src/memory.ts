@@ -28,8 +28,10 @@ import {
 } from "./services/timeline.ts";
 import {
   fetchFeed,
+  feedPageAfterAccessFilter,
   type FeedEntry,
 } from "./services/feed.ts";
+
 import {
   createTransformConfig,
   demoteGeneration,
@@ -1388,9 +1390,9 @@ function createEngineDocumentStore(config: MemoryConfig): {
           createdAt: e.createdAt,
           accessTags: e.accessTags,
         }));
-        const nextCursor =
-          entries.length > 0 ? entries[entries.length - 1]!.feedSeq : null;
-        return { entries, nextCursor };
+        // nextCursor must advance past the *raw* page even when ACL filters
+        // every entry — otherwise a denied page stalls the consumer forever.
+        return feedPageAfterAccessFilter(raw, entries);
       },
 
       async close() {

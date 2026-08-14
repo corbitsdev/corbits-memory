@@ -26,7 +26,7 @@ describe("createResidentDistiller", () => {
   });
 
   it("allows cron and id overrides", () => {
-    const { workflow, generatorAgentId } = createResidentDistiller({
+    const { workflow, generatorAgentId, agent } = createResidentDistiller({
       id: "my-distiller",
       agentId: "my-agent",
       cron: "0 * * * *",
@@ -40,5 +40,7 @@ describe("createResidentDistiller", () => {
       type: "schedule",
       cron: "0 * * * *",
     });
+    expect(agent.systemPrompt).toContain("my-agent");
+    expect(agent.systemPrompt).not.toContain(RESIDENT_DISTILLER_AGENT_ID);
   });
 });

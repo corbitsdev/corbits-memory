@@ -30,14 +30,15 @@ import {
   RESIDENT_DISTILLER_WORKFLOW_ID,
 } from "./constants.ts";
 
-const DEFAULT_SYSTEM_PROMPT = `You are the resident memory distiller for a Corbits tenant.
+const DEFAULT_SYSTEM_PROMPT = (generatorAgentId: string) =>
+  `You are the resident memory distiller for a Corbits tenant.
 
 On each run:
-1. Call memory_feed with after=<cursor from state or 0>, exclude_generator=${RESIDENT_DISTILLER_AGENT_ID}.
+1. Call memory_feed with after=<cursor from state or 0>, exclude_generator=${generatorAgentId}.
 2. For each entry worth promoting to a durable claim:
    - Classify (event / deadline / state / lesson) and gate junk / action-only noise.
    - Write a concise claim via memory_add with:
-     generator_agent_id=${RESIDENT_DISTILLER_AGENT_ID}
+     generator_agent_id=${generatorAgentId}
      provenance=inferred
      lineage_class=derived
      derived_from=[entry.versionId]
@@ -94,7 +95,7 @@ export function createResidentDistiller(
     description:
       opts.description ??
       "Resident memory distiller — feed → classify → claim write",
-    systemPrompt: opts.systemPrompt ?? DEFAULT_SYSTEM_PROMPT,
+    systemPrompt: opts.systemPrompt ?? DEFAULT_SYSTEM_PROMPT(generatorAgentId),
     tools,
     capabilities: [...MEMORY_CAPABILITY_IDS],
 

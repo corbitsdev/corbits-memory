@@ -130,3 +130,20 @@ export async function fetchFeed(
 
   return { entries, nextCursor };
 }
+
+/**
+ * Apply a document-access filter to a raw feed page.
+ *
+ * **Cursor rule:** `nextCursor` always comes from the raw examined page,
+ * not from the last allowed entry. A fully denied page must still advance
+ * the consumer past those `feed_seq` values or the poll stalls forever.
+ */
+export function feedPageAfterAccessFilter<T>(
+  raw: { entries: readonly T[]; nextCursor: number | null },
+  allowed: readonly T[],
+): { entries: T[]; nextCursor: number | null } {
+  return {
+    entries: [...allowed],
+    nextCursor: raw.nextCursor,
+  };
+}

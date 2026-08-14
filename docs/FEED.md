@@ -29,6 +29,9 @@ memory.feed({ tenantId, principalId, after?, limit?, excludeGenerator? })
 - **Live generation only** — same rule as default search.
 - Capability: `memory` / `search` (same as list/retrieve).
 - Document access: grant-tag post-filter identical to search.
+- **Cursor advances past the examined raw page**, even when the access filter
+  returns zero entries. Using the last *allowed* `feedSeq` would stall a
+  consumer on a fully denied page forever.
 
 Cursor storage is the **consumer's** job (workflow run state).
 

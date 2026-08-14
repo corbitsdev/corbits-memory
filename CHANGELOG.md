@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Feed `nextCursor` advances past the examined raw page after grant-tag
+  post-filter (a fully denied page no longer stalls the consumer forever).
+- Distiller default system prompt uses the configured `agentId` for
+  `exclude_generator` / `generator_agent_id` (not only the package default id).
+
 ### Changed
 
 - **Product narrative:** default path is **add → ingest elements → process**
