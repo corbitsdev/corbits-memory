@@ -20,7 +20,7 @@ describe("capture path embed client config", () => {
 
     const embedClientConfig = toEmbedClientConfig(embed);
 
-    expect(embedClientConfig.timeoutMs).toBe(5000);
+    expect(embedClientConfig?.timeoutMs).toBe(5000);
   });
 
   it("leaves timeoutMs undefined (so embed-client.ts's own default applies) when EngineConfig doesn't set one", () => {
@@ -34,6 +34,10 @@ describe("capture path embed client config", () => {
 
     const embedClientConfig = toEmbedClientConfig(embed);
 
-    expect(embedClientConfig.timeoutMs).toBeUndefined();
+    expect(embedClientConfig?.timeoutMs).toBeUndefined();
+  });
+
+  it("returns undefined when EngineConfig.embed is absent (no embedding account configured)", () => {
+    expect(toEmbedClientConfig(undefined)).toBeUndefined();
   });
 });

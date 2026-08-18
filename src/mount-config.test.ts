@@ -36,14 +36,14 @@ afterEach(() => {
 describe("loadMemoryConfig — EMBED_TIMEOUT_MS / RERANK_TIMEOUT_MS", () => {
   it("leaves embed.timeoutMs and rerank.timeoutMs undefined when unset, so the clients' own defaults apply", () => {
     const config = loadMemoryConfig();
-    expect(config.memory.embed.timeoutMs).toBeUndefined();
+    expect(config.memory.embed?.timeoutMs).toBeUndefined();
     expect(config.memory.rerank.timeoutMs).toBeUndefined();
   });
 
   it("flows EMBED_TIMEOUT_MS through to embed.timeoutMs", () => {
     process.env.EMBED_TIMEOUT_MS = "20000";
     const config = loadMemoryConfig();
-    expect(config.memory.embed.timeoutMs).toBe(20_000);
+    expect(config.memory.embed?.timeoutMs).toBe(20_000);
   });
 
   it("flows RERANK_TIMEOUT_MS through to rerank.timeoutMs", () => {
@@ -56,6 +56,40 @@ describe("loadMemoryConfig — EMBED_TIMEOUT_MS / RERANK_TIMEOUT_MS", () => {
     process.env.EMBED_TIMEOUT_MS = "not-a-number";
     expect(() => loadMemoryConfig()).toThrow(
       "EMBED_TIMEOUT_MS must be a positive integer",
+    );
+  });
+});
+
+describe("loadMemoryConfig — optional embed (CL-6287)", () => {
+  it("constructs with DATABASE_URL alone: embed is absent, not required", () => {
+    delete process.env.EMBED_BASE_URL;
+    delete process.env.EMBED_MODEL;
+    const config = loadMemoryConfig();
+    expect(config.memory.embed).toBeUndefined();
+  });
+
+  it("builds embed when both EMBED_BASE_URL and EMBED_MODEL are set", () => {
+    const config = loadMemoryConfig();
+    expect(config.memory.embed).toEqual({
+      baseUrl: "http://embed.example",
+      model: "test-model",
+      apiStyle: "openai",
+      apiKey: undefined,
+      timeoutMs: undefined,
+    });
+  });
+
+  it("rejects EMBED_BASE_URL set without EMBED_MODEL", () => {
+    delete process.env.EMBED_MODEL;
+    expect(() => loadMemoryConfig()).toThrow(
+      "EMBED_BASE_URL and EMBED_MODEL must both be set or both be unset",
+    );
+  });
+
+  it("rejects EMBED_MODEL set without EMBED_BASE_URL", () => {
+    delete process.env.EMBED_BASE_URL;
+    expect(() => loadMemoryConfig()).toThrow(
+      "EMBED_BASE_URL and EMBED_MODEL must both be set or both be unset",
     );
   });
 });
