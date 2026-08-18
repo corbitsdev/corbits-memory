@@ -35,9 +35,14 @@ CI runs `typecheck` + `test` — both must pass before any push.
 
 ## Non-negotiable invariants
 
-1. **Authenticate nothing.** Identity is `c.get("principal")` from the
-   Interchange context; authorization goes through the host's grant store
-   (`@intx/authz`). Never add API keys, sessions, or OAuth here.
+1. **Authenticate nothing.** Identity defaults to `c.get("principal")` from
+   the Interchange context; a host may instead supply `callerResolver`
+   (`src/routes/deps.ts`) to resolve a non-browser caller (e.g. a
+   workflow-run child's own sidecar bearer token) — but resolving that
+   token is 100% host logic, called through the seam, never implemented
+   here. Either way authorization goes through the host's grant store
+   (`@intx/authz`) via the same `requireGrant` path. Never add API keys,
+   sessions, or OAuth here.
 2. **One Postgres**: `DATABASE_URL`, the engine's own vector plane, under the
    `memory` schema — never the host's control-plane DB. No foreign keys into
    control-plane tables; cross-refs (`tenant_id`, `principal_id`) are plain

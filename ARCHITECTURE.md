@@ -45,9 +45,15 @@ helpers are optional multi-writer / backfill — not the primary path.
 - **Runtime**: Bun + Hono, mounted on the host app. **DB**: own pgvector
   Postgres (`DATABASE_URL`) unless `documentStore` is injected.
   **Types**: arktype at every route boundary.
-- **No auth of its own.** Interchange resolves the caller and puts `principal`
-  + `tenant` on context; routes read identity from there
-  (`tenantId = principal.tenantId`, `principalId = principal.id`).
+- **No auth of its own.** By default, Interchange resolves the caller and
+  puts `principal` + `tenant` on context; routes read identity from there
+  (`tenantId = principal.tenantId`, `principalId = principal.id`). A host
+  with a non-browser caller (e.g. a workflow-run child with its own sidecar
+  bearer token) may instead pass `callerResolver` (`RouteDeps` /
+  `createMemory`) — the host still does 100% of the authenticating, it just
+  hands the resolved `{ tenantId, principalId }` in through the seam instead
+  of setting context itself. Either way the resolved identity, never
+  anything from the request body, is what `grantGuard` authorizes.
 - **Grants delegate to the host.** Pass `grantStore` + `conditionRegistry`;
   routes use `createRequireGrant("memory", action)`.
 - **Dependencies**: `@intx/hub-api`, `@intx/authz`, `@intx/log`, Hono, Drizzle,

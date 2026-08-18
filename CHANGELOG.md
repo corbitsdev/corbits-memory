@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `RouteDeps.callerResolver` / `createMemory({ callerResolver })` — an
+  optional host-supplied resolver from a request to a `{ tenantId,
+  principalId }` scope, for a caller that never goes through the host's
+  tenant-session middleware (e.g. a workflow-run child authenticating with
+  its own sidecar bearer token). Unset by default: every route still reads
+  identity from `c.get("principal")` exactly as before. When set, the
+  resolved identity is seated as the request's principal/tenant ahead of
+  `grantGuard`, so the same `requireGrant` authorization path applies to a
+  machine caller — never a separate, weaker one. Identity from the resolver
+  always wins over anything a request body claims.
+
 ### Fixed
 
 - Feed `nextCursor` advances past the examined raw page after grant-tag
