@@ -92,4 +92,11 @@ describe("loadMemoryConfig — optional embed (CL-6287)", () => {
       "EMBED_BASE_URL and EMBED_MODEL must both be set or both be unset",
     );
   });
+
+  it("treats a whitespace-only EMBED_BASE_URL as unset, not as a blank baseUrl", () => {
+    process.env.EMBED_BASE_URL = "   ";
+    expect(() => loadMemoryConfig()).toThrow(
+      "EMBED_BASE_URL and EMBED_MODEL must both be set or both be unset",
+    );
+  });
 });
