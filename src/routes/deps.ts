@@ -1,5 +1,10 @@
 import type { Context, MiddlewareHandler } from "hono";
-import type { RequireGrant, TenantEnv } from "@intx/hub-api";
+import type {
+  PrincipalRow,
+  RequireGrant,
+  TenantEnv,
+  TenantRow,
+} from "@intx/hub-api";
 import type { ConditionRegistry, GrantStore } from "@intx/authz";
 
 import type { Memory } from "../memory.ts";
@@ -111,12 +116,66 @@ export function grantGuard(
 }
 
 /**
- * TODO(CL-6286): resolve `deps.callerResolver` and seat the result on the
- * context ahead of `requirePrincipal`/`grantGuard`. Currently a no-op
- * passthrough — behavior is unchanged from before this ticket either way.
+ * `requireGrant`/`authorize` only ever read `.id` off the tenant/principal
+ * rows they're handed; the rest of `PrincipalRow`/`TenantRow` describes a
+ * browser-session database row a bearer-token caller has none of. These
+ * placeholders exist only to satisfy that shape.
  */
-export function resolveCaller(_deps: RouteDeps): MiddlewareHandler<TenantEnv> {
-  return async (_c, next) => {
+function principalRowFor(resolved: ResolvedCaller): PrincipalRow {
+  return {
+    id: resolved.principalId,
+    tenantId: resolved.tenantId,
+    kind: "agent",
+    refId: resolved.principalId,
+    status: "active",
+    createdAt: new Date(0),
+    updatedAt: new Date(0),
+  };
+}
+
+function tenantRowFor(resolved: ResolvedCaller): TenantRow {
+  return {
+    id: resolved.tenantId,
+    name: resolved.tenantId,
+    slug: resolved.tenantId,
+    domain: "",
+    parentId: null,
+    config: null,
+    createdAt: new Date(0),
+    updatedAt: new Date(0),
+  };
+}
+
+/**
+ * When `deps.callerResolver` is set, resolve the caller and seat it as the
+ * context principal/tenant before `requirePrincipal`/`grantGuard` run — a
+ * request the resolver rejects never reaches them. When unset, this is a
+ * no-op passthrough; the host's own tenant-session middleware remains the
+ * only thing that ever sets `principal`/`tenant`, exactly as before this
+ * ticket.
+ */
+export function resolveCaller(deps: RouteDeps): MiddlewareHandler<TenantEnv> {
+  return async (c, next) => {
+    if (!deps.callerResolver) {
+      await next();
+      return;
+    }
+    const resolved = await deps.callerResolver(c);
+    if (!resolved) {
+      return c.json(
+        {
+          error: {
+            code: "unauthorized",
+            message:
+              "The configured caller resolver could not identify this " +
+              "request (missing or unrecognized credentials).",
+          },
+        },
+        401,
+      );
+    }
+    c.set("principal", principalRowFor(resolved));
+    c.set("tenant", tenantRowFor(resolved));
     await next();
   };
 }
