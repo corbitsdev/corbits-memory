@@ -25,6 +25,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `loadMemoryConfig` / `EngineConfig.embed` no longer requires an embedding
+  endpoint: a host with a pgvector Postgres and no embedding account now
+  constructs and serves `add` + lexical `search`. Dense retrieval is skipped
+  (not attempted-and-failed) and `search` reports
+  `degraded: ["dense_unavailable", "lexical_only"]` so the state stays
+  observable (CL-6287).
 - Feed `nextCursor` advances past the examined raw page after grant-tag
   post-filter (a fully denied page no longer stalls the consumer forever).
 - Distiller default system prompt uses the configured `agentId` for

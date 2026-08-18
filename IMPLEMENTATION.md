@@ -88,13 +88,28 @@ fallback)` parses a positive integer or throws.
 |  `DATABASE_URL` | **yes** | — | the engine's own pgvector Postgres |
 | `DB_POOL_MAX` | no | `8` | postgres-js pool size |
 | `FTS_LANGUAGE` | no | `english` | text search config for the lexical channel; fixed into the generated column at migration time — changing it later requires rebuilding the column (recipe below), and `runMemoryMigrations` fails loudly if config and column disagree. Unqualified `pg_catalog` config names only — a schema-qualified config (`myschema.mycfg`) is rejected explicitly, both when configuring and when read back from an already-migrated column. |
-| `EMBED_BASE_URL` | **yes** | — | embed endpoint root, no path suffix |
-| `EMBED_MODEL` | **yes** | — | model id/name passed to the embed endpoint |
+| `EMBED_BASE_URL` | no | — | embed endpoint root, no path suffix; absent (with `EMBED_MODEL` also absent) => lexical-only, see below |
+| `EMBED_MODEL` | no | — | model id/name passed to the embed endpoint; must be set together with `EMBED_BASE_URL` (both or neither — one without the other throws) |
 | `EMBED_API_STYLE` | no | `"openai"` | `"openai" \| "tei" \| "ollama"` |
 | `EMBED_API_KEY` | no | `undefined` | forwarded as `Authorization: Bearer <key>` |
 | `RERANK_BASE_URL` | no | `undefined` | absent => search degrades to fusion-only |
 | `RERANK_MODEL` | no | `undefined` | defaults to `bge-reranker-v2-m3` in the client |
 | `RERANK_API_KEY` | no | `undefined` | forwarded as Bearer token to the rerank endpoint |
+
+**Lexical-only mode (CL-6287).** `EngineConfig.embed` is optional — leave both
+`EMBED_BASE_URL`/`EMBED_MODEL` unset and the engine still constructs and
+serves `add` + lexical `search` against a pgvector Postgres with no
+embedding account configured. Dense retrieval is skipped rather than
+attempted (no doomed HTTP call on every query), `add` still captures
+documents (chunks stored, no vectors), and `search` reports
+`degraded: ["dense_unavailable", "lexical_only"]` on every call so the state
+is observable. The embed-model registry (`ensureEmbedModel`/
+`activateEmbedModel`) is never reached in this mode. The replay/backfill
+pipeline (`runTransform`, `promoteGeneration` in `services/transform.ts`)
+still requires an embed endpoint — re-deriving a corpus is inherently a
+re-embedding operation — and fails loudly if run against an engine with none
+configured; re-embedding documents captured while lexical-only, once an
+endpoint is later added, is an open follow-up (not implemented).
 
 The engine's `EngineConfig.rerank` carries
 no `apiStyle` field of its own; `search.ts`'s `toRerankClientConfig` hardcodes
@@ -688,9 +703,9 @@ bun run test                                           # unit suite (no external
 
 `compose.yml` provisions the pgvector Postgres (`memory` db, host port
 `5434`), an Ollama embeddings server (`:11434`), and a TEI reranker (`:8085`).
-The engine **never embeds internally** — `EMBED_BASE_URL` must point at a real
-endpoint. A model endpoint is just a URL + capability options, trusted the same
-as `DATABASE_URL`:
+The engine **never embeds internally** — when `EMBED_BASE_URL` is set, it must
+point at a real endpoint. A model endpoint is just a URL + capability options,
+trusted the same as `DATABASE_URL`:
 
 - **Local default**: Ollama at `http://localhost:11434`
   (`EMBED_API_STYLE=ollama`, `EMBED_MODEL=nomic-embed-text`).
@@ -700,6 +715,11 @@ as `DATABASE_URL`:
 
 `RERANK_BASE_URL` is optional — unset runs lexical+dense+MMR without the
 cross-encoder (`degraded: ["rerank_unavailable"]`, still ranked/citable hits).
+
+`EMBED_BASE_URL`/`EMBED_MODEL` are optional too — unset both to run
+lexical-only (`degraded: ["dense_unavailable", "lexical_only"]`, no dense
+channel, `add` still captures documents unvectorized). See the lexical-only
+note above.
 
 ## Testing
 
