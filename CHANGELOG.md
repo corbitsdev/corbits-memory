@@ -30,7 +30,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   constructs and serves `add` + lexical `search`. Dense retrieval is skipped
   (not attempted-and-failed) and `search` reports
   `degraded: ["dense_unavailable", "lexical_only"]` so the state stays
-  observable (CL-6287).
+  observable (CL-6287). **Migration note:** `dense_unavailable` is now also
+  emitted on every search for a deliberately-unconfigured engine, not only on
+  a transient dense-retrieval failure — a host with an existing alert rule
+  keyed on `dense_unavailable` alone should also check for `lexical_only` in
+  the same `degraded` array to distinguish "opted into lexical-only" from an
+  actual regression.
 - Feed `nextCursor` advances past the examined raw page after grant-tag
   post-filter (a fully denied page no longer stalls the consumer forever).
 - Distiller default system prompt uses the configured `agentId` for
