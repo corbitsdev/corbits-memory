@@ -21,7 +21,7 @@ function requireEnv(name: string): string {
 
 function optionalEnv(name: string): string | undefined {
   const v = process.env[name];
-  return v && v.length > 0 ? v : undefined;
+  return v && v.trim() !== "" ? v : undefined;
 }
 
 function intEnv(name: string, fallback: number): number {
@@ -81,20 +81,24 @@ function loadEmbedConfig(): EngineConfig["embed"] {
  * as the host is fine; tables live under the `memory` schema, not public.
  */
 export function loadMemoryConfig(): MemoryConfig {
-  const embed = loadEmbedConfig();
-  return {
-    memory: {
-      databaseUrl: requireEnv("DATABASE_URL"),
-      dbPoolMax: intEnv("DB_POOL_MAX", 8),
-      ftsLanguage: parseFtsLanguage(optionalEnv("FTS_LANGUAGE")),
-      ...(embed ? { embed } : {}),
-      rerank: {
-        baseUrl: optionalEnv("RERANK_BASE_URL"),
-        model: optionalEnv("RERANK_MODEL"),
-        apiKey: optionalEnv("RERANK_API_KEY"),
-        maxDocChars: optionalIntEnv("RERANK_MAX_DOC_CHARS"),
-        timeoutMs: optionalIntEnv("RERANK_TIMEOUT_MS"),
-      },
-    },
+  const databaseUrl = requireEnv("DATABASE_URL");
+  const dbPoolMax = intEnv("DB_POOL_MAX", 8);
+  const ftsLanguage = parseFtsLanguage(optionalEnv("FTS_LANGUAGE"));
+  const rerank = {
+    baseUrl: optionalEnv("RERANK_BASE_URL"),
+    model: optionalEnv("RERANK_MODEL"),
+    apiKey: optionalEnv("RERANK_API_KEY"),
+    maxDocChars: optionalIntEnv("RERANK_MAX_DOC_CHARS"),
+    timeoutMs: optionalIntEnv("RERANK_TIMEOUT_MS"),
   };
+
+  const embed = loadEmbedConfig();
+  // Two explicit literals rather than spreading `embed` in conditionally:
+  // `EngineConfig.embed` is optional, not `X | undefined`, so under
+  // exactOptionalPropertyTypes the key must be omitted entirely when there's
+  // no embed config, not present-with-value-undefined.
+  if (embed) {
+    return { memory: { databaseUrl, dbPoolMax, ftsLanguage, embed, rerank } };
+  }
+  return { memory: { databaseUrl, dbPoolMax, ftsLanguage, rerank } };
 }
