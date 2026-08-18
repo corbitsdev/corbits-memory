@@ -7,7 +7,12 @@ import { formatCaughtError, log } from "../log.ts";
 import { SearchRequest } from "../http-bodies.ts";
 import { MemoryError } from "../memory.ts";
 import type { RouteDeps } from "./deps.ts";
-import { caller, grantGuard, requirePrincipal } from "./deps.ts";
+import {
+  caller,
+  grantGuard,
+  requirePrincipal,
+  resolveCaller,
+} from "./deps.ts";
 
 // `kinds`/`entity_ids` scope every retrieval channel — see the
 // `kinds`/`entityIds` doc comments on MemorySearchParams (memory.ts)
@@ -57,6 +62,7 @@ export function mountSearchRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
         502: { description: "search failed" },
       },
     }),
+    resolveCaller(deps),
     requirePrincipal(),
     grantGuard(deps, "search"),
     validator("json", SearchRequest),

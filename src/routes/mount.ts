@@ -12,7 +12,12 @@ import { mountSearchRoute } from "./search.ts";
 import { mountListRoute } from "./list.ts";
 import { mountFeedRoute } from "./feed.ts";
 
-export type { GrantConfig, RouteDeps } from "./deps.ts";
+export type {
+  CallerResolver,
+  GrantConfig,
+  ResolvedCaller,
+  RouteDeps,
+} from "./deps.ts";
 
 /** HTTP JSON routes: add, search, list, feed. */
 export function registerMemoryRoutes(

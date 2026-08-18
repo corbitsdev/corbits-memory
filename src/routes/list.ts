@@ -11,7 +11,12 @@ import {
   LIST_LIMIT_MIN,
 } from "../memory.ts";
 import type { RouteDeps } from "./deps.ts";
-import { caller, grantGuard, requirePrincipal } from "./deps.ts";
+import {
+  caller,
+  grantGuard,
+  requirePrincipal,
+  resolveCaller,
+} from "./deps.ts";
 
 const ListResponse = type({
   events: type({
@@ -43,6 +48,7 @@ export function mountListRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
         502: { description: "List query failed" },
       },
     }),
+    resolveCaller(deps),
     requirePrincipal(),
     grantGuard(deps, "search"),
     validator("query", ListQuery),

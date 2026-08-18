@@ -9,7 +9,12 @@ import { AddRequest } from "../http-bodies.ts";
 
 import { MemoryError } from "../memory.ts";
 import type { RouteDeps } from "./deps.ts";
-import { caller, grantGuard, requirePrincipal } from "./deps.ts";
+import {
+  caller,
+  grantGuard,
+  requirePrincipal,
+  resolveCaller,
+} from "./deps.ts";
 
 const AddResponse = type({
   documentId: "string",
@@ -36,6 +41,7 @@ export function mountAddRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
         502: { description: "add failed" },
       },
     }),
+    resolveCaller(deps),
     requirePrincipal(),
     grantGuard(deps, "add"),
     validator("json", AddRequest),

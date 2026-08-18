@@ -7,7 +7,12 @@ import { formatCaughtError, log } from "../log.ts";
 import { FeedQuery, parseFeedQuery } from "../http-bodies.ts";
 import { MemoryError } from "../memory.ts";
 import type { RouteDeps } from "./deps.ts";
-import { caller, grantGuard, requirePrincipal } from "./deps.ts";
+import {
+  caller,
+  grantGuard,
+  requirePrincipal,
+  resolveCaller,
+} from "./deps.ts";
 
 const FeedResponse = type({
   entries: type({
@@ -48,6 +53,7 @@ export function mountFeedRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
         502: { description: "Feed query failed" },
       },
     }),
+    resolveCaller(deps),
     requirePrincipal(),
     grantGuard(deps, "search"),
     validator("query", FeedQuery),

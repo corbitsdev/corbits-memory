@@ -13,12 +13,43 @@ export type GrantConfig = {
   conditionRegistry: ConditionRegistry;
 };
 
+/**
+ * A caller identity resolved by the host outside its browser/API-session
+ * tenant middleware — e.g. a workflow-run child authenticating with its own
+ * sidecar bearer token. Always wins over anything a request body claims.
+ */
+export type ResolvedCaller = {
+  tenantId: string;
+  principalId: string;
+};
+
+/**
+ * Host-supplied resolver from a request to a `ResolvedCaller`, for callers
+ * that never go through the host's tenant-session middleware. Return `null`
+ * when the request cannot be authenticated. The package never authenticates
+ * this itself — the resolver is 100% host logic (bearer-token lookup, run
+ * address lookup, whatever the host's transport is).
+ */
+export type CallerResolver = (
+  c: Context<TenantEnv>,
+) => ResolvedCaller | null | Promise<ResolvedCaller | null>;
+
 export type RouteDeps = {
   memory: Memory;
   /** Route-guard middleware factory (Interchange `createRequireGrant`). */
   requireGrant: RequireGrant;
   /** The grant store, kept for callers that need imperative checks. */
   grants: GrantConfig;
+  /**
+   * Optional resolver for a non-browser caller. Unset by default: every
+   * route reads identity from `c.get("principal")` exactly as before, so no
+   * existing host is affected. When set, it runs ahead of
+   * `requirePrincipal`/`grantGuard` and its result becomes the context
+   * principal/tenant those two already read — grant checks apply to a
+   * machine caller through the same `requireGrant` path a browser caller
+   * gets, never a separate weaker one.
+   */
+  callerResolver?: CallerResolver;
 };
 
 /** Identity for the current request, read from the Interchange context. */
@@ -77,4 +108,15 @@ export function grantGuard(
   action: string,
 ): MiddlewareHandler<TenantEnv> {
   return deps.requireGrant("memory", action);
+}
+
+/**
+ * TODO(CL-6286): resolve `deps.callerResolver` and seat the result on the
+ * context ahead of `requirePrincipal`/`grantGuard`. Currently a no-op
+ * passthrough — behavior is unchanged from before this ticket either way.
+ */
+export function resolveCaller(_deps: RouteDeps): MiddlewareHandler<TenantEnv> {
+  return async (_c, next) => {
+    await next();
+  };
 }

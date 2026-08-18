@@ -22,6 +22,7 @@ import {
 } from "./memory.ts";
 import {
   registerMemoryRoutes,
+  type CallerResolver,
   type RouteDeps,
 } from "./routes/mount.ts";
 
@@ -212,7 +213,12 @@ export {
 } from "./core/fts-language.ts";
 
 // Granular HTTP composition (most hosts use createMemory({ app, … }) instead)
-export { registerMemoryRoutes, type GrantConfig } from "./routes/mount.ts";
+export {
+  registerMemoryRoutes,
+  type CallerResolver,
+  type GrantConfig,
+  type ResolvedCaller,
+} from "./routes/mount.ts";
 
 export type CreateMemoryOptions = MemoryOptions & {
   /**
@@ -222,6 +228,13 @@ export type CreateMemoryOptions = MemoryOptions & {
    * `createResolveTenant` on `/api/tenants/:tenantId/*`.
    */
   app?: Hono<TenantEnv>;
+  /**
+   * Resolver for a caller that never goes through the host's tenant-session
+   * middleware — e.g. a workflow-run child authenticating with its own
+   * sidecar bearer token. Unset by default: every route reads identity from
+   * `c.get("principal")` exactly as before. See `CallerResolver`.
+   */
+  callerResolver?: CallerResolver;
 };
 
 /**
@@ -251,7 +264,8 @@ export type CreateMemoryOptions = MemoryOptions & {
  * ```
  */
 export function createMemory(options: CreateMemoryOptions): Memory {
-  const { app, grantStore, conditionRegistry, ...planeOpts } = options;
+  const { app, callerResolver, grantStore, conditionRegistry, ...planeOpts } =
+    options;
   const grants = resolveGrantConfig({
     ...(grantStore !== undefined ? { grantStore } : {}),
     ...(conditionRegistry !== undefined ? { conditionRegistry } : {}),
@@ -274,6 +288,7 @@ export function createMemory(options: CreateMemoryOptions): Memory {
       memory,
       requireGrant,
       grants,
+      ...(callerResolver !== undefined ? { callerResolver } : {}),
     };
     registerMemoryRoutes(app, deps);
   }

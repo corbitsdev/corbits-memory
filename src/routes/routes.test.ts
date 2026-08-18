@@ -114,6 +114,28 @@ function buildApp(
   return { app, added, searched };
 }
 
+function buildAppWithCallerResolver(
+  grants: GrantRule[],
+  callerResolver: RouteDeps["callerResolver"],
+) {
+  const { plane, added } = stubPlane();
+  const grantConfig = {
+    grantStore: createInMemoryGrantStore(grants),
+    conditionRegistry: {},
+  };
+  const deps: RouteDeps = {
+    memory: plane,
+    grants: grantConfig,
+    requireGrant: createRequireGrant(grantConfig),
+    ...(callerResolver !== undefined ? { callerResolver } : {}),
+  };
+  // No tenant-session middleware mounted at all — a machine caller has no
+  // browser session; `callerResolver` is the only source of identity here.
+  const app = new Hono<TenantEnv>();
+  registerMemoryRoutes(app, deps);
+  return { app, added };
+}
+
 function buildAppWithoutPrincipal() {
   const { plane } = stubPlane();
   const grantConfig = {
@@ -336,5 +358,85 @@ describe("memory HTTP routes", () => {
       jsonPost({ query: "hi" }),
     );
     expect(res.status).toBe(401);
+  });
+});
+
+describe("memory HTTP routes — machine caller (callerResolver)", () => {
+  const RUN_TENANT = "tenant-run";
+  const RUN_PRINCIPAL = "run-principal";
+
+  test("add with the add grant writes under the resolved run's scope", async () => {
+    const { app, added } = buildAppWithCallerResolver(
+      [grant(RUN_PRINCIPAL, "add")],
+      () => ({ tenantId: RUN_TENANT, principalId: RUN_PRINCIPAL }),
+    );
+    const res = await app.request(
+      "/api/tenants/t1/memory/add",
+      jsonPost({ title: "t", text: "body" }),
+    );
+    expect(res.status).toBe(200);
+    expect(added).toEqual([
+      { title: "t", tenantId: RUN_TENANT, principalId: RUN_PRINCIPAL },
+    ]);
+  });
+
+  test("a request body naming a different tenant/principal is ignored — the resolved caller always wins", async () => {
+    const { app, added } = buildAppWithCallerResolver(
+      [grant(RUN_PRINCIPAL, "add")],
+      () => ({ tenantId: RUN_TENANT, principalId: RUN_PRINCIPAL }),
+    );
+    const res = await app.request(
+      "/api/tenants/t1/memory/add",
+      jsonPost({
+        title: "t",
+        text: "body",
+        tenantId: "tenant-evil",
+        principalId: "attacker",
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(added).toEqual([
+      { title: "t", tenantId: RUN_TENANT, principalId: RUN_PRINCIPAL },
+    ]);
+  });
+
+  test("grantGuard still applies to a machine caller: no grant is 403", async () => {
+    const { app, added } = buildAppWithCallerResolver(
+      [],
+      () => ({ tenantId: RUN_TENANT, principalId: RUN_PRINCIPAL }),
+    );
+    const res = await app.request(
+      "/api/tenants/t1/memory/add",
+      jsonPost({ title: "t", text: "body" }),
+    );
+    expect(res.status).toBe(403);
+    expect(added).toHaveLength(0);
+  });
+
+  test("a grant for a different principal does not authorize this machine caller", async () => {
+    const { app, added } = buildAppWithCallerResolver(
+      [grant("some-other-principal", "add")],
+      () => ({ tenantId: RUN_TENANT, principalId: RUN_PRINCIPAL }),
+    );
+    const res = await app.request(
+      "/api/tenants/t1/memory/add",
+      jsonPost({ title: "t", text: "body" }),
+    );
+    expect(res.status).toBe(403);
+    expect(added).toHaveLength(0);
+  });
+
+  test("an unresolvable caller is 401, never falls through to a browser principal", async () => {
+    const { app } = buildAppWithCallerResolver(
+      [grant(RUN_PRINCIPAL, "add")],
+      () => null,
+    );
+    const res = await app.request(
+      "/api/tenants/t1/memory/add",
+      jsonPost({ title: "t", text: "body" }),
+    );
+    expect(res.status).toBe(401);
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("unauthorized");
   });
 });

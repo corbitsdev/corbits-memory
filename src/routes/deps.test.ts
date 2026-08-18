@@ -8,6 +8,8 @@ import {
   caller,
   grantGuard,
   requirePrincipal,
+  resolveCaller,
+  type ResolvedCaller,
   type RouteDeps,
 } from "./deps.ts";
 
@@ -113,5 +115,98 @@ describe("grantGuard", () => {
     };
 grantGuard(deps(grantsWith(), requireGrant), "add");
     expect(called).toEqual({ resource: "memory", action: "add" });
+  });
+});
+
+describe("resolveCaller", () => {
+  function fakeContext(): {
+    ctx: Context<TenantEnv>;
+    sets: Record<string, unknown>;
+    jsonCalls: { body: unknown; status: number }[];
+  } {
+    const sets: Record<string, unknown> = {};
+    const jsonCalls: { body: unknown; status: number }[] = [];
+    const ctx = {
+      get: (k: string) => sets[k],
+      set: (k: string, v: unknown) => {
+        sets[k] = v;
+      },
+      json: (body: unknown, status: number) => {
+        jsonCalls.push({ body, status });
+        return { body, status };
+      },
+    } as unknown as Context<TenantEnv>;
+    return { ctx, sets, jsonCalls };
+  }
+
+  test("is a no-op passthrough when no callerResolver is configured", async () => {
+    const { ctx, sets, jsonCalls } = fakeContext();
+    let nextCalled = false;
+    await resolveCaller(deps(grantsWith()))(ctx, async () => {
+      nextCalled = true;
+    });
+    expect(nextCalled).toBe(true);
+    expect(jsonCalls).toHaveLength(0);
+    expect(sets.principal).toBeUndefined();
+    expect(sets.tenant).toBeUndefined();
+  });
+
+  test("seats the resolved tenant/principal on the context and calls next()", async () => {
+    const { ctx, sets, jsonCalls } = fakeContext();
+    const resolved: ResolvedCaller = {
+      tenantId: "tenant-run",
+      principalId: "run-principal",
+    };
+    const routeDeps: RouteDeps = {
+      ...deps(grantsWith()),
+      callerResolver: () => resolved,
+    };
+    let nextCalled = false;
+    await resolveCaller(routeDeps)(ctx, async () => {
+      nextCalled = true;
+    });
+    expect(nextCalled).toBe(true);
+    expect(jsonCalls).toHaveLength(0);
+    expect(sets.principal).toMatchObject({
+      id: "run-principal",
+      tenantId: "tenant-run",
+    });
+    expect(sets.tenant).toMatchObject({ id: "tenant-run" });
+    expect(caller(ctx)).toEqual({
+      scopeId: "tenant-run",
+      subjectId: "run-principal",
+    });
+  });
+
+  test("responds 401 and never calls next() when the resolver rejects the request", async () => {
+    const { ctx, sets, jsonCalls } = fakeContext();
+    const routeDeps: RouteDeps = {
+      ...deps(grantsWith()),
+      callerResolver: () => null,
+    };
+    let nextCalled = false;
+    await resolveCaller(routeDeps)(ctx, async () => {
+      nextCalled = true;
+    });
+    expect(nextCalled).toBe(false);
+    expect(jsonCalls).toHaveLength(1);
+    expect(jsonCalls[0]?.status).toBe(401);
+    expect(jsonCalls[0]?.body).toMatchObject({
+      error: { code: "unauthorized" },
+    });
+    expect(sets.principal).toBeUndefined();
+  });
+
+  test("supports an async callerResolver", async () => {
+    const { ctx, sets } = fakeContext();
+    const routeDeps: RouteDeps = {
+      ...deps(grantsWith()),
+      callerResolver: async () => ({
+        tenantId: "tenant-async",
+        principalId: "principal-async",
+      }),
+    };
+    await resolveCaller(routeDeps)(ctx, async () => {});
+    expect(sets.principal).toMatchObject({ id: "principal-async" });
   });
 });
