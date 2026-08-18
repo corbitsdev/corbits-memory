@@ -20,7 +20,16 @@ export type DegradeFlag =
   | "rerank_query_too_long"
   | "live_timeout"
   | "live_error"
-  | "memory_unavailable";
+  | "memory_unavailable"
+  // The engine has no embed endpoint configured at all (EngineConfig.embed
+  // is absent) — a deliberate, structural lexical-only deployment, distinct
+  // from `dense_unavailable`'s per-call "dense contributed nothing this
+  // time" (which also covers a configured endpoint that's merely down, or a
+  // tenant with no active embed model yet). Always paired with
+  // `dense_unavailable` on the search response (see hybridSearch,
+  // services/search.ts) so an aggregate degrade-rate consumer still sees
+  // "dense didn't contribute" even if it only understands that one flag.
+  | "lexical_only";
 
 export interface RankedCandidate {
   /** Stable identifier the candidate is keyed by across channels (a chunk id). */

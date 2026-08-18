@@ -25,6 +25,7 @@ const DEGRADE_FLAG_SET = {
   live_timeout: true,
   live_error: true,
   memory_unavailable: true,
+  lexical_only: true,
 } satisfies Record<DegradeFlag, true>;
 
 
@@ -32,6 +33,15 @@ const DEGRADE_FLAG_SET = {
 // means adding a flag in hybrid-search.ts without adding it here is a
 // compile error (missing property), not a silent gap that only a test
 // iterating this same constant could ever have caught.
+//
+// `lexical_only` sits at a permanent ~100% windowed rate for a host that has
+// deliberately opted out of dense retrieval (no embed endpoint configured) —
+// unlike every other flag here, that is the intended, steady state rather
+// than a regression, so it escalates to log.error and stays there for as
+// long as the host runs lexical-only. That is accurate (the health snapshot
+// should show "running degraded"), not a bug; a host that finds the
+// permanent log.error noisy can raise its own highWatermark via
+// `configureDegradeMetrics`.
 export const ALL_DEGRADE_FLAGS: readonly DegradeFlag[] = Object.keys(
   DEGRADE_FLAG_SET,
 ) as DegradeFlag[];

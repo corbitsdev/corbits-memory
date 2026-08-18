@@ -47,6 +47,31 @@ function optionalIntEnv(name: string): number | undefined {
   return n;
 }
 
+// EMBED_BASE_URL and EMBED_MODEL are a pair: both set builds the embed
+// block, neither set means the host is opting into lexical-only (no
+// embedding account — dense retrieval skipped, capture stores chunks
+// without vectors). Exactly one set is a real operator mistake — a typo'd
+// var name, a copy-paste that dropped one line — and must fail loudly
+// rather than silently landing in lexical-only mode.
+function loadEmbedConfig(): EngineConfig["embed"] {
+  const baseUrl = optionalEnv("EMBED_BASE_URL");
+  const model = optionalEnv("EMBED_MODEL");
+  if (baseUrl === undefined && model === undefined) return undefined;
+  if (baseUrl === undefined || model === undefined) {
+    throw new Error(
+      "EMBED_BASE_URL and EMBED_MODEL must both be set or both be unset — " +
+        "set both to enable dense retrieval, or unset both to run lexical-only",
+    );
+  }
+  return {
+    baseUrl,
+    model,
+    apiStyle: optionalEnv("EMBED_API_STYLE") ?? "openai",
+    apiKey: optionalEnv("EMBED_API_KEY"),
+    timeoutMs: optionalIntEnv("EMBED_TIMEOUT_MS"),
+  };
+}
+
 /**
  * Build a config from environment variables — a convenience for env-driven
  * deploys. Hosts may also construct `MemoryConfig` programmatically (pass
@@ -56,18 +81,13 @@ function optionalIntEnv(name: string): number | undefined {
  * as the host is fine; tables live under the `memory` schema, not public.
  */
 export function loadMemoryConfig(): MemoryConfig {
+  const embed = loadEmbedConfig();
   return {
     memory: {
       databaseUrl: requireEnv("DATABASE_URL"),
       dbPoolMax: intEnv("DB_POOL_MAX", 8),
       ftsLanguage: parseFtsLanguage(optionalEnv("FTS_LANGUAGE")),
-      embed: {
-        baseUrl: requireEnv("EMBED_BASE_URL"),
-        model: requireEnv("EMBED_MODEL"),
-        apiStyle: optionalEnv("EMBED_API_STYLE") ?? "openai",
-        apiKey: optionalEnv("EMBED_API_KEY"),
-        timeoutMs: optionalIntEnv("EMBED_TIMEOUT_MS"),
-      },
+      ...(embed ? { embed } : {}),
       rerank: {
         baseUrl: optionalEnv("RERANK_BASE_URL"),
         model: optionalEnv("RERANK_MODEL"),

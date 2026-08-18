@@ -527,14 +527,23 @@ export { toEmbedClientConfig };
 // `promoteActive` (default true): live capture activates the model so dense
 // search targets it. Replay must pass false so ensureEmbedModel only creates
 // the table without flipping the tenant's active embed model (CL-5872).
+//
+// `embedClientConfig` is `undefined` when the engine has no embed endpoint
+// configured at all (a lexical-only deployment) — chunks are already durable
+// from the capture transaction, so this returns `degraded: true` (unvectorized,
+// same signal a client-error/rejected-chunk embedding pass reports) WITHOUT
+// touching the embed-model registry (`ensureEmbedModel`/`activateEmbedModel`):
+// there is no endpoint to probe dims against, and probing one that doesn't
+// exist is exactly the doomed-call this feature exists to skip.
 async function embedInsertedChunksWithConfig(
   sql: RawSql,
   tenantId: string,
   chunks: EmbeddableChunk[],
-  embedClientConfig: EmbedClientConfig,
+  embedClientConfig: EmbedClientConfig | undefined,
   opts: { promoteActive?: boolean } = {},
 ): Promise<{ degraded: boolean }> {
   if (chunks.length === 0) return { degraded: false };
+  if (!embedClientConfig) return { degraded: true };
 
   try {
     const client = createRawSqlClient(sql);

@@ -21,7 +21,16 @@ export type EngineConfig = {
   // trusted the same as DATABASE_URL — including a self-hosted endpoint on
   // localhost or a private IP. Self-hosted or managed makes no difference:
   // there is no self-host flag anywhere in the engine.
-  embed: {
+  //
+  // Absent entirely => no embedding account/endpoint configured. The engine
+  // still constructs and serves `add` + lexical `search` in that case: dense
+  // retrieval is skipped (never attempted, so it never runs a doomed HTTP
+  // call), capture stores chunks without vectors, and search reports
+  // `["dense_unavailable", "lexical_only"]` so the state is observable
+  // rather than silent (see hybridSearch in services/search.ts). A pgvector
+  // Postgres with no embedding account is a legitimate, fully-capable
+  // lexical-only deployment, not a misconfiguration.
+  embed?: {
     baseUrl: string;
     model: string;
     apiStyle: string;
