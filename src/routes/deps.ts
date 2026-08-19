@@ -6,7 +6,9 @@ import type {
   TenantRow,
 } from "@intx/hub-api";
 import type { ConditionRegistry, GrantStore } from "@intx/authz";
+import { type } from "arktype";
 
+import { log } from "../log.ts";
 import type { Memory } from "../memory.ts";
 
 /**
@@ -38,6 +40,18 @@ export type ResolvedCaller = {
 export type CallerResolver = (
   c: Context<TenantEnv>,
 ) => ResolvedCaller | null | Promise<ResolvedCaller | null>;
+
+/**
+ * The one boundary where a host hands this package an identity, so it is
+ * parsed like any other trust boundary (AGENTS.md invariant 4) rather than
+ * trusted as an opaque TS shape. A resolver returning `{tenantId: "",
+ * principalId: ""}` (or anything not matching this shape) is rejected here,
+ * never seated as a "valid" empty-string scope.
+ */
+const ResolvedCallerSchema = type({
+  tenantId: "string >= 1",
+  principalId: "string >= 1",
+});
 
 export type RouteDeps = {
   memory: Memory;
@@ -153,6 +167,12 @@ function tenantRowFor(resolved: ResolvedCaller): TenantRow {
  * no-op passthrough; the host's own tenant-session middleware remains the
  * only thing that ever sets `principal`/`tenant`, exactly as before this
  * ticket.
+ *
+ * `null` means "this caller could not be authenticated" — a caller problem,
+ * so 401. A resolved value that fails `ResolvedCallerSchema` means the
+ * host's own resolver is broken (empty strings, wrong types, wrong shape) —
+ * a host bug, not a caller's, so 500 rather than 401: the request is not
+ * "unauthorized," the identity provider is misbehaving.
  */
 export function resolveCaller(deps: RouteDeps): MiddlewareHandler<TenantEnv> {
   return async (c, next) => {
@@ -174,8 +194,26 @@ export function resolveCaller(deps: RouteDeps): MiddlewareHandler<TenantEnv> {
         401,
       );
     }
-    c.set("principal", principalRowFor(resolved));
-    c.set("tenant", tenantRowFor(resolved));
+    const parsed = ResolvedCallerSchema(resolved);
+    if (parsed instanceof type.errors) {
+      log.error(
+        `memory: callerResolver returned a malformed identity: ${parsed.summary}`,
+      );
+      return c.json(
+        {
+          error: {
+            code: "invalid_resolved_caller",
+            message:
+              "The configured caller resolver returned an identity that " +
+              "does not match { tenantId, principalId } (non-empty " +
+              "strings). This is a host misconfiguration.",
+          },
+        },
+        500,
+      );
+    }
+    c.set("principal", principalRowFor(parsed));
+    c.set("tenant", tenantRowFor(parsed));
     await next();
   };
 }
