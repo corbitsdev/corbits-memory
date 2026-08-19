@@ -42,15 +42,26 @@ export type CallerResolver = (
 ) => ResolvedCaller | null | Promise<ResolvedCaller | null>;
 
 /**
+ * `"string >= 1"` is a LENGTH constraint, not a content one — `" "` has
+ * length 1 and would pass it, seating a whitespace-only scope exactly like
+ * the empty-string case this schema exists to reject. Require at least one
+ * non-whitespace character instead.
+ */
+const NonBlankId = type("string").narrow(
+  (s, ctx) => s.trim().length > 0 || ctx.mustBe("non-blank (not just whitespace)"),
+);
+
+/**
  * The one boundary where a host hands this package an identity, so it is
  * parsed like any other trust boundary (AGENTS.md invariant 4) rather than
  * trusted as an opaque TS shape. A resolver returning `{tenantId: "",
- * principalId: ""}` (or anything not matching this shape) is rejected here,
- * never seated as a "valid" empty-string scope.
+ * principalId: ""}` or `{tenantId: " ", principalId: " "}` (or anything not
+ * matching this shape) is rejected here, never seated as a "valid"
+ * empty/blank scope.
  */
 const ResolvedCallerSchema = type({
-  tenantId: "string >= 1",
-  principalId: "string >= 1",
+  tenantId: NonBlankId,
+  principalId: NonBlankId,
 });
 
 export type RouteDeps = {
