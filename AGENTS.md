@@ -22,7 +22,8 @@ CI runs `typecheck` + `test` — both must pass before any push.
 - `src/index.ts` — public surface: `createMemory` (optional `app` registers HTTP), `registerMemoryRoutes`
 
 - `src/mount-config.ts` / `src/config.ts` — mount config + engine config
-- `src/routes/` — Hono routes (`add`, `search`, `list`)
+- `src/routes/` — Hono routes (`add`, `search`, `list`, `feed`, retention
+  `forget`/`purge`/`retention-class`)
 - `src/tools/` — Interchange `defineTool` factories (`@corbits/memory/tools`);
   HTTP clients for mounted routes (env credentials; no in-process plane)
 - `src/services/` — capture / search / transform internals (not public verbs)

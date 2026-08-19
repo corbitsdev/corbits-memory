@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Retention HTTP routes (CL-6288): `POST …/memory/documents/:documentId/forget`
+  (tombstone, grant `memory:forget`), `POST …/memory/documents/:documentId/purge`
+  (hard delete, grant `memory:purge`), and
+  `POST …/memory/versions/:versionId/retention-class` (grant `memory:forget`).
+  Forget and purge are separate routes with separate grant actions — never one
+  route with a boolean flag — and both are refused with 403 unless the caller
+  is the document/version's creator, independent of any share grant that lets
+  them merely see it. `sweepEphemeral` stays off the HTTP surface (maintenance
+  sweep, not a user action); a host schedules it on its own cron against the
+  in-process `Memory`. New `memory:forget` / `memory:purge` grant requirements
+  (`source: "creator"`) and `capabilityIdsForSurface()` so distiller/tools
+  installs no longer pick up routes-only capabilities by accident.
 - `RouteDeps.callerResolver` / `createMemory({ callerResolver })` — an
   optional host-supplied resolver from a request to a `{ tenantId,
   principalId }` scope, for a caller that never goes through the host's
