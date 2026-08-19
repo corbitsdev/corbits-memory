@@ -618,6 +618,38 @@ describe("memory HTTP routes — retention (CL-6288)", () => {
     );
     expect(res.status).toBe(401);
   });
+
+  test("forget rejects a whitespace-only documentId (400, never reaching the plane)", async () => {
+    const { app, tombstoned } = buildApp([grant(PRINCIPAL, "forget")]);
+    const res = await app.request(
+      "/api/tenants/t1/memory/documents/%20/forget",
+      jsonPost({}),
+    );
+    expect(res.status).toBe(400);
+    expect(tombstoned).toHaveLength(0);
+  });
+
+  test("purge rejects a whitespace-only documentId (400, never reaching the plane)", async () => {
+    const { app, purged } = buildApp([grant(PRINCIPAL, "purge")]);
+    const res = await app.request(
+      "/api/tenants/t1/memory/documents/%20/purge",
+      jsonPost({}),
+    );
+    expect(res.status).toBe(400);
+    expect(purged).toHaveLength(0);
+  });
+
+  test("retention-class rejects a whitespace-only versionId (400, never reaching the plane)", async () => {
+    const { app, retentionClassChanges } = buildApp([
+      grant(PRINCIPAL, "forget"),
+    ]);
+    const res = await app.request(
+      "/api/tenants/t1/memory/versions/%20/retention-class",
+      jsonPost({ retention_class: "durable" }),
+    );
+    expect(res.status).toBe(400);
+    expect(retentionClassChanges).toHaveLength(0);
+  });
 });
 
 describe("memory HTTP routes — machine caller (callerResolver)", () => {
