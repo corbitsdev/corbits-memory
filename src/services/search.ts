@@ -791,7 +791,13 @@ async function fetchChunkVectors(
   rawSql: RawSql,
   tenantId: string,
   chunkIds: readonly string[],
-  embedClientConfig: EmbedClientConfig,
+  // Optional: absent when the engine has no embed endpoint configured. The
+  // live-generation branch below never reads it (it resolves the tenant's
+  // active table directly); a non-live (replay) generation needs it to
+  // compute a model key, and has no active table to fall back on when it's
+  // absent — returns no vectors rather than throwing (mmrRerank already
+  // treats a missing vector as "can't diversity-rank, keep by score").
+  embedClientConfig: EmbedClientConfig | undefined,
   generation: string = LIVE_GENERATION,
 ): Promise<Map<string, number[]>> {
   if (chunkIds.length === 0) return new Map();
@@ -801,6 +807,7 @@ async function fetchChunkVectors(
   if (generation === LIVE_GENERATION) {
     activeTable = await resolveActiveEmbedTable(embedSqlClient, tenantId);
   } else {
+    if (!embedClientConfig) return new Map();
     const modelKey = computeModelKey(
       embedClientConfig.baseUrl,
       embedClientConfig.modelId,
@@ -938,7 +945,12 @@ export interface HybridSearchResult {
  * degrade reason: the query alone left too little of the per-pair character
  * budget for the document, so the request was skipped rather than sent
  * guaranteed to exceed the model's token limit (see `RerankQueryTooLongError`
- * in rerank-client.ts).
+ * in rerank-client.ts). When the engine has no embed endpoint configured at
+ * all (`EngineConfig.embed` absent), the dense channel is skipped entirely —
+ * never dispatched, so it never pays for a doomed HTTP call — and `degraded`
+ * reports `["dense_unavailable", "lexical_only"]` every call, distinguishing
+ * this deliberate, structural state from a configured endpoint that merely
+ * failed at runtime.
  *
  * `kinds`/`entityIds` narrow BOTH channels' candidate queries (see
  * `HybridSearchArgs`) before fusion runs, so every hit in the fused result
@@ -1006,39 +1018,48 @@ export async function hybridSearch(
     includeDeprecated,
   });
 
-  const embedClientConfig =
-    resolvedTuning?.embed ?? toEmbedClientConfig(config.embed);
+  const embedClientConfig = resolvedTuning?.embed ?? toEmbedClientConfig(config.embed);
   const rerankConfig = resolvedTuning?.rerank ?? toRerankClientConfig(config.rerank);
 
   let denseRows: CandidateRow[] = [];
   let degraded: DegradeFlag[] | undefined;
 
-  try {
-    const dense = await fetchDenseCandidates({
-      sql: rawSql,
-      embedClientConfig,
-      fetchImpl,
-      tenantId,
-      principalId,
-      query,
-      overfetchLimit,
-      kinds,
-      entityIds,
-      generation,
-      includeDeprecated,
-    });
-    if (dense === null) {
+  if (!embedClientConfig) {
+    // No embed endpoint configured (EngineConfig.embed absent) — a
+    // deliberate lexical-only deployment, not a runtime failure. Skip the
+    // dense channel entirely rather than dispatch a doomed HTTP call on
+    // every query; report both flags so an aggregate consumer that only
+    // understands `dense_unavailable` still sees "dense didn't contribute"
+    // (see the DegradeFlag doc comment, hybrid-search.ts).
+    degraded = ["dense_unavailable", "lexical_only"];
+  } else {
+    try {
+      const dense = await fetchDenseCandidates({
+        sql: rawSql,
+        embedClientConfig,
+        fetchImpl,
+        tenantId,
+        principalId,
+        query,
+        overfetchLimit,
+        kinds,
+        entityIds,
+        generation,
+        includeDeprecated,
+      });
+      if (dense === null) {
+        degraded = ["dense_unavailable"];
+      } else {
+        denseRows = dense;
+      }
+    } catch (err) {
+      const errMessage = formatCaughtError(err);
+      log.warn(
+        `search: dense retrieval failed; falling back to lexical only: ${errMessage}`,
+        { tenantId, error: errMessage },
+      );
       degraded = ["dense_unavailable"];
-    } else {
-      denseRows = dense;
     }
-  } catch (err) {
-    const errMessage = formatCaughtError(err);
-    log.warn(
-      `search: dense retrieval failed; falling back to lexical only: ${errMessage}`,
-      { tenantId, error: errMessage },
-    );
-    degraded = ["dense_unavailable"];
   }
 
   const rowsByChunk = new Map<string, CandidateRow>();

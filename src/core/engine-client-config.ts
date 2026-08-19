@@ -17,10 +17,14 @@ const VALID_EMBED_API_STYLES = new Set(["openai", "tei", "ollama"]);
 // the trust boundary between config and the client — an invalid value is an
 // operator misconfiguration and must fail loudly, not silently degrade.
 // Built from the engine's own operator-configured embed endpoint — a trusted
-// URL, the same as DATABASE_URL.
+// URL, the same as DATABASE_URL. Absent `embed` => no embed endpoint
+// configured => `undefined`, the same degrade-soft precedent already used by
+// `toRerankClientConfig` below — a caller must skip dense retrieval / the
+// embed pass entirely rather than dispatch a client with no endpoint.
 export function toEmbedClientConfig(
   embed: EngineConfig["embed"],
-): EmbedClientConfig {
+): EmbedClientConfig | undefined {
+  if (!embed) return undefined;
   if (!VALID_EMBED_API_STYLES.has(embed.apiStyle)) {
     throw new Error(
       `Invalid EMBED_API_STYLE "${embed.apiStyle}" — must be one of: ${[...VALID_EMBED_API_STYLES].join(", ")}`,

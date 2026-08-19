@@ -28,7 +28,11 @@ import type { MemoryEdgeHint } from "../core/schemas/entity-edge.ts";
 import { createRawSqlClient } from "../core/embed-sql.ts";
 import { activateEmbedModel, ensureEmbedModel } from "../core/embed-model-registry.ts";
 import type { EmbedClientConfig } from "../core/embed-client.ts";
-import { embedChunks, type EmbeddableChunk } from "../core/embed-worker.ts";
+import {
+  embedChunks,
+  type CaptureDegradedReason,
+  type EmbeddableChunk,
+} from "../core/embed-worker.ts";
 import { toEmbedClientConfig } from "../core/engine-client-config.ts";
 
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
@@ -47,13 +51,18 @@ export type CaptureInput = {
   document: AdaptedDocument;
 };
 
+// Re-exported so callers (memory.ts, ports/types.ts) get the one shared
+// vocabulary — see the doc comment on CaptureDegradedReason in
+// core/embed-worker.ts for why it lives there.
+export type { CaptureDegradedReason };
+
 export type CaptureResult =
   | {
       status: "captured";
       documentId: string;
       versionId: string;
       chunks: number;
-      degraded?: boolean;
+      degraded?: CaptureDegradedReason[];
     }
   | { status: "noop"; documentId: string; versionId: string; chunks: 0 };
 
@@ -527,14 +536,33 @@ export { toEmbedClientConfig };
 // `promoteActive` (default true): live capture activates the model so dense
 // search targets it. Replay must pass false so ensureEmbedModel only creates
 // the table without flipping the tenant's active embed model (CL-5872).
-async function embedInsertedChunksWithConfig(
+//
+// `embedClientConfig` is `undefined` when the engine has no embed endpoint
+// configured at all (a lexical-only deployment) — chunks are already durable
+// from the capture transaction, so this returns
+// `degraded: ["embed_unavailable", "lexical_only"]` (unvectorized, the same
+// pairing search's `degraded` uses for the same "configured off" state)
+// WITHOUT touching the embed-model registry (`ensureEmbedModel`/
+// `activateEmbedModel`): there is no endpoint to probe dims against, and
+// probing one that doesn't exist is exactly the doomed-call this feature
+// exists to skip. Every other failure path here (client error, rejected
+// chunks, an unexpected throw) reports `["embed_unavailable"]` alone — the
+// endpoint IS configured, this specific pass just didn't land.
+//
+// Exported (like toEmbedClientConfig above) so tests can assert this
+// specific decision directly, without standing up a fake transactional Db
+// for the full captureDocument/deriveFromRawCapture path.
+export async function embedInsertedChunksWithConfig(
   sql: RawSql,
   tenantId: string,
   chunks: EmbeddableChunk[],
-  embedClientConfig: EmbedClientConfig,
+  embedClientConfig: EmbedClientConfig | undefined,
   opts: { promoteActive?: boolean } = {},
-): Promise<{ degraded: boolean }> {
-  if (chunks.length === 0) return { degraded: false };
+): Promise<{ degraded: CaptureDegradedReason[] }> {
+  if (chunks.length === 0) return { degraded: [] };
+  if (!embedClientConfig) {
+    return { degraded: ["embed_unavailable", "lexical_only"] };
+  }
 
   try {
     const client = createRawSqlClient(sql);
@@ -557,23 +585,23 @@ async function embedInsertedChunksWithConfig(
         `capture: embedding client failed; chunks remain pending: ${result.clientError}`,
         { tenantId, chunkCount: chunks.length, error: result.clientError },
       );
-      return { degraded: true };
+      return { degraded: ["embed_unavailable"] };
     }
     if (result.rejected.length > 0) {
       log.warn(
         `capture: ${result.rejected.length} chunk(s) rejected during embedding`,
         { tenantId, rejected: result.rejected },
       );
-      return { degraded: true };
+      return { degraded: ["embed_unavailable"] };
     }
-    return { degraded: false };
+    return { degraded: [] };
   } catch (err) {
     const errMessage = formatCaughtError(err);
     log.warn(
       `capture: embedding pass failed; chunks remain pending: ${errMessage}`,
       { tenantId, chunkCount: chunks.length, error: errMessage },
     );
-    return { degraded: true };
+    return { degraded: ["embed_unavailable"] };
   }
 }
 
@@ -609,7 +637,7 @@ export async function captureDocument(
     documentId: txResult.documentId,
     versionId: txResult.versionId,
     chunks: txResult.insertedChunks.length,
-    ...(degraded ? { degraded: true } : {}),
+    ...(degraded.length > 0 ? { degraded } : {}),
   };
 }
 
@@ -658,6 +686,6 @@ export async function deriveFromRawCapture(
     documentId: txResult.documentId,
     versionId: txResult.versionId,
     chunks: txResult.insertedChunks.length,
-    ...(degraded ? { degraded: true } : {}),
+    ...(degraded.length > 0 ? { degraded } : {}),
   };
 }

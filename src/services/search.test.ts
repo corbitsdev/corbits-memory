@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, mock } from "bun:test";
 import {
   authorityWeightedScore,
   dedupeCandidatesPerDocument,
@@ -8,7 +8,25 @@ import {
   snippet,
   toHit,
   type CandidateRow,
+  type hybridSearch as HybridSearchFn,
 } from "./search.ts";
+import { memoryChunk, memoryEdge } from "../db/schema.ts";
+import type { Db, RawSql } from "../db/client.ts";
+import type { EngineConfig } from "../config.ts";
+
+// memory.test.ts uses `mock.module("./services/search.ts", ...)` around its
+// own describe blocks; Bun's module registry is process-global, so a static
+// `import { hybridSearch } from "./search.ts"` here can end up bound to that
+// mock's fixture data when the whole suite runs (memory.test.ts's mock
+// leaked across files empirically — reproduced with just these two files).
+// A cache-busted dynamic import, the same trick memory.test.ts itself uses
+// for `./memory.ts` (`?wiring-blocked=${Date.now()}`) to dodge its own
+// mocking, sidesteps this: a fresh module specifier is never the one any
+// mock.module call replaced.
+async function loadHybridSearch(): Promise<typeof HybridSearchFn> {
+  const mod = await import(`./search.ts?cl-6287-real=${Date.now()}`);
+  return mod.hybridSearch;
+}
 
 function candidate(overrides: Partial<CandidateRow> = {}): CandidateRow {
   return {
@@ -587,5 +605,143 @@ describe("toHit — wire attribution (CL-5870)", () => {
     expect(distilled.created_by_kind).toBe("agent");
     expect(distilled.generator_agent_id).toBe("resident-distiller");
     expect(distilled.derived_from).toEqual(["kv_raw"]);
+  });
+});
+
+// CL-6287: hybridSearch must construct and serve lexical results when the
+// engine has no embed endpoint configured (EngineConfig.embed absent) —
+// dense retrieval SKIPPED rather than attempted-and-failed. A minimal
+// drizzle-shaped `Db` fake stands in for the lexical query + the
+// attach*/entity-id follow-up queries, all of which return camelCase rows
+// shaped exactly like a real query's aliased columns (CandidateRow already
+// is that shape) so no real drizzle execution is needed. `rawSql` is a stub
+// that throws if touched at all — proof that the embed-model registry
+// (which only ever reaches Postgres through `createRawSqlClient(rawSql)`,
+// see embed-sql.ts) is never consulted on this path.
+describe("hybridSearch — embed unconfigured (CL-6287)", () => {
+  // A chainable stand-in for drizzle's query builder. Every step returns a
+  // thenable so `await db.select(...).from(t)...limit(n)` and
+  // `await db.select(...).from(t).where(...)` (the attach*/entity-id
+  // queries, which never call .limit) both resolve correctly regardless of
+  // how many chain steps run after `.from()`. Resolution is keyed on the
+  // table passed to `.from()` — the only piece of the call these
+  // functions' return value actually depends on for this test.
+  function fakeDb(lexicalRows: unknown[]): Db {
+    function chain(table: unknown) {
+      const rows = (): Promise<unknown[]> => {
+        if (table === memoryChunk) return Promise.resolve(lexicalRows);
+        if (table === memoryEdge) return Promise.resolve([]);
+        return Promise.resolve([]);
+      };
+      const builder = {
+        from: (t: unknown) => chain(t),
+        innerJoin: () => builder,
+        where: () => builder,
+        orderBy: () => builder,
+        limit: () => builder,
+        then: (onFulfilled: (v: unknown[]) => unknown, onRejected?: (e: unknown) => unknown) =>
+          rows().then(onFulfilled, onRejected),
+        catch: (onRejected: (e: unknown) => unknown) => rows().catch(onRejected),
+      };
+      return builder;
+    }
+    return { select: () => chain(undefined) } as unknown as Db;
+  }
+
+  // No `.unsafe`/`.begin` call is valid on this path — dense retrieval must
+  // never be attempted, so nothing should ever reach for the raw sql handle
+  // (fetchDenseCandidates, the embed-model registry probe/activation, and
+  // fetchChunkVectors' MMR lookup all go through it).
+  function untouchableRawSql(): RawSql {
+    return {
+      unsafe: () => {
+        throw new Error("rawSql.unsafe must not be called when embed is unconfigured");
+      },
+      begin: () => {
+        throw new Error("rawSql.begin must not be called when embed is unconfigured");
+      },
+    } as unknown as RawSql;
+  }
+
+  function unconfiguredEmbedConfig(): EngineConfig {
+    return {
+      databaseUrl: "postgres://fake",
+      dbPoolMax: 1,
+      ftsLanguage: "english",
+      rerank: {
+        baseUrl: undefined,
+        model: undefined,
+        apiKey: undefined,
+        maxDocChars: undefined,
+        timeoutMs: undefined,
+      },
+    };
+  }
+
+  it("returns lexical results without ever calling the embed endpoint", async () => {
+    const lexicalRow = candidate({
+      chunkId: "chunk_lexical",
+      documentId: "doc_lexical",
+      title: "Q3 roadmap notes",
+      snippetText: "west coast expansion roadmap",
+      rank: 0.8,
+    });
+    const fetchImpl = mock(() =>
+      Promise.reject(new Error("fetch must not be called when embed is unconfigured")),
+    );
+
+    const hybridSearch = await loadHybridSearch();
+    const result = await hybridSearch(
+      {
+        db: fakeDb([lexicalRow]),
+        sql: untouchableRawSql(),
+        config: unconfiguredEmbedConfig(),
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+        now: new Date("2026-01-01T00:00:00Z"),
+      },
+      { query: "roadmap", tenantId: "tenant-1", principalId: null },
+    );
+
+    expect(result.hits).toHaveLength(1);
+    expect(result.hits[0]?.chunk_id).toBe("chunk_lexical");
+    expect(result.hits[0]?.channels_matched).toEqual(["lexical"]);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("reports dense_unavailable and lexical_only together, distinguishing configured-off from a runtime failure", async () => {
+    const hybridSearch = await loadHybridSearch();
+    const result = await hybridSearch(
+      {
+        db: fakeDb([candidate()]),
+        sql: untouchableRawSql(),
+        config: unconfiguredEmbedConfig(),
+        fetchImpl: mock(() => Promise.reject(new Error("unreachable"))) as unknown as typeof fetch,
+      },
+      { query: "hello", tenantId: "tenant-1", principalId: null },
+    );
+
+    expect(result.degraded).toContain("dense_unavailable");
+    expect(result.degraded).toContain("lexical_only");
+  });
+
+  it("never dispatches an embed HTTP call or touches the embed-model registry", async () => {
+    // untouchableRawSql/fetchImpl both throw if reached at all — reaching
+    // the end of hybridSearch without throwing is itself the assertion that
+    // neither the dense channel nor the embed-model registry ran; the
+    // explicit mock-call check below is belt-and-suspenders.
+    const fetchImpl = mock(() => Promise.reject(new Error("unreachable")));
+
+    const hybridSearch = await loadHybridSearch();
+    await hybridSearch(
+      {
+        db: fakeDb([candidate()]),
+        sql: untouchableRawSql(),
+        config: unconfiguredEmbedConfig(),
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      },
+      { query: "hello", tenantId: "tenant-1", principalId: null },
+    );
+
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 });

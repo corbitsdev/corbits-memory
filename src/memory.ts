@@ -14,7 +14,7 @@ import { createFtsVerification, parseFtsLanguage } from "./core/fts-language.ts"
 import { createRawSqlClient } from "./core/embed-sql.ts";
 import type { SearchHit } from "./core/schemas/search.ts";
 import { validateRerankConfig } from "./core/rerank-client.ts";
-import { captureDocument } from "./services/capture.ts";
+import { captureDocument, type CaptureDegradedReason } from "./services/capture.ts";
 import {
   hybridSearch,
   MemorySearchInputError,
@@ -70,6 +70,7 @@ import type { MemoryConfig } from "./mount-config.ts";
 import type { GrantConfig } from "./routes/deps.ts";
 import type {
   DocumentStore,
+  DocumentStoreCapabilities,
   DocumentStoreSearchParams,
   SourceProvider,
 } from "./ports/types.ts";
@@ -89,9 +90,13 @@ export type { SearchHit } from "./core/schemas/search.ts";
 export type {
   DocumentStore,
   DocumentStoreAddParams,
+  DocumentStoreCapabilities,
   LiveSearchItem,
   SourceProvider,
 } from "./ports/types.ts";
+// Alias so hosts read `MemoryCapabilities` (the name on the `Memory` handle
+// they actually hold) rather than reaching for the port-level type name.
+export type MemoryCapabilities = DocumentStoreCapabilities;
 export {
   SEARCH_LIMIT_MIN,
   SEARCH_LIMIT_MAX,
@@ -200,6 +205,13 @@ export type MemoryAddResult = {
    * store or soft failure). Omitted when no peer share was requested.
    */
   grantsMaterialized?: boolean;
+  /**
+   * Mirrors `search`'s `degraded` (a reason array, never a bare boolean) so
+   * a host can write one "is this response degraded" check across both
+   * verbs. Omitted when the document captured cleanly. See
+   * `CaptureDegradedReason` (services/capture.ts).
+   */
+  degraded?: CaptureDegradedReason[];
 };
 
 export type SearchAttribution = {
@@ -283,6 +295,14 @@ export type Memory = {
   search(params: MemorySearchParams): Promise<SearchResult>;
   add(params: MemoryAddParams): Promise<MemoryAddResult>;
   list(params: MemoryListParams): Promise<TimelineEvent[]>;
+  /**
+   * Static capability facts, known at construction — check
+   * `embeddingsConfigured` to learn recall is lexical-only WITHOUT issuing
+   * a search first (CL-6287). Always present; a custom DocumentStore that
+   * doesn't report its own capabilities defaults to
+   * `embeddingsConfigured: true` (see DocumentStoreCapabilities).
+   */
+  readonly capabilities: MemoryCapabilities;
   /**
    * Cursor pull of new live versions (engine store only). Grant-checked like
    * search. See docs/FEED.md.
@@ -788,7 +808,17 @@ function createPlaneFromStore(
     });
   }
 
+  // A custom store that doesn't report its own capabilities is assumed
+  // embeddings-capable — the pre-CL-6287 default, since this SDK cannot
+  // introspect a vendor store it doesn't own. The engine store always
+  // reports one (see createEngineDocumentStore).
+  const capabilities: MemoryCapabilities = store.capabilities ?? {
+    embeddingsConfigured: true,
+  };
+
   const plane: Memory = {
+    capabilities,
+
     async search(params) {
       return searchMerged(params);
     },
@@ -1294,6 +1324,9 @@ function createEngineDocumentStore(config: MemoryConfig): {
         return {
           documentId: captureResult.documentId,
           versionId: captureResult.versionId,
+          ...(captureResult.status === "captured" && captureResult.degraded
+            ? { degraded: captureResult.degraded }
+            : {}),
         };
       },
 
@@ -1415,6 +1448,8 @@ function createEngineDocumentStore(config: MemoryConfig): {
       async close() {
         await sql.end({ timeout: 5 });
       },
+
+      capabilities: { embeddingsConfigured: Boolean(engineConfig.embed) },
     },
     deps,
   };

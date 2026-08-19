@@ -200,9 +200,12 @@ function buildChunker(params: TransformConfigParams["chunk"]): Chunker {
 // endpoint is just a URL + capability options, trusted the same as the
 // engine's own embed endpoint and DATABASE_URL — self-hosted or managed makes
 // no difference.
+// A transform run always needs a real embed endpoint to re-derive against —
+// its callers (runTransform below) must reject an unconfigured engine before
+// reaching here, so `engineEmbed` is never `undefined` at this point.
 function buildEmbedClientConfig(
   params: TransformConfigParams["embed"],
-  engineEmbed: EngineConfig["embed"],
+  engineEmbed: NonNullable<EngineConfig["embed"]>,
 ): EmbedClientConfig {
   const apiKey = params?.apiKey ?? engineEmbed.apiKey;
   const candidate = {
@@ -418,10 +421,15 @@ export async function runTransform(
     const rawRows = await selectRawCaptureRows(deps.db, configRow.tenantId, scope);
     totalRows = rawRows.length;
     const chunker = buildChunker(configRow.params.chunk);
-    const embed = buildEmbedClientConfig(
-      configRow.params.embed,
-      deps.config.embed,
-    );
+    // A replay re-derives (and re-embeds) a corpus; it makes no sense
+    // against an engine with no embed endpoint at all — caught below and
+    // reported as a normal failed run, same as any other per-row error.
+    if (!deps.config.embed) {
+      throw new Error(
+        "transform run requires an embed endpoint (EMBED_BASE_URL/EMBED_MODEL) — none is configured on this engine",
+      );
+    }
+    const embed = buildEmbedClientConfig(configRow.params.embed, deps.config.embed);
 
     for (const row of rawRows) {
       try {
@@ -549,6 +557,13 @@ export async function promoteGeneration(
   if (configRow.tenantId !== input.tenantId) {
     throw new TransformPromoteError(
       `transform_config tenant mismatch for generation ${input.generation}`,
+    );
+  }
+  // A completed run only exists because runTransform already required an
+  // embed endpoint to produce it — this can't be reached with one absent.
+  if (!deps.config.embed) {
+    throw new TransformPromoteError(
+      "cannot promote generation: no embed endpoint is configured on this engine",
     );
   }
   const embed = buildEmbedClientConfig(configRow.params.embed, deps.config.embed);

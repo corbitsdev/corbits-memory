@@ -173,6 +173,57 @@ describe("createMemory — construction validation", () => {
   });
 });
 
+// CL-6287 review: a consumer (settings page, health check) must be able to
+// learn recall is lexical-only WITHOUT issuing a search first.
+describe("createMemory — capabilities.embeddingsConfigured (CL-6287)", () => {
+  it("reports true when EngineConfig.embed is configured", async () => {
+    const plane = createMemory({
+      config: baseConfig({
+        baseUrl: undefined,
+        model: undefined,
+        apiKey: undefined,
+        maxDocChars: undefined,
+        timeoutMs: undefined,
+      }),
+    });
+    expect(plane.capabilities.embeddingsConfigured).toBe(true);
+    await plane.close();
+  });
+
+  it("reports false when EngineConfig.embed is absent (lexical-only)", async () => {
+    const config: MemoryConfig = {
+      memory: {
+        databaseUrl: "postgres://localhost:5432/nonexistent-test-db",
+        dbPoolMax: 1,
+        ftsLanguage: "english",
+        rerank: {
+          baseUrl: undefined,
+          model: undefined,
+          apiKey: undefined,
+          maxDocChars: undefined,
+          timeoutMs: undefined,
+        },
+      },
+    };
+    const plane = createMemory({ config });
+    expect(plane.capabilities.embeddingsConfigured).toBe(false);
+    await plane.close();
+  });
+
+  it("defaults to true for a custom DocumentStore that doesn't report its own capabilities", async () => {
+    const plane = createMemory({
+      documentStore: {
+        add: async () => ({ documentId: "d1", versionId: "v1" }),
+        search: async () => ({ items: [] }),
+        list: async () => [],
+        close: async () => {},
+      },
+    });
+    expect(plane.capabilities.embeddingsConfigured).toBe(true);
+    await plane.close();
+  });
+});
+
 describe("createMemory.find — grant-tag post-filter wiring", () => {
   const hybridSearch = mock((): Promise<HybridSearchResult> =>
     Promise.resolve({
