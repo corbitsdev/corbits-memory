@@ -13,6 +13,7 @@ import {
   SEARCH_LIMIT_MAX,
   SEARCH_LIMIT_MIN,
 } from "./limits.ts";
+import { NonBlankId } from "./core/schemas/non-blank-id.ts";
 
 export const ShareBody = type({
   "tenant?": "boolean",
@@ -155,14 +156,14 @@ export function parseWithArk<T>(
 
 /** Path param for the two document-scoped retention routes (forget/purge). */
 export const DocumentIdParam = type({
-  documentId: "string >= 1",
+  documentId: NonBlankId,
 });
 
 export type DocumentIdParam = typeof DocumentIdParam.infer;
 
 /** Path param for the version-scoped retention-class route. */
 export const VersionIdParam = type({
-  versionId: "string >= 1",
+  versionId: NonBlankId,
 });
 
 export type VersionIdParam = typeof VersionIdParam.infer;

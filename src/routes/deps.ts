@@ -10,6 +10,7 @@ import { type } from "arktype";
 
 import { log } from "../log.ts";
 import type { Memory } from "../memory.ts";
+import { NonBlankId } from "../core/schemas/non-blank-id.ts";
 
 /**
  * The host's grant store + condition registry — the same pair it feeds
@@ -40,16 +41,6 @@ export type ResolvedCaller = {
 export type CallerResolver = (
   c: Context<TenantEnv>,
 ) => ResolvedCaller | null | Promise<ResolvedCaller | null>;
-
-/**
- * `"string >= 1"` is a LENGTH constraint, not a content one — `" "` has
- * length 1 and would pass it, seating a whitespace-only scope exactly like
- * the empty-string case this schema exists to reject. Require at least one
- * non-whitespace character instead.
- */
-const NonBlankId = type("string").narrow(
-  (s, ctx) => s.trim().length > 0 || ctx.mustBe("non-blank (not just whitespace)"),
-);
 
 /**
  * The one boundary where a host hands this package an identity, so it is
