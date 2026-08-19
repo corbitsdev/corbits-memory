@@ -582,6 +582,23 @@ principal read off the Interchange context (`caller(c)` →
 Each route is guarded with `grantGuard(deps, action)`, which applies the host's
 `requireGrant("memory", action)` when provided (else a pass-through).
 
+**Machine callers (CL-6286):** `RouteDeps.callerResolver` /
+`createMemory({ callerResolver })` lets a host resolve identity for a caller
+that never goes through its tenant-session middleware — e.g. a workflow-run
+child authenticating with its own sidecar bearer token. Unset by default
+(every existing host is unaffected). When set, `resolveCaller` (`deps.ts`)
+runs ahead of `requirePrincipal`/`grantGuard`, calls the resolver, parses its
+return with arktype (non-empty `tenantId`/`principalId` — a malformed
+resolver return is a host bug and gets `500`, not `401`), and seats the
+result as the context `principal`/`tenant` so the exact same
+`requireGrant`/`authorize` path a browser caller gets applies to the machine
+caller too. **Migrating a host off a hand-rolled parallel surface** (like a
+`createWorkflowMemoryRoutes`-shaped workaround) onto `callerResolver`: that
+kind of surface commonly also carries a per-run write-rate limiter and a
+request payload cap that this package does not implement (see CL-6286's PR
+body for why) — re-home both as host middleware before deleting the old
+surface, or a migrating host silently loses them.
+
 | Method + path | Grant action | Request body | Response |
 |---|---|---|---|
 | `POST /api/tenants/:tenantId/memory/add` | `add` | `{ title, text, access_tags?, share? }` | `200 { documentId, versionId }`; `400` on validation |

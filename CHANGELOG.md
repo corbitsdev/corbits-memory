@@ -18,7 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   resolved identity is seated as the request's principal/tenant ahead of
   `grantGuard`, so the same `requireGrant` authorization path applies to a
   machine caller — never a separate, weaker one. Identity from the resolver
-  always wins over anything a request body claims.
+  always wins over anything a request body claims. The resolver's return
+  value is parsed with arktype (non-empty `tenantId`/`principalId`); a
+  resolver returning a malformed identity is rejected with `500` (a host
+  bug), never seated as a garbage scope.
 
 ### Fixed
 
