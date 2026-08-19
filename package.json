@@ -15,25 +15,25 @@
       {
         "resource": "memory",
         "action": "add",
-        "source": "tenant",
+        "installHint": "tenant",
         "surfaces": ["tools", "distiller", "routes"]
       },
       {
         "resource": "memory",
         "action": "search",
-        "source": "tenant",
+        "installHint": "tenant",
         "surfaces": ["tools", "distiller", "routes"]
       },
       {
         "resource": "memory",
         "action": "forget",
-        "source": "creator",
+        "installHint": "creator",
         "surfaces": ["routes"]
       },
       {
         "resource": "memory",
         "action": "purge",
-        "source": "creator",
+        "installHint": "creator",
         "surfaces": ["routes"]
       }
     ]

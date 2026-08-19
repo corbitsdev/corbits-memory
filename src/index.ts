@@ -70,7 +70,7 @@ export {
   MEMORY_CAPABILITY_IDS,
   MEMORY_GRANT_REQUIREMENTS,
   type MemoryGrantRequirement,
-  type MemoryGrantSource,
+  type MemoryGrantInstallHint,
   type MemoryGrantSurface,
 } from "./grant-requirements.ts";
 

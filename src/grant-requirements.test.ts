@@ -21,21 +21,36 @@ describe("MEMORY_GRANT_REQUIREMENTS", () => {
     }
   });
 
-  test("add/search are tenant-sourced and reach tools + distiller + routes", () => {
+  test("add/search hint tenant-wide and reach tools + distiller + routes", () => {
     for (const action of ["add", "search"]) {
       const r = MEMORY_GRANT_REQUIREMENTS.find((x) => x.action === action)!;
-      expect(r.source).toBe("tenant");
+      expect(r.installHint).toBe("tenant");
       expect(r.surfaces).toContain("tools");
       expect(r.surfaces).toContain("distiller");
       expect(r.surfaces).toContain("routes");
     }
   });
 
-  test("forget/purge are creator-sourced and routes-only", () => {
+  test("forget/purge hint creator-scoped and are routes-only", () => {
     for (const action of ["forget", "purge"]) {
       const r = MEMORY_GRANT_REQUIREMENTS.find((x) => x.action === action)!;
-      expect(r.source).toBe("creator");
+      expect(r.installHint).toBe("creator");
       expect(r.surfaces).toEqual(["routes"]);
+    }
+  });
+
+  test("installHint is advisory only — the requirement shape carries no enforcement field", () => {
+    // The actual ownership check lives in services/retention-ownership.ts,
+    // wired imperatively into memory.ts, entirely independent of this hint.
+    // This test exists so a future reader who tightens grant-requirements.ts
+    // notices this comment rather than assuming installHint is load-bearing.
+    for (const r of MEMORY_GRANT_REQUIREMENTS) {
+      expect(Object.keys(r).sort()).toEqual([
+        "action",
+        "installHint",
+        "resource",
+        "surfaces",
+      ]);
     }
   });
 
@@ -73,7 +88,7 @@ describe("MEMORY_GRANT_REQUIREMENTS", () => {
         grantRequirements?: Array<{
           resource: string;
           action: string;
-          source: string;
+          installHint: string;
           surfaces: string[];
         }>;
       };
@@ -83,7 +98,7 @@ describe("MEMORY_GRANT_REQUIREMENTS", () => {
       MEMORY_GRANT_REQUIREMENTS.map((r) => ({
         resource: r.resource,
         action: r.action,
-        source: r.source,
+        installHint: r.installHint,
         surfaces: [...r.surfaces],
       })),
     );
