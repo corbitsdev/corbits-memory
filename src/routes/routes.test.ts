@@ -133,6 +133,7 @@ function stubMachinePlane(opts?: {
   const fed: { tenantId: string; principalId: string }[] = [];
   const catalog = opts?.timelineCatalog ?? [];
   const plane: Memory = {
+    capabilities: { embeddingsConfigured: true },
     search: async (p) => {
       searched.push({
         tenantId: p.tenantId,
