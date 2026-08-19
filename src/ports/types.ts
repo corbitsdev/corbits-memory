@@ -20,6 +20,7 @@ import type {
   SearchHitCitation,
 } from "../core/schemas/search.ts";
 import type { DegradeFlag } from "../core/hybrid-search.ts";
+import type { CaptureDegradedReason } from "../core/embed-worker.ts";
 
 /** Input the plane hands the store after content/file/share resolution. */
 export type DocumentStoreAddParams = {
@@ -159,6 +160,35 @@ export type DocumentStoreAddResult = {
   documentId: string;
   /** Active version written (or existing active on noop). */
   versionId: string;
+  /**
+   * Reason array (never a bare boolean), mirroring
+   * `DocumentStoreSearchResult.degraded`'s shape. Omitted when the document
+   * captured cleanly. Vendor stores that never degrade may omit this
+   * entirely.
+   */
+  degraded?: CaptureDegradedReason[];
+};
+
+/**
+ * Static capability facts about a DocumentStore, surfaced on the `Memory`
+ * handle (`memory.capabilities`) so a consumer — a settings page, a health
+ * check — can learn them WITHOUT issuing a search/add first (CL-6287
+ * review: running lexical-only for months while believing recall is normal
+ * is a silent downgrade; this is what makes it an honest, discoverable
+ * tier instead).
+ */
+export type DocumentStoreCapabilities = {
+  /**
+   * Whether dense (embedding-based) retrieval is available. `false` means
+   * every search is lexical-only and every `add` stores chunks unvectorized
+   * — see the `dense_unavailable`/`lexical_only` and
+   * `embed_unavailable`/`lexical_only` degrade pairs on search/add results
+   * respectively. The engine store reports this from its own
+   * `EngineConfig.embed`; a vendor store that omits `capabilities`
+   * altogether is assumed embeddings-capable (the pre-CL-6287 default,
+   * since this SDK cannot otherwise introspect a store it doesn't own).
+   */
+  embeddingsConfigured: boolean;
 };
 
 export type DocumentStore = {
@@ -182,6 +212,8 @@ export type DocumentStore = {
     documentId: string,
     tags: readonly string[],
   ): Promise<void>;
+  /** See DocumentStoreCapabilities. Optional — see its doc comment for the default. */
+  capabilities?: DocumentStoreCapabilities;
 };
 
 /**

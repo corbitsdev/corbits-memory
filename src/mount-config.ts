@@ -49,7 +49,7 @@ function optionalIntEnv(name: string): number | undefined {
 
 // EMBED_BASE_URL and EMBED_MODEL are a pair: both set builds the embed
 // block, neither set means the host is opting into lexical-only (no
-// embedding account — dense retrieval skipped, capture stores chunks
+// embed endpoint — dense retrieval skipped, capture stores chunks
 // without vectors). Exactly one set is a real operator mistake — a typo'd
 // var name, a copy-paste that dropped one line — and must fail loudly
 // rather than silently landing in lexical-only mode.

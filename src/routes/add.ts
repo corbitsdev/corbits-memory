@@ -19,6 +19,9 @@ import {
 const AddResponse = type({
   documentId: "string",
   versionId: "string",
+  // A reason array, never a bare boolean — mirrors search's `degraded` so a
+  // host can write one "is this response degraded" check across both verbs.
+  "degraded?": "string[]",
 });
 
 export function mountAddRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
@@ -93,7 +96,11 @@ export function mountAddRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
             ? { validUntil: body.valid_until }
             : {}),
         });
-        return c.json({ documentId: result.documentId, versionId: result.versionId });
+        return c.json({
+          documentId: result.documentId,
+          versionId: result.versionId,
+          ...(result.degraded ? { degraded: result.degraded } : {}),
+        });
       } catch (err) {
         if (err instanceof MemoryError) {
           return c.json(

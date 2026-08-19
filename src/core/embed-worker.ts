@@ -10,6 +10,19 @@ export interface EmbeddableChunk {
   text: string;
 }
 
+// Capture's counterpart to search's `DegradeFlag` (hybrid-search.ts) — an
+// array, never a bare boolean, so a host can write one "is this response
+// degraded" check across `add` and `search`. Lives here (not services/
+// capture.ts) so `ports/types.ts` can reference it for
+// `DocumentStoreAddResult` the same way it already references `DegradeFlag`
+// for `DocumentStoreSearchResult`. `embed_unavailable` is the embed pass's
+// counterpart to `dense_unavailable` — it ran and failed (client error,
+// timeout, or a rejected/dims-mismatched chunk); `lexical_only` is paired
+// with it specifically when there's no embed endpoint configured at all,
+// mirroring search's `dense_unavailable`/`lexical_only` pairing for the same
+// "configured off" state.
+export type CaptureDegradedReason = "embed_unavailable" | "lexical_only";
+
 export interface EmbedChunksResult {
   embedded: number;
   rejected: Array<{ chunkId: string; reason: string }>;
