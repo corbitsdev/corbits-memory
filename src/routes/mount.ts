@@ -18,6 +18,11 @@ import { mountAddRoute } from "./add.ts";
 import { mountSearchRoute } from "./search.ts";
 import { mountListRoute } from "./list.ts";
 import { mountFeedRoute } from "./feed.ts";
+import {
+  mountForgetRoute,
+  mountPurgeRoute,
+  mountSetRetentionClassRoute,
+} from "./retention.ts";
 
 export type {
   CallerResolver,
@@ -26,7 +31,7 @@ export type {
   RouteDeps,
 } from "./deps.ts";
 
-/** HTTP JSON routes: add, search, list, feed. */
+/** HTTP JSON routes: add, search, list, feed, forget, purge, retention-class. */
 export function registerMemoryRoutes(
   app: Hono<TenantEnv>,
   deps: RouteDeps,
@@ -35,4 +40,7 @@ export function registerMemoryRoutes(
   mountSearchRoute(app, deps);
   mountListRoute(app, deps);
   mountFeedRoute(app, deps);
+  mountForgetRoute(app, deps);
+  mountPurgeRoute(app, deps);
+  mountSetRetentionClassRoute(app, deps);
 }

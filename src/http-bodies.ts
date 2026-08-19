@@ -152,3 +152,31 @@ export function parseWithArk<T>(
   }
   return parsed;
 }
+
+/** Path param for the two document-scoped retention routes (forget/purge). */
+export const DocumentIdParam = type({
+  documentId: "string >= 1",
+});
+
+export type DocumentIdParam = typeof DocumentIdParam.infer;
+
+/** Path param for the version-scoped retention-class route. */
+export const VersionIdParam = type({
+  versionId: "string >= 1",
+});
+
+export type VersionIdParam = typeof VersionIdParam.infer;
+
+/** POST body for `.../forget` (tombstone) — reason is audit-only, never required. */
+export const ForgetRequest = type({
+  "reason?": "string",
+});
+
+export type ForgetRequest = typeof ForgetRequest.infer;
+
+/** POST body for `.../retention-class`. Kept in lockstep with RETENTION_CLASSES (core/enums.ts). */
+export const SetRetentionClassRequest = type({
+  retention_class: "'durable'|'standard'|'ephemeral'|'source_only'",
+});
+
+export type SetRetentionClassRequest = typeof SetRetentionClassRequest.infer;
