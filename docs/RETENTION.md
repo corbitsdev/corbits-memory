@@ -7,7 +7,7 @@ Versions carry a **retention class** orthogonal to temporal ranking class
 | --- | --- |
 | `durable` | Long-lived claims; hard-delete blocked until tombstoned |
 | `standard` | Default working memory |
-| `ephemeral` | Short TTL; sweeper hard-deletes past `valid_until` (or 7d from `ingested_at`) |
+| `ephemeral` | Short TTL; sweeper deprecates past `valid_until` (or 7d from `ingested_at`) — hard delete is a separate explicit step |
 | `source_only` | Keep raw capture; derived versions may be dropped by host policy |
 
 Schema: `memory.version.retention_class` (migration `0007_retention.sql`).
@@ -21,7 +21,7 @@ CHECK constraint `version_retention_class_check` stays lockstep with
 | Deprecate | `memory.deprecateVersion` | `status=deprecated`, `deprecated_at` / reason |
 | Tombstone | `memory.tombstoneDocument` | All active/deprecated/superseded versions → `tombstoned`; chunk text redacted to `[redacted]` |
 | Hard delete | `memory.hardDeleteDocument` | Deletes document row (cascade); **refuses** if any non-tombstoned version is `durable` |
-| Sweep | `memory.sweepEphemeral` | Auto-deprecates ephemeral versions past `valid_until` (or 7d from `ingested_at`); host schedules, core is cron-free |
+| Sweep | `memory.sweepEphemeral` | Auto-**deprecates** (never deletes) ephemeral versions past `valid_until` (or 7d from `ingested_at`); host schedules, core is cron-free |
 | Set class | `memory.setRetentionClass` | Update `retention_class` on a version |
 
 Search and feed exclude non-active (and non-superseded for feed) rows by
@@ -30,3 +30,46 @@ versions intentionally (ops / audit). Hard-delete is a separate explicit
 verb — TTL never hard-deletes.
 
 Service module: `src/services/retention.ts`.
+
+## HTTP surface (CL-6288)
+
+| Route | Grant action | Plane verb |
+| --- | --- | --- |
+| `POST …/memory/documents/:documentId/forget` | `memory:forget` | `tombstoneDocument` |
+| `POST …/memory/documents/:documentId/purge` | `memory:purge` | `hardDeleteDocument` |
+| `POST …/memory/versions/:versionId/retention-class` | `memory:forget` | `setRetentionClass` |
+
+`deprecateVersion` and `sweepEphemeral` have no route (see below).
+
+**Tombstone vs. hard delete stay distinct verbs, distinct grants.** A UI
+offering "forget this" must never be one flag away from "shred this" by
+accident. `forget` (tombstone) is **not** an undo-able action: the document
+stops appearing in search/feed and its chunk text is overwritten with
+`[redacted]` — the original content does not survive, there is no
+un-tombstone/restore verb, and only version metadata (status, timestamps,
+retention class) remains for audit. `purge` (hard delete) goes further and
+removes the document row itself; it has its own grant action and is refused
+outright while a `durable`-class version on the document is untombstoned. The
+distinction that matters is *what's still queryable*: after `forget` a
+document row and its metadata still exist (for audit) but its content is
+gone; after `purge` nothing does. A host can grant `forget` broadly (every
+user gets a "forget this" button) while keeping `purge` to an operator role —
+but should not describe `forget` to end users as reversible.
+
+**Ownership, not just visibility.** `memory:search`/a document's `accessTags`
+say who can *see* a document — never who may forget or purge it. Every
+retention route additionally checks that the caller is the document's
+creator (`created_by_principal_id` — the document's first version for
+`forget`/`purge`, the specific version's own creator for `retention-class`),
+independent of any share grant. A peer who can search a shared document gets
+403 on `forget`/`purge`/`retention-class` for it. See
+`src/services/retention-ownership.ts` and the ownership tests in
+`src/memory.test.ts` / `src/routes/routes.test.ts`.
+
+**`sweepEphemeral` stays off the HTTP surface.** It is a maintenance sweep —
+"deprecate every ephemeral version past its TTL for this tenant" — not
+something a single user requests about their own data, and it has no natural
+per-caller grant (it does not take a `principalId` and touches every
+matching row tenant-wide). A host that wants it schedules a cron job calling
+`memory.sweepEphemeral({ tenantId })` in-process (the returned `Memory`
+already exposes it); the engine stays cron-free per `ARCHITECTURE.md`.

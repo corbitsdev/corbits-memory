@@ -633,8 +633,13 @@ surface, or a migrating host silently loses them.
 | `POST /api/tenants/:tenantId/memory/add` | `add` | `{ title, text, access_tags?, share? }` | `200 { documentId, versionId }`; `400` on validation |
 | `POST /api/tenants/:tenantId/memory/search` | `search` | `{ query, limit?, kinds?, entity_ids?, sources?, includeEvidence? }` (limit 1–50; `kinds`/`entity_ids`/`sources` narrow retrieval before fusion; unset or `[]` = unfiltered; `includeEvidence` adds a short evidence string when true) | `200 { items[], evidence?, degraded? }`; `400` on bad input |
 | `GET /api/tenants/:tenantId/memory/list` | `search` | query `?limit=` (1–100, string on the wire) | `200 { events: [{ at, title, source, tenantId, principalId }] }` — durable recent documents for the caller's scope, filtered with grant-tag access (`canAccessDocument`). One event per document (active live version). |
+| `GET /api/tenants/:tenantId/memory/feed` | `search` | query `?after=&limit=&exclude_generator=` | `200 { entries[], nextCursor }` — cursor pull of new live versions. See `docs/FEED.md`. |
+| `POST /api/tenants/:tenantId/memory/documents/:documentId/forget` | `forget` | `{ reason? }` | `200 { documentId, versions }`; `403` unless caller is the document's creator; `404` unknown document. Tombstones — content is redacted, not archived; see docs/RETENTION.md. |
+| `POST /api/tenants/:tenantId/memory/documents/:documentId/purge` | `purge` | none | `200 { documentId, deleted, reason? }`; `403` unless caller is the document's creator; `404` unknown document. Hard-deletes the row — irreversible; refused while a `durable` version is untombstoned. |
+| `POST /api/tenants/:tenantId/memory/versions/:versionId/retention-class` | `forget` | `{ retention_class }` | `200 { versionId, documentId, status }`; `400` invalid class; `403` unless caller is the version's creator; `404` unknown version. |
 
-`registerMemoryRoutes` and `createMemory({ app })` register the three HTTP routes.
+`registerMemoryRoutes` and `createMemory({ app })` register these seven HTTP
+routes (add, search, list, feed, forget, purge, retention-class).
 Agent tools ship in this package as Interchange `defineTool` factories
 (`@corbits/memory/tools` / `interchange.tools`): thin HTTP clients that call the
 mounted routes with install env (`memoryBaseUrl`, `memoryTenantId`,
@@ -645,7 +650,10 @@ protection — the client has no default timeout. OpenAPI→MCP remains an optio
 host bridge. The plane surface is `add` / `search` / `list` / `close`, plus
 optional transform methods when backed by the engine DocumentStore
 (`createTransformConfig`, `listTransformConfigs`, `runTransform`,
-`promoteGeneration`, `demoteGeneration`). Inference stays on the host.
+`promoteGeneration`, `demoteGeneration`) and optional retention methods
+(`tombstoneDocument`, `hardDeleteDocument`, `setRetentionClass`,
+`sweepEphemeral`, `deprecateVersion`) — see docs/RETENTION.md. Inference stays
+on the host.
 
 ### Share materialization (CL-5873)
 

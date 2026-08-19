@@ -56,6 +56,20 @@ helpers are optional multi-writer / backfill — not the primary path.
   anything from the request body, is what `grantGuard` authorizes.
 - **Grants delegate to the host.** Pass `grantStore` + `conditionRegistry`;
   routes use `createRequireGrant("memory", action)`.
+- **Two authorization mechanisms, not one — know which is source of truth
+  for what.** (1) Grant tags decide *capability* (may this principal call
+  `add`/`search`/`forget`/`purge` at all — `requireGrant`) and *visibility*
+  (which documents a principal may see — `accessTags` + `canAccessDocument`
+  in `grant-tags.ts`, where a share grant legitimately widens who can find a
+  document). (2) A separate, imperative **ownership** check — the creator
+  lookup in `services/retention-ownership.ts`, called from `memory.ts` —
+  decides who may *forget or purge* a specific document, and is the sole
+  source of truth for "whose document is this": it is never derived from
+  grant tags and a share grant never satisfies it. `MemoryGrantRequirement.
+  installHint` (`grant-requirements.ts`) looks adjacent to this but is not:
+  it is advisory metadata for install tooling sizing a capability grant,
+  read by nothing at request time. Do not extend mechanism (1) expecting it
+  to cover ownership — extend `retention-ownership.ts` instead.
 - **Dependencies**: `@intx/hub-api`, `@intx/authz`, `@intx/log`, Hono, Drizzle,
   arktype, `postgres`, `hono-openapi`. LGPL-2.1 — see `LICENSE`.
 
@@ -85,9 +99,23 @@ exposes the same three verbs.
   authority/recency → MMR); optional live `SourceProvider` merge (fail-soft).
 - `GET /api/tenants/:tenantId/memory/list` — recent documents, same grant-tag filter as local
   search.
+- `POST /api/tenants/:tenantId/memory/documents/:documentId/forget` — tombstone
+  (grant `memory:forget`; creator-only, see below).
+- `POST /api/tenants/:tenantId/memory/documents/:documentId/purge` — hard
+  delete (grant `memory:purge`; creator-only; irreversible).
+- `POST /api/tenants/:tenantId/memory/versions/:versionId/retention-class` —
+  set retention class (grant `memory:forget`; creator-only).
 
-Returns an in-process `Memory` (`add`, `search`, `list`, `close`) for host
-workers and ingestion modules that already resolved identity.
+Forget and purge are deliberately separate routes and separate grant actions
+(never one route with a boolean flag) — a host wiring a "forget this" button
+cannot accidentally wire up permanent deletion. `sweepEphemeral` (TTL
+auto-deprecation) is **not** HTTP-routed: it is a maintenance sweep a host
+schedules on its own cron, not a user action; call it in-process against the
+returned `Memory`. See docs/RETENTION.md.
+
+Returns an in-process `Memory` (`add`, `search`, `list`, `close`, plus the
+optional retention writes) for host workers and ingestion modules that
+already resolved identity.
 
 **Agent tools live in this package** as thin HTTP clients
 (`@corbits/memory/tools` / `interchange.tools`): `defineTool` factories that

@@ -13,6 +13,7 @@ import {
   SEARCH_LIMIT_MAX,
   SEARCH_LIMIT_MIN,
 } from "./limits.ts";
+import { NonBlankId } from "./core/schemas/non-blank-id.ts";
 
 export const ShareBody = type({
   "tenant?": "boolean",
@@ -152,3 +153,31 @@ export function parseWithArk<T>(
   }
   return parsed;
 }
+
+/** Path param for the two document-scoped retention routes (forget/purge). */
+export const DocumentIdParam = type({
+  documentId: NonBlankId,
+});
+
+export type DocumentIdParam = typeof DocumentIdParam.infer;
+
+/** Path param for the version-scoped retention-class route. */
+export const VersionIdParam = type({
+  versionId: NonBlankId,
+});
+
+export type VersionIdParam = typeof VersionIdParam.infer;
+
+/** POST body for `.../forget` (tombstone) — reason is audit-only, never required. */
+export const ForgetRequest = type({
+  "reason?": "string",
+});
+
+export type ForgetRequest = typeof ForgetRequest.infer;
+
+/** POST body for `.../retention-class`. Kept in lockstep with RETENTION_CLASSES (core/enums.ts). */
+export const SetRetentionClassRequest = type({
+  retention_class: "'durable'|'standard'|'ephemeral'|'source_only'",
+});
+
+export type SetRetentionClassRequest = typeof SetRetentionClassRequest.infer;

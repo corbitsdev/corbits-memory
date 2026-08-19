@@ -49,6 +49,11 @@ import {
   tombstoneDocument,
 } from "./services/retention.ts";
 import {
+  isOwner,
+  resolveDocumentOwner,
+  resolveVersionOwner,
+} from "./services/retention-ownership.ts";
+import {
   documentTag,
   materializeShareGrants,
   MEMORY_SHARE_CONDITION_REGISTRY,
@@ -334,7 +339,13 @@ export type Memory = {
     generation: string;
   }): Promise<TransformRunRow>;
   /**
-   * Retention write paths (engine store only). See docs/RETENTION.md (CL-5871).
+   * Retention write paths (engine store only). See docs/RETENTION.md
+   * (CL-5871, ownership CL-6288). `tombstoneDocument`, `hardDeleteDocument`,
+   * and `setRetentionClass` take the caller's `principalId` and are refused
+   * (`MemoryError` 403) unless it matches the document/version creator — a
+   * share grant that lets a peer *see* a document never lets them forget or
+   * purge it. `deprecateVersion` and `sweepEphemeral` are not HTTP-routed
+   * and keep the CL-5871 tenant-only signature.
    */
   deprecateVersion?(input: {
     tenantId: string;
@@ -343,11 +354,13 @@ export type Memory = {
   }): Promise<{ versionId: string; documentId: string; status: string } | null>;
   tombstoneDocument?(input: {
     tenantId: string;
+    principalId: string;
     documentId: string;
     reason?: string;
   }): Promise<{ versions: number }>;
   hardDeleteDocument?(input: {
     tenantId: string;
+    principalId: string;
     documentId: string;
   }): Promise<{ deleted: boolean; reason?: string }>;
   sweepEphemeral?(input: {
@@ -356,6 +369,7 @@ export type Memory = {
   }): Promise<{ versionsDeprecated: number }>;
   setRetentionClass?(input: {
     tenantId: string;
+    principalId: string;
     versionId: string;
     retentionClass: "durable" | "standard" | "ephemeral" | "source_only";
   }): Promise<{ versionId: string; documentId: string; status: string } | null>;
@@ -1058,6 +1072,16 @@ function createPlaneFromStore(
           "retention APIs require the engine DocumentStore",
         );
       }
+      const owner = await resolveDocumentOwner(transformDeps.sql, input);
+      if (!owner.exists) {
+        throw new MemoryError(404, "document not found");
+      }
+      if (!isOwner(owner, input.principalId)) {
+        throw new MemoryError(
+          403,
+          "only the document's creator may forget it",
+        );
+      }
       return tombstoneDocument(transformDeps.db, input);
     },
 
@@ -1066,6 +1090,16 @@ function createPlaneFromStore(
         throw new MemoryError(
           501,
           "retention APIs require the engine DocumentStore",
+        );
+      }
+      const owner = await resolveDocumentOwner(transformDeps.sql, input);
+      if (!owner.exists) {
+        throw new MemoryError(404, "document not found");
+      }
+      if (!isOwner(owner, input.principalId)) {
+        throw new MemoryError(
+          403,
+          "only the document's creator may purge it",
         );
       }
       return hardDeleteDocument(transformDeps.db, input);
@@ -1086,6 +1120,16 @@ function createPlaneFromStore(
         throw new MemoryError(
           501,
           "retention APIs require the engine DocumentStore",
+        );
+      }
+      const owner = await resolveVersionOwner(transformDeps.sql, input);
+      if (!owner.exists) {
+        throw new MemoryError(404, "version not found");
+      }
+      if (!isOwner(owner, input.principalId)) {
+        throw new MemoryError(
+          403,
+          "only the version's creator may change its retention class",
         );
       }
       return setRetentionClass(transformDeps.db, input);
