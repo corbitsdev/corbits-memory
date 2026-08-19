@@ -784,16 +784,20 @@ describe("retention writes — ownership gate (CL-6288)", () => {
     }),
   );
 
-  /** Only "doc-1" / "ver-1" exist, created by OWNER — everything else is a miss. */
+  /**
+   * Only "doc-1" / "ver-1" exist, created by OWNER — everything else is a
+   * miss. resolveDocumentOwner and resolveVersionOwner both just need "a
+   * creator row" here (their distinct WHERE clauses are unit-tested with
+   * real scoping in retention-ownership.test.ts) so this fake does not
+   * branch on query text — a branch whose arms return the same row proves
+   * nothing and only invites the reader to assume a distinction that isn't
+   * there.
+   */
   const sql = Object.assign(
-    mock((strings: TemplateStringsArray, ...values: unknown[]) => {
-      const text = strings.join("?");
+    mock((_strings: TemplateStringsArray, ...values: unknown[]) => {
       const isMissing =
         values.includes("doc-missing") || values.includes("ver-missing");
       if (isMissing) return Promise.resolve([]);
-      if (text.includes("document_id")) {
-        return Promise.resolve([{ created_by_principal_id: OWNER }]);
-      }
       return Promise.resolve([{ created_by_principal_id: OWNER }]);
     }),
     {
