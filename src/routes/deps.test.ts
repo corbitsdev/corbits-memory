@@ -209,4 +209,45 @@ describe("resolveCaller", () => {
     await resolveCaller(routeDeps)(ctx, async () => {});
     expect(sets.principal).toMatchObject({ id: "principal-async" });
   });
+
+  test("rejects an empty-string tenantId/principalId with 500, never seating it", async () => {
+    const { ctx, sets, jsonCalls } = fakeContext();
+    const routeDeps: RouteDeps = {
+      ...deps(grantsWith()),
+      callerResolver: () => ({ tenantId: "", principalId: "" }),
+    };
+    let nextCalled = false;
+    await resolveCaller(routeDeps)(ctx, async () => {
+      nextCalled = true;
+    });
+    expect(nextCalled).toBe(false);
+    expect(jsonCalls).toHaveLength(1);
+    expect(jsonCalls[0]?.status).toBe(500);
+    expect(jsonCalls[0]?.body).toMatchObject({
+      error: { code: "invalid_resolved_caller" },
+    });
+    expect(sets.principal).toBeUndefined();
+    expect(sets.tenant).toBeUndefined();
+  });
+
+  test("rejects a resolved value missing principalId with 500", async () => {
+    const { ctx, jsonCalls } = fakeContext();
+    const routeDeps: RouteDeps = {
+      ...deps(grantsWith()),
+      // Cast past the type system the way a buggy host's JS resolver would.
+      callerResolver: () => ({ tenantId: "tenant-run" }) as unknown as ResolvedCaller,
+    };
+    await resolveCaller(routeDeps)(ctx, async () => {});
+    expect(jsonCalls[0]?.status).toBe(500);
+  });
+
+  test("rejects a non-object resolved value with 500", async () => {
+    const { ctx, jsonCalls } = fakeContext();
+    const routeDeps: RouteDeps = {
+      ...deps(grantsWith()),
+      callerResolver: () => "tenant-run" as unknown as ResolvedCaller,
+    };
+    await resolveCaller(routeDeps)(ctx, async () => {});
+    expect(jsonCalls[0]?.status).toBe(500);
+  });
 });
