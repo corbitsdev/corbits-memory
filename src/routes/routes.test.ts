@@ -615,23 +615,33 @@ describe("memory HTTP routes — resolver trust-boundary and row-fabrication con
     expect(added).toHaveLength(0);
   });
 
-  test("a resolver returning an empty-string identity is rejected, not seated as a garbage scope", async () => {
-    // A grant that would (wrongly) authorize the empty-string principal if
-    // the malformed identity were ever seated — proving rejection happens
-    // before grantGuard, not that no grant happened to match.
-    const { app, added } = buildAppWithCallerResolver(
-      [grant("", "add")],
-      () => ({ tenantId: "", principalId: "" }),
-    );
-    const res = await app.request(
-      "/api/tenants/t1/memory/add",
-      jsonPost({ title: "t", text: "body" }),
-    );
-    expect(res.status).toBe(500);
-    const body = (await res.json()) as { error: { code: string } };
-    expect(body.error.code).toBe("invalid_resolved_caller");
-    expect(added).toHaveLength(0);
-  });
+  test.each([
+    ["empty-string", { tenantId: "", principalId: "" }],
+    // "string >= 1" would be a LENGTH constraint only -- " " has length 1
+    // and would pass it, seating a whitespace-only scope wearing the same
+    // costume as the empty-string case above. This is the regression guard
+    // for that boundary (same bug class PR #34 fixed in optionalEnv).
+    ["whitespace-only", { tenantId: " ", principalId: "\t\n" }],
+  ] as const)(
+    "a resolver returning a %s identity is rejected, not seated as a garbage scope",
+    async (_label, resolved) => {
+      // A grant that would (wrongly) authorize the malformed principal if
+      // the identity were ever seated — proving rejection happens before
+      // grantGuard, not that no grant happened to match.
+      const { app, added } = buildAppWithCallerResolver(
+        [grant(resolved.principalId, "add")],
+        () => resolved,
+      );
+      const res = await app.request(
+        "/api/tenants/t1/memory/add",
+        jsonPost({ title: "t", text: "body" }),
+      );
+      expect(res.status).toBe(500);
+      const body = (await res.json()) as { error: { code: string } };
+      expect(body.error.code).toBe("invalid_resolved_caller");
+      expect(added).toHaveLength(0);
+    },
+  );
 
   /**
    * `principalRowFor`/`tenantRowFor` (deps.ts) fabricate `PrincipalRow`/

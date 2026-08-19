@@ -230,6 +230,30 @@ describe("resolveCaller", () => {
     expect(sets.tenant).toBeUndefined();
   });
 
+  test("rejects a whitespace-only tenantId/principalId with 500, never seating it", async () => {
+    // "string >= 1" is a LENGTH constraint -- " " has length 1 and would
+    // pass it. This is the same class of bug PR #34 fixed in optionalEnv
+    // (v.length > 0 accepted "   "); this test is the regression guard for
+    // it at this boundary.
+    const { ctx, sets, jsonCalls } = fakeContext();
+    const routeDeps: RouteDeps = {
+      ...deps(grantsWith()),
+      callerResolver: () => ({ tenantId: " ", principalId: "\t\n" }),
+    };
+    let nextCalled = false;
+    await resolveCaller(routeDeps)(ctx, async () => {
+      nextCalled = true;
+    });
+    expect(nextCalled).toBe(false);
+    expect(jsonCalls).toHaveLength(1);
+    expect(jsonCalls[0]?.status).toBe(500);
+    expect(jsonCalls[0]?.body).toMatchObject({
+      error: { code: "invalid_resolved_caller" },
+    });
+    expect(sets.principal).toBeUndefined();
+    expect(sets.tenant).toBeUndefined();
+  });
+
   test("rejects a resolved value missing principalId with 500", async () => {
     const { ctx, jsonCalls } = fakeContext();
     const routeDeps: RouteDeps = {
