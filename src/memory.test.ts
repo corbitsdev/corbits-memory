@@ -30,6 +30,7 @@ import type { MemoryConfig } from "./mount-config.ts";
 import * as realDb from "./db/client.ts";
 import * as realSearch from "./services/search.ts";
 import * as realCapture from "./services/capture.ts";
+import * as realRetention from "./services/retention.ts";
 import type { HybridSearchResult } from "./services/search.ts";
 
 const PRINCIPAL = "p1";
@@ -765,6 +766,202 @@ async function freshPlane(opts?: {
     expect(call[1].document.accessTags).toEqual([
       `memory.owner:${PRINCIPAL}`,
     ]);
+    await plane.close();
+  });
+});
+
+describe("retention writes — ownership gate (CL-6288)", () => {
+  const OWNER = "alice";
+  const OTHER = "mallory";
+
+  const tombstoneDocument = mock(() => Promise.resolve({ versions: 1 }));
+  const hardDeleteDocument = mock(() => Promise.resolve({ deleted: true }));
+  const setRetentionClass = mock(() =>
+    Promise.resolve({
+      versionId: "ver-1",
+      documentId: "doc-1",
+      status: "active",
+    }),
+  );
+
+  /** Only "doc-1" / "ver-1" exist, created by OWNER — everything else is a miss. */
+  const sql = Object.assign(
+    mock((strings: TemplateStringsArray, ...values: unknown[]) => {
+      const text = strings.join("?");
+      const isMissing =
+        values.includes("doc-missing") || values.includes("ver-missing");
+      if (isMissing) return Promise.resolve([]);
+      if (text.includes("document_id")) {
+        return Promise.resolve([{ created_by_principal_id: OWNER }]);
+      }
+      return Promise.resolve([{ created_by_principal_id: OWNER }]);
+    }),
+    {
+      end: mock(() => Promise.resolve()),
+      unsafe: mock((sqlText: string) => ftsUnsafe(sqlText)),
+    },
+  );
+
+  beforeAll(() => {
+    mock.module("./db/client.ts", () => ({
+      ...realDb,
+      createDb: () => ({ db: {}, sql }),
+    }));
+    mock.module("./services/retention.ts", () => ({
+      ...realRetention,
+      tombstoneDocument,
+      hardDeleteDocument,
+      setRetentionClass,
+    }));
+  });
+
+  afterAll(() => {
+    mock.module("./db/client.ts", () => realDb);
+    mock.module("./services/retention.ts", () => realRetention);
+  });
+
+  async function freshPlane() {
+    const { createMemory: makePlane } = await import(
+      `./memory.ts?retention-${Date.now()}-${Math.random()}`
+    );
+    return makePlane({ config: wiringConfig });
+  }
+
+  function expectMemoryError(err: unknown, status: number, messagePart: string) {
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).name).toBe("MemoryError");
+    expect((err as { status: number }).status).toBe(status);
+    expect((err as Error).message).toContain(messagePart);
+  }
+
+  it("tombstoneDocument succeeds for the creator", async () => {
+    tombstoneDocument.mockClear();
+    const plane = await freshPlane();
+    const result = await plane.tombstoneDocument({
+      tenantId: TENANT,
+      principalId: OWNER,
+      documentId: "doc-1",
+    });
+    expect(result).toEqual({ versions: 1 });
+    expect(tombstoneDocument).toHaveBeenCalled();
+    await plane.close();
+  });
+
+  it("tombstoneDocument is refused for a non-creator even with document visibility", async () => {
+    tombstoneDocument.mockClear();
+    const plane = await freshPlane();
+    try {
+      await plane.tombstoneDocument({
+        tenantId: TENANT,
+        principalId: OTHER,
+        documentId: "doc-1",
+      });
+      throw new Error("expected tombstoneDocument to reject");
+    } catch (err) {
+      expectMemoryError(err, 403, "creator");
+    }
+    expect(tombstoneDocument).not.toHaveBeenCalled();
+    await plane.close();
+  });
+
+  it("tombstoneDocument 404s for an unknown document", async () => {
+    tombstoneDocument.mockClear();
+    const plane = await freshPlane();
+    try {
+      await plane.tombstoneDocument({
+        tenantId: TENANT,
+        principalId: OWNER,
+        documentId: "doc-missing",
+      });
+      throw new Error("expected tombstoneDocument to reject");
+    } catch (err) {
+      expectMemoryError(err, 404, "not found");
+    }
+    expect(tombstoneDocument).not.toHaveBeenCalled();
+    await plane.close();
+  });
+
+  it("hardDeleteDocument succeeds for the creator", async () => {
+    hardDeleteDocument.mockClear();
+    const plane = await freshPlane();
+    const result = await plane.hardDeleteDocument({
+      tenantId: TENANT,
+      principalId: OWNER,
+      documentId: "doc-1",
+    });
+    expect(result).toEqual({ deleted: true });
+    expect(hardDeleteDocument).toHaveBeenCalled();
+    await plane.close();
+  });
+
+  it("hardDeleteDocument is refused for a non-creator even with document visibility", async () => {
+    hardDeleteDocument.mockClear();
+    const plane = await freshPlane();
+    try {
+      await plane.hardDeleteDocument({
+        tenantId: TENANT,
+        principalId: OTHER,
+        documentId: "doc-1",
+      });
+      throw new Error("expected hardDeleteDocument to reject");
+    } catch (err) {
+      expectMemoryError(err, 403, "creator");
+    }
+    expect(hardDeleteDocument).not.toHaveBeenCalled();
+    await plane.close();
+  });
+
+  it("setRetentionClass succeeds for the version's creator", async () => {
+    setRetentionClass.mockClear();
+    const plane = await freshPlane();
+    const result = await plane.setRetentionClass({
+      tenantId: TENANT,
+      principalId: OWNER,
+      versionId: "ver-1",
+      retentionClass: "durable",
+    });
+    expect(result).toEqual({
+      versionId: "ver-1",
+      documentId: "doc-1",
+      status: "active",
+    });
+    expect(setRetentionClass).toHaveBeenCalled();
+    await plane.close();
+  });
+
+  it("setRetentionClass is refused for a non-creator", async () => {
+    setRetentionClass.mockClear();
+    const plane = await freshPlane();
+    try {
+      await plane.setRetentionClass({
+        tenantId: TENANT,
+        principalId: OTHER,
+        versionId: "ver-1",
+        retentionClass: "durable",
+      });
+      throw new Error("expected setRetentionClass to reject");
+    } catch (err) {
+      expectMemoryError(err, 403, "creator");
+    }
+    expect(setRetentionClass).not.toHaveBeenCalled();
+    await plane.close();
+  });
+
+  it("setRetentionClass 404s for an unknown version", async () => {
+    setRetentionClass.mockClear();
+    const plane = await freshPlane();
+    try {
+      await plane.setRetentionClass({
+        tenantId: TENANT,
+        principalId: OWNER,
+        versionId: "ver-missing",
+        retentionClass: "durable",
+      });
+      throw new Error("expected setRetentionClass to reject");
+    } catch (err) {
+      expectMemoryError(err, 404, "not found");
+    }
+    expect(setRetentionClass).not.toHaveBeenCalled();
     await plane.close();
   });
 });
