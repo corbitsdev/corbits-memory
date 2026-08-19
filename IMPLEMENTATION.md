@@ -99,17 +99,31 @@ fallback)` parses a positive integer or throws.
 **Lexical-only mode (CL-6287).** `EngineConfig.embed` is optional — leave both
 `EMBED_BASE_URL`/`EMBED_MODEL` unset and the engine still constructs and
 serves `add` + lexical `search` against a pgvector Postgres with no
-embedding account configured. Dense retrieval is skipped rather than
+embed endpoint configured. Dense retrieval is skipped rather than
 attempted (no doomed HTTP call on every query), `add` still captures
-documents (chunks stored, no vectors), and `search` reports
-`degraded: ["dense_unavailable", "lexical_only"]` on every call so the state
-is observable. The embed-model registry (`ensureEmbedModel`/
-`activateEmbedModel`) is never reached in this mode. The replay/backfill
-pipeline (`runTransform`, `promoteGeneration` in `services/transform.ts`)
-still requires an embed endpoint — re-deriving a corpus is inherently a
-re-embedding operation — and fails loudly if run against an engine with none
-configured; re-embedding documents captured while lexical-only, once an
-endpoint is later added, is an open follow-up (not implemented).
+documents (chunks stored, no vectors), and both verbs report a `degraded`
+reason array — never a bare boolean, so a host can write one "is this
+response degraded" check across both: `search` reports
+`degraded: ["dense_unavailable", "lexical_only"]`; `add` reports
+`degraded: ["embed_unavailable", "lexical_only"]` (or `["embed_unavailable"]`
+alone when the endpoint IS configured but a specific embed pass failed — a
+client error, timeout, or rejected chunk). The embed-model registry
+(`ensureEmbedModel`/`activateEmbedModel`) is never reached in this mode.
+
+**Discoverability.** A host does not have to run a search to learn recall is
+limited: `memory.capabilities.embeddingsConfigured` (on the `Memory` handle
+`createMemory` returns) is `false` for a lexical-only engine, `true`
+otherwise — known at construction, no query needed. A custom `documentStore`
+that doesn't report its own `capabilities` defaults to `true` (this SDK
+cannot introspect a vendor store it doesn't own); see
+`DocumentStoreCapabilities` (ports/types.ts) for how a vendor store opts in.
+
+The replay/backfill pipeline (`runTransform`, `promoteGeneration` in
+`services/transform.ts`) still requires an embed endpoint — re-deriving a
+corpus is inherently a re-embedding operation — and fails loudly if run
+against an engine with none configured; re-embedding documents captured while
+lexical-only, once an endpoint is later added, is an open follow-up (not
+implemented).
 
 The engine's `EngineConfig.rerank` carries
 no `apiStyle` field of its own; `search.ts`'s `toRerankClientConfig` hardcodes

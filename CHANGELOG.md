@@ -25,8 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- `loadMemoryConfig` / `EngineConfig.embed` no longer requires an embedding
-  endpoint: a host with a pgvector Postgres and no embedding account now
+- `loadMemoryConfig` / `EngineConfig.embed` no longer requires an embed
+  endpoint: a host with a pgvector Postgres and no embed endpoint now
   constructs and serves `add` + lexical `search`. Dense retrieval is skipped
   (not attempted-and-failed) and `search` reports
   `degraded: ["dense_unavailable", "lexical_only"]` so the state stays
@@ -36,6 +36,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   keyed on `dense_unavailable` alone should also check for `lexical_only` in
   the same `degraded` array to distinguish "opted into lexical-only" from an
   actual regression.
+- `add`'s `degraded` is now a reason array (`["embed_unavailable"]` and/or
+  `["embed_unavailable", "lexical_only"]`), matching `search`'s shape —
+  previously a bare boolean, which made it impossible to write one
+  "is this response degraded" check across both verbs (CL-6287). **Breaking
+  if a host coded against the boolean:** `degraded: true` is now
+  `degraded: [...]`; check array presence/length instead of truthiness (both
+  are still falsy/omitted when the document captured cleanly).
+- `Memory.capabilities.embeddingsConfigured` (and the underlying
+  `DocumentStore.capabilities`) let a host learn recall is lexical-only at
+  construction time, without issuing a search first (CL-6287).
 - Feed `nextCursor` advances past the examined raw page after grant-tag
   post-filter (a fully denied page no longer stalls the consumer forever).
 - Distiller default system prompt uses the configured `agentId` for
