@@ -40,6 +40,7 @@ function stubPlane(opts?: {
   }> = [];
   const catalog = opts?.timelineCatalog ?? [];
   const plane: Memory = {
+    capabilities: { embeddingsConfigured: true },
     search: async (p) => {
       searched.push({ kinds: p.kinds, entityIds: p.entityIds, limit: p.limit });
       return { items: [], evidence: "none" };
