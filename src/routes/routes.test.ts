@@ -28,9 +28,12 @@ const TENANT = "t1";
 const SECRET_TITLE = "Q3 layoffs — draft list";
 const PUBLIC_TITLE = "team standup notes";
 
+// "run-principal" mirrors RUN_PRINCIPAL in the callerResolver describe
+// blocks below — a document/version created by a resolved machine caller.
 const RETENTION_DOCS: Record<string, { ownerId: string }> = {
   "doc-mine": { ownerId: PRINCIPAL },
   "doc-alice": { ownerId: "alice" },
+  "doc-run-owned": { ownerId: "run-principal" },
 };
 
 const RETENTION_VERSIONS: Record<
@@ -39,6 +42,7 @@ const RETENTION_VERSIONS: Record<
 > = {
   "ver-mine": { ownerId: PRINCIPAL, documentId: "doc-mine" },
   "ver-alice": { ownerId: "alice", documentId: "doc-alice" },
+  "ver-run-owned": { ownerId: "run-principal", documentId: "doc-run-owned" },
 };
 
 function stubPlane(opts?: {
@@ -188,6 +192,9 @@ function stubMachinePlane(opts?: {
   const searched: { tenantId: string; principalId: string; query: string }[] =
     [];
   const fed: { tenantId: string; principalId: string }[] = [];
+  const tombstoned: string[] = [];
+  const purged: string[] = [];
+  const retentionClassChanges: Array<{ versionId: string; retentionClass: string }> = [];
   const catalog = opts?.timelineCatalog ?? [];
   const plane: Memory = {
     capabilities: { embeddingsConfigured: true },
@@ -220,9 +227,41 @@ function stubMachinePlane(opts?: {
       fed.push({ tenantId: p.tenantId, principalId: p.principalId });
       return { entries: [], nextCursor: null };
     },
+    // Same creator-check semantics as stubPlane, for a resolved machine
+    // caller retiring the memory it created itself (CL-6288 review).
+    tombstoneDocument: async ({ documentId, principalId }) => {
+      const doc = RETENTION_DOCS[documentId];
+      if (!doc) throw new MemoryError(404, "document not found");
+      if (doc.ownerId !== principalId) {
+        throw new MemoryError(403, "only the document's creator may forget it");
+      }
+      tombstoned.push(documentId);
+      return { versions: 1 };
+    },
+    hardDeleteDocument: async ({ documentId, principalId }) => {
+      const doc = RETENTION_DOCS[documentId];
+      if (!doc) throw new MemoryError(404, "document not found");
+      if (doc.ownerId !== principalId) {
+        throw new MemoryError(403, "only the document's creator may purge it");
+      }
+      purged.push(documentId);
+      return { deleted: true };
+    },
+    setRetentionClass: async ({ versionId, principalId, retentionClass }) => {
+      const version = RETENTION_VERSIONS[versionId];
+      if (!version) throw new MemoryError(404, "version not found");
+      if (version.ownerId !== principalId) {
+        throw new MemoryError(
+          403,
+          "only the version's creator may change its retention class",
+        );
+      }
+      retentionClassChanges.push({ versionId, retentionClass });
+      return { versionId, documentId: version.documentId, status: "active" };
+    },
     close: async () => {},
   };
-  return { plane, added, searched, fed };
+  return { plane, added, searched, fed, tombstoned, purged, retentionClassChanges };
 }
 
 function buildAppWithCallerResolver(
@@ -234,7 +273,8 @@ function buildAppWithCallerResolver(
     >;
   },
 ) {
-  const { plane, added, searched, fed } = stubMachinePlane(opts);
+  const { plane, added, searched, fed, tombstoned, purged, retentionClassChanges } =
+    stubMachinePlane(opts);
   const grantConfig = {
     grantStore: createInMemoryGrantStore(grants),
     conditionRegistry: {},
@@ -249,7 +289,7 @@ function buildAppWithCallerResolver(
   // browser session; `callerResolver` is the only source of identity here.
   const app = new Hono<TenantEnv>();
   registerMemoryRoutes(app, deps);
-  return { app, added, searched, fed };
+  return { app, added, searched, fed, tombstoned, purged, retentionClassChanges };
 }
 
 function buildAppWithoutPrincipal() {
@@ -825,6 +865,66 @@ describe("memory HTTP routes — machine caller (callerResolver)", () => {
     const res = await app.request("/api/tenants/t1/memory/feed");
     expect(res.status).toBe(403);
     expect(fed).toHaveLength(0);
+  });
+
+  // The most likely real-world caller of forget/purge: a workflow-run child
+  // (resolved via callerResolver, CL-6286) retiring memory it wrote itself.
+  // If the resolver's principalId ever drifted from created_by_principal_id
+  // (different derivation, casing, run-address vs principal-address), this
+  // is exactly what would start 403ing in production instead of a test.
+
+  test("forget tombstones a document the resolved run's own principal created", async () => {
+    const { app, tombstoned } = buildAppWithCallerResolver(
+      [grant(RUN_PRINCIPAL, "forget")],
+      () => ({ tenantId: RUN_TENANT, principalId: RUN_PRINCIPAL }),
+    );
+    const res = await app.request(
+      "/api/tenants/t1/memory/documents/doc-run-owned/forget",
+      jsonPost({}),
+    );
+    expect(res.status).toBe(200);
+    expect(tombstoned).toEqual(["doc-run-owned"]);
+  });
+
+  test("purge hard-deletes a document the resolved run's own principal created", async () => {
+    const { app, purged } = buildAppWithCallerResolver(
+      [grant(RUN_PRINCIPAL, "purge")],
+      () => ({ tenantId: RUN_TENANT, principalId: RUN_PRINCIPAL }),
+    );
+    const res = await app.request(
+      "/api/tenants/t1/memory/documents/doc-run-owned/purge",
+      jsonPost({}),
+    );
+    expect(res.status).toBe(200);
+    expect(purged).toEqual(["doc-run-owned"]);
+  });
+
+  test("retention-class updates a version the resolved run's own principal created", async () => {
+    const { app, retentionClassChanges } = buildAppWithCallerResolver(
+      [grant(RUN_PRINCIPAL, "forget")],
+      () => ({ tenantId: RUN_TENANT, principalId: RUN_PRINCIPAL }),
+    );
+    const res = await app.request(
+      "/api/tenants/t1/memory/versions/ver-run-owned/retention-class",
+      jsonPost({ retention_class: "durable" }),
+    );
+    expect(res.status).toBe(200);
+    expect(retentionClassChanges).toEqual([
+      { versionId: "ver-run-owned", retentionClass: "durable" },
+    ]);
+  });
+
+  test("forget is still refused for a resolved run caller that is not the creator, even with the grant", async () => {
+    const { app, tombstoned } = buildAppWithCallerResolver(
+      [grant(RUN_PRINCIPAL, "forget")],
+      () => ({ tenantId: RUN_TENANT, principalId: RUN_PRINCIPAL }),
+    );
+    const res = await app.request(
+      "/api/tenants/t1/memory/documents/doc-alice/forget",
+      jsonPost({}),
+    );
+    expect(res.status).toBe(403);
+    expect(tombstoned).toHaveLength(0);
   });
 });
 
