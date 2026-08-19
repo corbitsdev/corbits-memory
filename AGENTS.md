@@ -43,6 +43,20 @@ CI runs `typecheck` + `test` — both must pass before any push.
    here. Either way authorization goes through the host's grant store
    (`@intx/authz`) via the same `requireGrant` path. Never add API keys,
    sessions, or OAuth here.
+
+   `ResolvedCaller` (the `callerResolver` return type) is frozen at exactly
+   `{ tenantId, principalId }`. It carries no roles, no grants, no
+   authorization hints of any kind — it is a shape conversion (host identity
+   in, context principal/tenant out), never an authorization decision. A
+   resolved caller traverses the identical `requireGrant`/`grantGuard` path a
+   browser caller does and can never bypass it. Before widening this type —
+   "let it carry roles too," "let a trusted caller skip `grantGuard`" — stop:
+   either change turns the conversion shim into the library making an
+   authorization decision, which IS the invariant this rule exists to name.
+   If a host needs richer machine-caller authorization, that logic belongs in
+   the host's own grant store / `callerResolver` closure, resolved down to
+   `{ tenantId, principalId }` before it ever reaches this package — not in a
+   wider `ResolvedCaller`.
 2. **One Postgres**: `DATABASE_URL`, the engine's own vector plane, under the
    `memory` schema — never the host's control-plane DB. No foreign keys into
    control-plane tables; cross-refs (`tenant_id`, `principal_id`) are plain
