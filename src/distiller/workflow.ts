@@ -23,7 +23,7 @@ import { defineWorkflow, type WorkflowDefinition } from "@intx/workflow";
 import { memoryAdd } from "../tools/add.ts";
 import { memoryFeed } from "../tools/feed.ts";
 import { memorySearch } from "../tools/search.ts";
-import { MEMORY_CAPABILITY_IDS } from "../grant-requirements.ts";
+import { capabilityIdsForSurface } from "../grant-requirements.ts";
 import {
   RESIDENT_DISTILLER_AGENT_ID,
   RESIDENT_DISTILLER_CRON_DEFAULT,
@@ -97,7 +97,7 @@ export function createResidentDistiller(
       "Resident memory distiller — feed → classify → claim write",
     systemPrompt: opts.systemPrompt ?? DEFAULT_SYSTEM_PROMPT(generatorAgentId),
     tools,
-    capabilities: [...MEMORY_CAPABILITY_IDS],
+    capabilities: capabilityIdsForSurface("distiller"),
 
     inference: opts.inference,
     tags: {

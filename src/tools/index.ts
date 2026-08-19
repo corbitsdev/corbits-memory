@@ -20,6 +20,7 @@ export {
 
 /** Re-export installer grant requirements (same as package root). */
 export {
+  capabilityIdsForSurface,
   MEMORY_CAPABILITY_IDS,
   MEMORY_GRANT_REQUIREMENTS,
   type MemoryGrantRequirement,

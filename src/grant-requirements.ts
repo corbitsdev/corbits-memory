@@ -41,9 +41,43 @@ export const MEMORY_GRANT_REQUIREMENTS = [
     source: "tenant",
     surfaces: ["tools", "distiller", "routes"],
   },
+  /**
+   * Retention writes (CL-6288). `source: "creator"` (unlike `add`/`search`'s
+   * `"tenant"`) flags that this capability pairs with the document-ownership
+   * check the routes also enforce — granting it authorizes *calling*
+   * forget/purge, never *whose* documents it reaches. Tombstone and
+   * retention-class changes share `forget`; hard delete gets its own `purge`
+   * so a host can hand out "let this user forget their own notes" without
+   * also handing out irreversible deletion.
+   */
+  {
+    resource: "memory",
+    action: "forget",
+    source: "creator",
+    surfaces: ["routes"],
+  },
+  {
+    resource: "memory",
+    action: "purge",
+    source: "creator",
+    surfaces: ["routes"],
+  },
 ] as const satisfies readonly MemoryGrantRequirement[];
 
 /** Compact `resource:action` form used on agent `capabilities` arrays. */
 export const MEMORY_CAPABILITY_IDS = MEMORY_GRANT_REQUIREMENTS.map(
   (r) => `${r.resource}:${r.action}` as const,
 );
+
+/**
+ * Capability ids scoped to one install surface — a distiller/tools install
+ * must not inherit a routes-only capability (like `forget`/`purge`) just
+ * because it appears somewhere in the full requirement list.
+ */
+export function capabilityIdsForSurface(
+  surface: MemoryGrantSurface,
+): string[] {
+  return MEMORY_GRANT_REQUIREMENTS.filter((r) =>
+    (r.surfaces as readonly MemoryGrantSurface[]).includes(surface),
+  ).map((r) => `${r.resource}:${r.action}`);
+}
