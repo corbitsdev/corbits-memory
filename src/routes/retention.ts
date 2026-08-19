@@ -63,7 +63,7 @@ export function mountForgetRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
 
     describeRoute({
       tags: ["memory"],
-      summary: "Tombstone a document (reversible in principle: row stays for audit, chunk text redacted)",
+      summary: "Tombstone a document — stops appearing in search, chunk text is redacted (not archived), version rows stay for audit",
       responses: {
         200: {
           description: "Tombstoned",
