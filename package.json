@@ -1,6 +1,6 @@
 {
   "name": "@corbits/memory",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Mountable memory add/search/list SDK for Interchange hubs — includes resident distiller",
   "exports": {
     ".": "./src/index.ts",

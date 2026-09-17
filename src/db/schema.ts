@@ -5,6 +5,7 @@ import {
   integer,
   jsonb,
   pgSchema,
+  pgTable,
   real,
   text,
   timestamp,
@@ -16,6 +17,21 @@ import {
 export const MEMORY_SCHEMA = "memory";
 
 export const memorySchema = pgSchema(MEMORY_SCHEMA);
+
+// Interchange's control-plane tables, declared just far enough to carry the
+// foreign keys — the id column only, in the host's `public` schema. NOT
+// exported: these are FK targets, not tables this package owns or reads.
+const hostTenant = pgTable("tenant", { id: text("id").primaryKey() });
+const hostPrincipal = pgTable("principal", { id: text("id").primaryKey() });
+
+/** Deleting a tenant takes its memory with it. */
+const tenantRef = (column: string) =>
+  text(column)
+    .notNull()
+    .references(() => hostTenant.id, { onDelete: "cascade" });
+/** A removed principal must not vaporize the memory it created. */
+const principalRef = (column: string) =>
+  text(column).references(() => hostPrincipal.id, { onDelete: "cascade" });
 
 // No built-in `bytea` helper in drizzle-orm/pg-core; raw_capture.raw_bytes
 // holds non-textual raw payloads (binary source formats) as a Buffer.
@@ -29,7 +45,7 @@ export const memoryDocument = memorySchema.table(
   "document",
   {
     id: text("id").primaryKey(),
-    tenantId: text("tenant_id").notNull(),
+    tenantId: tenantRef("tenant_id"),
     kind: text("kind").notNull(),
     title: text("title").notNull(),
     adapter: text("adapter").notNull(),
@@ -54,7 +70,7 @@ export const memoryVersion = memorySchema.table(
   "version",
   {
     id: text("id").primaryKey(),
-    tenantId: text("tenant_id").notNull(),
+    tenantId: tenantRef("tenant_id"),
     documentId: text("document_id")
       .notNull()
       .references(() => memoryDocument.id, { onDelete: "cascade" }),
@@ -66,7 +82,7 @@ export const memoryVersion = memorySchema.table(
     ingestedAt: timestamp("ingested_at").notNull().defaultNow(),
     deprecatedAt: timestamp("deprecated_at"),
     deprecatedReason: text("deprecated_reason"),
-    createdByPrincipalId: text("created_by_principal_id"),
+    createdByPrincipalId: principalRef("created_by_principal_id"),
     createdByKind: text("created_by_kind").notNull(),
     generatorAgentId: text("generator_agent_id"),
     authority: real("authority").notNull().default(0),
@@ -106,7 +122,7 @@ export const memoryChunk = memorySchema.table(
   "chunk",
   {
     id: text("id").primaryKey(),
-    tenantId: text("tenant_id").notNull(),
+    tenantId: tenantRef("tenant_id"),
     versionId: text("version_id")
       .notNull()
       .references(() => memoryVersion.id, { onDelete: "cascade" }),
@@ -127,7 +143,7 @@ export const memoryEntity = memorySchema.table(
   "entity",
   {
     id: text("id").primaryKey(),
-    tenantId: text("tenant_id").notNull(),
+    tenantId: tenantRef("tenant_id"),
     kind: text("kind").notNull(),
     identifiers: jsonb("identifiers").notNull().default({}),
     createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -140,7 +156,7 @@ export const memoryEdge = memorySchema.table(
   "edge",
   {
     id: text("id").primaryKey(),
-    tenantId: text("tenant_id").notNull(),
+    tenantId: tenantRef("tenant_id"),
     rel: text("rel").notNull(),
     fromType: text("from_type").notNull(),
     fromRef: text("from_ref").notNull(),
@@ -163,7 +179,7 @@ export const rawCapture = memorySchema.table(
   "raw_capture",
   {
     id: text("id").primaryKey(),
-    tenantId: text("tenant_id").notNull(),
+    tenantId: tenantRef("tenant_id"),
     adapter: text("adapter").notNull(),
     externalRef: text("external_ref").notNull(),
     fetchedAt: timestamp("fetched_at").notNull().defaultNow(),
@@ -206,7 +222,7 @@ export const transformConfig = memorySchema.table(
   "transform_config",
   {
     id: text("id").primaryKey(),
-    tenantId: text("tenant_id").notNull(),
+    tenantId: tenantRef("tenant_id"),
     name: text("name").notNull(),
     version: integer("version").notNull(),
     params: jsonb("params").notNull().default({}),
@@ -229,7 +245,7 @@ export const transformRun = memorySchema.table(
   "transform_run",
   {
     id: text("id").primaryKey(),
-    tenantId: text("tenant_id").notNull(),
+    tenantId: tenantRef("tenant_id"),
     configId: text("config_id")
       .notNull()
       .references(() => transformConfig.id),
