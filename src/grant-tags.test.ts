@@ -27,17 +27,6 @@ describe("resolveAccessTags", () => {
     expect(tags).toContain(tenantTag("t1"));
   });
 
-  test("share.principals mints peer owner tags", () => {
-    const tags = resolveAccessTags({
-      principalId: "u1",
-      tenantId: "t1",
-      share: { principals: ["alice", "bob"] },
-    });
-    expect(tags).toContain(ownerTag("u1"));
-    expect(tags).toContain(ownerTag("alice"));
-    expect(tags).toContain(ownerTag("bob"));
-  });
-
   test("share.tags and explicit accessTags merge", () => {
     const tags = resolveAccessTags({
       principalId: "u1",

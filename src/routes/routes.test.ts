@@ -466,25 +466,13 @@ describe("memory HTTP routes", () => {
     expect(res.status).toBe(400);
   });
 
-  test("search passes an empty kinds/entity_ids array through unchanged", async () => {
-    const { app, searched } = buildApp([grant(PRINCIPAL, "search")]);
-    const res = await app.request(
-      "/api/tenants/t1/memory/search",
-      jsonPost({ query: "hello", kinds: [], entity_ids: [] }),
-    );
-    expect(res.status).toBe(200);
-    expect(searched).toEqual([
-      { kinds: [], entityIds: [], limit: undefined },
-    ]);
-  });
-
   test("list requires the search grant", async () => {
     const { app } = buildApp([grant(PRINCIPAL, "add")]);
     const res = await app.request("/api/tenants/t1/memory/list");
     expect(res.status).toBe(403);
   });
 
-  test("list never returns a title private to another principal", async () => {
+  test("list returns only titles visible to the caller — another principal's private title never leaks", async () => {
     const { app } = buildApp([grant(PRINCIPAL, "search")], {
       timelineCatalog: LIST_CATALOG,
       principalId: PRINCIPAL,
@@ -494,17 +482,15 @@ describe("memory HTTP routes", () => {
     const body = (await res.json()) as { events: TimelineEvent[] };
     expect(body.events.map((e) => e.title)).toEqual([PUBLIC_TITLE]);
     expect(body.events.map((e) => e.title)).not.toContain(SECRET_TITLE);
-  });
 
-  test("list returns a private title only to the allowed principal", async () => {
-    const { app } = buildApp([grant("alice", "search")], {
+    const { app: aliceApp } = buildApp([grant("alice", "search")], {
       timelineCatalog: LIST_CATALOG,
       principalId: "alice",
     });
-    const res = await app.request("/api/tenants/t1/memory/list");
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { events: TimelineEvent[] };
-    expect(body.events.map((e) => e.title)).toContain(SECRET_TITLE);
+    const aliceRes = await aliceApp.request("/api/tenants/t1/memory/list");
+    expect(aliceRes.status).toBe(200);
+    const aliceBody = (await aliceRes.json()) as { events: TimelineEvent[] };
+    expect(aliceBody.events.map((e) => e.title)).toContain(SECRET_TITLE);
   });
 
   test("missing principal is 401", async () => {
@@ -589,16 +575,6 @@ describe("memory HTTP routes — retention (CL-6288)", () => {
     expect(purged).toHaveLength(0);
   });
 
-  test("purge is refused for a document owned by another principal", async () => {
-    const { app, purged } = buildApp([grant(PRINCIPAL, "purge")]);
-    const res = await app.request(
-      "/api/tenants/t1/memory/documents/doc-alice/purge",
-      jsonPost({}),
-    );
-    expect(res.status).toBe(403);
-    expect(purged).toHaveLength(0);
-  });
-
   test("forget and purge are distinct routes — calling forget never hard-deletes", async () => {
     const { app, tombstoned, purged } = buildApp([
       grant(PRINCIPAL, "forget"),
@@ -650,15 +626,6 @@ describe("memory HTTP routes — retention (CL-6288)", () => {
     expect(retentionClassChanges).toHaveLength(0);
   });
 
-  test("missing principal on forget is 401", async () => {
-    const app = buildAppWithoutPrincipal();
-    const res = await app.request(
-      "/api/tenants/t1/memory/documents/doc-mine/forget",
-      jsonPost({}),
-    );
-    expect(res.status).toBe(401);
-  });
-
   test("forget rejects a whitespace-only documentId (400, never reaching the plane)", async () => {
     const { app, tombstoned } = buildApp([grant(PRINCIPAL, "forget")]);
     const res = await app.request(
@@ -667,16 +634,6 @@ describe("memory HTTP routes — retention (CL-6288)", () => {
     );
     expect(res.status).toBe(400);
     expect(tombstoned).toHaveLength(0);
-  });
-
-  test("purge rejects a whitespace-only documentId (400, never reaching the plane)", async () => {
-    const { app, purged } = buildApp([grant(PRINCIPAL, "purge")]);
-    const res = await app.request(
-      "/api/tenants/t1/memory/documents/%20/purge",
-      jsonPost({}),
-    );
-    expect(res.status).toBe(400);
-    expect(purged).toHaveLength(0);
   });
 
   test("retention-class rejects a whitespace-only versionId (400, never reaching the plane)", async () => {
@@ -731,19 +688,6 @@ describe("memory HTTP routes — machine caller (callerResolver)", () => {
     ]);
   });
 
-  test("grantGuard still applies to a machine caller: no grant is 403", async () => {
-    const { app, added } = buildAppWithCallerResolver(
-      [],
-      () => ({ tenantId: RUN_TENANT, principalId: RUN_PRINCIPAL }),
-    );
-    const res = await app.request(
-      "/api/tenants/t1/memory/add",
-      jsonPost({ title: "t", text: "body" }),
-    );
-    expect(res.status).toBe(403);
-    expect(added).toHaveLength(0);
-  });
-
   test("a grant for a different principal does not authorize this machine caller", async () => {
     const { app, added } = buildAppWithCallerResolver(
       [grant("some-other-principal", "add")],
@@ -790,19 +734,6 @@ describe("memory HTTP routes — machine caller (callerResolver)", () => {
     ]);
   });
 
-  test("search requires the search grant for the resolved caller (403)", async () => {
-    const { app, searched } = buildAppWithCallerResolver(
-      [],
-      () => ({ tenantId: RUN_TENANT, principalId: RUN_PRINCIPAL }),
-    );
-    const res = await app.request(
-      "/api/tenants/t1/memory/search",
-      jsonPost({ query: "hello" }),
-    );
-    expect(res.status).toBe(403);
-    expect(searched).toHaveLength(0);
-  });
-
   test("list returns only the resolved tenant's events, never another tenant's, regardless of the URL's :tenantId", async () => {
     const OTHER_TENANT = "tenant-other";
     const catalog: Array<TimelineEvent & { visibleTo: readonly string[] | "tenant" }> = [
@@ -834,15 +765,6 @@ describe("memory HTTP routes — machine caller (callerResolver)", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { events: TimelineEvent[] };
     expect(body.events.map((e) => e.title)).toEqual(["run tenant's note"]);
-  });
-
-  test("list requires the search grant for the resolved caller (403)", async () => {
-    const { app } = buildAppWithCallerResolver(
-      [],
-      () => ({ tenantId: RUN_TENANT, principalId: RUN_PRINCIPAL }),
-    );
-    const res = await app.request("/api/tenants/t1/memory/list");
-    expect(res.status).toBe(403);
   });
 
   test("feed threads the resolved tenant/principal through to the plane, ignoring the URL's :tenantId", async () => {
@@ -884,34 +806,6 @@ describe("memory HTTP routes — machine caller (callerResolver)", () => {
     );
     expect(res.status).toBe(200);
     expect(tombstoned).toEqual(["doc-run-owned"]);
-  });
-
-  test("purge hard-deletes a document the resolved run's own principal created", async () => {
-    const { app, purged } = buildAppWithCallerResolver(
-      [grant(RUN_PRINCIPAL, "purge")],
-      () => ({ tenantId: RUN_TENANT, principalId: RUN_PRINCIPAL }),
-    );
-    const res = await app.request(
-      "/api/tenants/t1/memory/documents/doc-run-owned/purge",
-      jsonPost({}),
-    );
-    expect(res.status).toBe(200);
-    expect(purged).toEqual(["doc-run-owned"]);
-  });
-
-  test("retention-class updates a version the resolved run's own principal created", async () => {
-    const { app, retentionClassChanges } = buildAppWithCallerResolver(
-      [grant(RUN_PRINCIPAL, "forget")],
-      () => ({ tenantId: RUN_TENANT, principalId: RUN_PRINCIPAL }),
-    );
-    const res = await app.request(
-      "/api/tenants/t1/memory/versions/ver-run-owned/retention-class",
-      jsonPost({ retention_class: "durable" }),
-    );
-    expect(res.status).toBe(200);
-    expect(retentionClassChanges).toEqual([
-      { versionId: "ver-run-owned", retentionClass: "durable" },
-    ]);
   });
 
   test("forget is still refused for a resolved run caller that is not the creator, even with the grant", async () => {

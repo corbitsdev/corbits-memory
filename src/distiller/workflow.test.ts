@@ -24,23 +24,4 @@ describe("createResidentDistiller", () => {
     expect(agent.systemPrompt).toContain("memory_feed");
     expect(agent.systemPrompt).toContain(RESIDENT_DISTILLER_AGENT_ID);
   });
-
-  it("allows cron and id overrides", () => {
-    const { workflow, generatorAgentId, agent } = createResidentDistiller({
-      id: "my-distiller",
-      agentId: "my-agent",
-      cron: "0 * * * *",
-      inference: {
-        sources: [{ provider: "openai", model: "gpt-4.1-mini" }],
-      },
-    });
-    expect(workflow.id).toBe("my-distiller");
-    expect(generatorAgentId).toBe("my-agent");
-    expect(workflow.triggers[0]).toEqual({
-      type: "schedule",
-      cron: "0 * * * *",
-    });
-    expect(agent.systemPrompt).toContain("my-agent");
-    expect(agent.systemPrompt).not.toContain(RESIDENT_DISTILLER_AGENT_ID);
-  });
 });

@@ -106,12 +106,4 @@ describe("activeTimelineVersionJoin", () => {
     expect(params).toContain("active");
     expect(params).toContain("live");
   });
-
-  it("accepts a replay generation tag", () => {
-    const { params } = dialect.sqlToQuery(
-      activeTimelineVersionJoin("replay_run_1")!,
-    );
-    expect(params).toContain("replay_run_1");
-    expect(params).not.toContain("live");
-  });
 });

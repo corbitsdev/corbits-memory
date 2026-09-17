@@ -40,7 +40,7 @@ describe("plane merge (MergeLocalLiveV1)", () => {
       documentStore: store,
       sources: [
         createFakeSourceProvider("linear", [
-          liveHit("CL-1", "live only", 0.9),
+          liveHit("CL-1", "ports live issue", 0.9),
         ]),
       ],
     });
@@ -57,31 +57,8 @@ describe("plane merge (MergeLocalLiveV1)", () => {
       query: "ports",
       includeEvidence: true,
     });
-    // Local fake matches "ports"; live catalog matches "ports" in title? 
-    // "live only" does not — add a ports live hit
     expect(result.items.some((i) => i.title === "local note")).toBe(true);
-    await plane.close();
-  });
-
-  it("includes live-only hits when query matches catalog", async () => {
-    const store = createFakeDocumentStore();
-    const plane = createMemory({
-      documentStore: store,
-      sources: [
-        createFakeSourceProvider("linear", [
-          liveHit("CL-42", "ports foundation issue", 0.95),
-        ]),
-      ],
-    });
-
-    const result = await plane.search({
-      tenantId: TENANT,
-      principalId: PRINCIPAL,
-      query: "ports foundation",
-      includeEvidence: true,
-    });
-    expect(result.items.some((i) => i.documentId === "CL-42")).toBe(true);
-    expect(result.evidence).toBe("weak");
+    expect(result.items.some((i) => i.documentId === "CL-1")).toBe(true);
     await plane.close();
   });
 

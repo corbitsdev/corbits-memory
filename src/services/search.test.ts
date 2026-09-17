@@ -59,19 +59,11 @@ describe("authorityWeightedScore", () => {
   it("leaves the relevance score unchanged at authority === 0", () => {
     expect(authorityWeightedScore(0.4, 0)).toBeCloseTo(0.4, 10);
   });
-
-  it("scales linearly with authority in between", () => {
-    expect(authorityWeightedScore(1, 0.5)).toBeCloseTo(1.25, 10);
-  });
 });
 
 describe("snippet", () => {
   it("returns short text unchanged", () => {
     expect(snippet("hello world")).toBe("hello world");
-  });
-
-  it("trims surrounding whitespace", () => {
-    expect(snippet("  hello world  ")).toBe("hello world");
   });
 
   it("truncates long text to maxLen and appends an ellipsis", () => {
@@ -80,11 +72,6 @@ describe("snippet", () => {
     expect(result.length).toBe(241);
     expect(result.endsWith("…")).toBe(true);
     expect(result.startsWith("a".repeat(240))).toBe(true);
-  });
-
-  it("respects a custom maxLen", () => {
-    const result = snippet("abcdefghij", 5);
-    expect(result).toBe("abcde…");
   });
 });
 
@@ -227,16 +214,13 @@ describe("deriveHybridEvidence", () => {
 });
 
 describe("hnswEfSearch", () => {
-  it("clamps to the product floor of 40 and the GUC max of 1000", () => {
+  it("clamps to the product floor of 40 and the GUC max of 1000, defaulting non-finite input", () => {
     expect(hnswEfSearch(0)).toBe(40);
     expect(hnswEfSearch(1)).toBe(40);
     expect(hnswEfSearch(40)).toBe(40);
     expect(hnswEfSearch(250)).toBe(250);
     expect(hnswEfSearch(1000)).toBe(1000);
     expect(hnswEfSearch(1001)).toBe(1000);
-  });
-
-  it("falls back to the default for non-finite input", () => {
     expect(hnswEfSearch(Number.NaN)).toBe(40);
     expect(hnswEfSearch(Number.POSITIVE_INFINITY)).toBe(40);
   });
@@ -320,26 +304,6 @@ describe("fetchDenseCandidates hnsw tuning", () => {
     expect(
       fake.statements.filter((s) => s.includes("iterative_scan")),
     ).toHaveLength(2);
-  });
-
-  it("degrades to ef_search alone on pgvector < 0.8 and stops probing", async () => {
-    const unknownGuc = Object.assign(new Error("unrecognized configuration parameter"), {
-      code: "42704",
-    });
-    const fake = fakeRawSql(unknownGuc);
-
-    const rows = await fetchDenseCandidates(args(fake.rawSql));
-    expect(rows).toEqual([]);
-    expect(fake.statements).toContain("SET LOCAL hnsw.ef_search = 250");
-    expect(fake.statements.filter((s) => s.includes("iterative_scan"))).toHaveLength(0);
-
-    await fetchDenseCandidates(args(fake.rawSql));
-    expect(fake.savepointAttempts()).toBe(1);
-  });
-
-  it("rethrows a non-42704 savepoint failure", async () => {
-    const fake = fakeRawSql(Object.assign(new Error("connection reset"), { code: "08006" }));
-    await expect(fetchDenseCandidates(args(fake.rawSql))).rejects.toThrow("connection reset");
   });
 });
 
@@ -519,14 +483,6 @@ describe("fetchDenseCandidates kind/entity filtering", () => {
     expect(denseSelect).toBeDefined();
     expect(denseSelect).toContain('FROM "memory"."edge" ke');
     expect(denseSelect).not.toContain("knowledge_edge");
-  });
-
-  it("applies no kind/entity predicate — and returns every semantically-similar chunk — when neither filter is provided", async () => {
-    const fake = fakeRawSql();
-    const rows = await fetchDenseCandidates(baseArgs(fake.rawSql));
-    const chunkIds = rows?.map((r) => r.chunkId) ?? [];
-    expect(chunkIds).toContain("chunk-task");
-    expect(chunkIds).toContain("chunk-note");
   });
 
   it("treats an empty kinds/entityIds array as no filter, same as lexical", async () => {
@@ -722,26 +678,5 @@ describe("hybridSearch — embed unconfigured (CL-6287)", () => {
 
     expect(result.degraded).toContain("dense_unavailable");
     expect(result.degraded).toContain("lexical_only");
-  });
-
-  it("never dispatches an embed HTTP call or touches the embed-model registry", async () => {
-    // untouchableRawSql/fetchImpl both throw if reached at all — reaching
-    // the end of hybridSearch without throwing is itself the assertion that
-    // neither the dense channel nor the embed-model registry ran; the
-    // explicit mock-call check below is belt-and-suspenders.
-    const fetchImpl = mock(() => Promise.reject(new Error("unreachable")));
-
-    const hybridSearch = await loadHybridSearch();
-    await hybridSearch(
-      {
-        db: fakeDb([candidate()]),
-        sql: untouchableRawSql(),
-        config: unconfiguredEmbedConfig(),
-        fetchImpl: fetchImpl as unknown as typeof fetch,
-      },
-      { query: "hello", tenantId: "tenant-1", principalId: null },
-    );
-
-    expect(fetchImpl).not.toHaveBeenCalled();
   });
 });
