@@ -210,68 +210,36 @@ describe("resolveCaller", () => {
     expect(sets.principal).toMatchObject({ id: "principal-async" });
   });
 
-  test("rejects an empty-string tenantId/principalId with 500, never seating it", async () => {
-    const { ctx, sets, jsonCalls } = fakeContext();
-    const routeDeps: RouteDeps = {
-      ...deps(grantsWith()),
-      callerResolver: () => ({ tenantId: "", principalId: "" }),
-    };
-    let nextCalled = false;
-    await resolveCaller(routeDeps)(ctx, async () => {
-      nextCalled = true;
-    });
-    expect(nextCalled).toBe(false);
-    expect(jsonCalls).toHaveLength(1);
-    expect(jsonCalls[0]?.status).toBe(500);
-    expect(jsonCalls[0]?.body).toMatchObject({
-      error: { code: "invalid_resolved_caller" },
-    });
-    expect(sets.principal).toBeUndefined();
-    expect(sets.tenant).toBeUndefined();
-  });
-
-  test("rejects a whitespace-only tenantId/principalId with 500, never seating it", async () => {
+  test.each([
+    ["empty-string", { tenantId: "", principalId: "" }],
     // "string >= 1" is a LENGTH constraint -- " " has length 1 and would
     // pass it. This is the same class of bug PR #34 fixed in optionalEnv
-    // (v.length > 0 accepted "   "); this test is the regression guard for
-    // it at this boundary.
-    const { ctx, sets, jsonCalls } = fakeContext();
-    const routeDeps: RouteDeps = {
-      ...deps(grantsWith()),
-      callerResolver: () => ({ tenantId: " ", principalId: "\t\n" }),
-    };
-    let nextCalled = false;
-    await resolveCaller(routeDeps)(ctx, async () => {
-      nextCalled = true;
-    });
-    expect(nextCalled).toBe(false);
-    expect(jsonCalls).toHaveLength(1);
-    expect(jsonCalls[0]?.status).toBe(500);
-    expect(jsonCalls[0]?.body).toMatchObject({
-      error: { code: "invalid_resolved_caller" },
-    });
-    expect(sets.principal).toBeUndefined();
-    expect(sets.tenant).toBeUndefined();
-  });
-
-  test("rejects a resolved value missing principalId with 500", async () => {
-    const { ctx, jsonCalls } = fakeContext();
-    const routeDeps: RouteDeps = {
-      ...deps(grantsWith()),
-      // Cast past the type system the way a buggy host's JS resolver would.
-      callerResolver: () => ({ tenantId: "tenant-run" }) as unknown as ResolvedCaller,
-    };
-    await resolveCaller(routeDeps)(ctx, async () => {});
-    expect(jsonCalls[0]?.status).toBe(500);
-  });
-
-  test("rejects a non-object resolved value with 500", async () => {
-    const { ctx, jsonCalls } = fakeContext();
-    const routeDeps: RouteDeps = {
-      ...deps(grantsWith()),
-      callerResolver: () => "tenant-run" as unknown as ResolvedCaller,
-    };
-    await resolveCaller(routeDeps)(ctx, async () => {});
-    expect(jsonCalls[0]?.status).toBe(500);
-  });
+    // (v.length > 0 accepted "   "); the whitespace row is the regression
+    // guard for it at this boundary.
+    ["whitespace-only", { tenantId: " ", principalId: "\t\n" }],
+    // Cast past the type system the way a buggy host's JS resolver would.
+    ["missing-principalId", { tenantId: "tenant-run" } as unknown as ResolvedCaller],
+    ["non-object", "tenant-run" as unknown as ResolvedCaller],
+  ] as const)(
+    "rejects a %s resolved caller with 500, never seating it",
+    async (_label, resolved) => {
+      const { ctx, sets, jsonCalls } = fakeContext();
+      const routeDeps: RouteDeps = {
+        ...deps(grantsWith()),
+        callerResolver: () => resolved as ResolvedCaller,
+      };
+      let nextCalled = false;
+      await resolveCaller(routeDeps)(ctx, async () => {
+        nextCalled = true;
+      });
+      expect(nextCalled).toBe(false);
+      expect(jsonCalls).toHaveLength(1);
+      expect(jsonCalls[0]?.status).toBe(500);
+      expect(jsonCalls[0]?.body).toMatchObject({
+        error: { code: "invalid_resolved_caller" },
+      });
+      expect(sets.principal).toBeUndefined();
+      expect(sets.tenant).toBeUndefined();
+    },
+  );
 });

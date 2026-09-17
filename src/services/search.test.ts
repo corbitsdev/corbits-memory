@@ -5,28 +5,14 @@ import {
   deriveHybridEvidence,
   fetchDenseCandidates,
   hnswEfSearch,
+  hybridSearch,
   snippet,
   toHit,
   type CandidateRow,
-  type hybridSearch as HybridSearchFn,
 } from "./search.ts";
 import { memoryChunk, memoryEdge } from "../db/schema.ts";
 import type { Db, RawSql } from "../db/client.ts";
 import type { EngineConfig } from "../config.ts";
-
-// memory.test.ts uses `mock.module("./services/search.ts", ...)` around its
-// own describe blocks; Bun's module registry is process-global, so a static
-// `import { hybridSearch } from "./search.ts"` here can end up bound to that
-// mock's fixture data when the whole suite runs (memory.test.ts's mock
-// leaked across files empirically — reproduced with just these two files).
-// A cache-busted dynamic import, the same trick memory.test.ts itself uses
-// for `./memory.ts` (`?wiring-blocked=${Date.now()}`) to dodge its own
-// mocking, sidesteps this: a fresh module specifier is never the one any
-// mock.module call replaced.
-async function loadHybridSearch(): Promise<typeof HybridSearchFn> {
-  const mod = await import(`./search.ts?cl-6287-real=${Date.now()}`);
-  return mod.hybridSearch;
-}
 
 function candidate(overrides: Partial<CandidateRow> = {}): CandidateRow {
   return {
@@ -52,39 +38,29 @@ function candidate(overrides: Partial<CandidateRow> = {}): CandidateRow {
 }
 
 describe("authorityWeightedScore", () => {
-  it("boosts a relevance score by up to 50% at authority === 1", () => {
-    expect(authorityWeightedScore(1, 1)).toBeCloseTo(1.5, 10);
-  });
-
-  it("leaves the relevance score unchanged at authority === 0", () => {
-    expect(authorityWeightedScore(0.4, 0)).toBeCloseTo(0.4, 10);
-  });
-
-  it("scales linearly with authority in between", () => {
-    expect(authorityWeightedScore(1, 0.5)).toBeCloseTo(1.25, 10);
+  it("scales relevance linearly, from unchanged at 0 to +50% at 1", () => {
+    const cases: Array<[relevance: number, authority: number, expected: number]> = [
+      [1, 1, 1.5],
+      [0.4, 0, 0.4],
+      [1, 0.5, 1.25],
+    ];
+    for (const [relevance, authority, expected] of cases) {
+      expect(authorityWeightedScore(relevance, authority)).toBeCloseTo(expected, 10);
+    }
   });
 });
 
 describe("snippet", () => {
-  it("returns short text unchanged", () => {
-    expect(snippet("hello world")).toBe("hello world");
-  });
-
-  it("trims surrounding whitespace", () => {
-    expect(snippet("  hello world  ")).toBe("hello world");
-  });
-
-  it("truncates long text to maxLen and appends an ellipsis", () => {
-    const long = "a".repeat(300);
-    const result = snippet(long);
-    expect(result.length).toBe(241);
-    expect(result.endsWith("…")).toBe(true);
-    expect(result.startsWith("a".repeat(240))).toBe(true);
-  });
-
-  it("respects a custom maxLen", () => {
-    const result = snippet("abcdefghij", 5);
-    expect(result).toBe("abcde…");
+  it("trims, truncates with an ellipsis, and honors maxLen", () => {
+    const cases: Array<[input: string, maxLen: number | undefined, expected: string]> = [
+      ["hello world", undefined, "hello world"],
+      ["  hello world  ", undefined, "hello world"],
+      ["a".repeat(300), undefined, `${"a".repeat(240)}…`],
+      ["abcdefghij", 5, "abcde…"],
+    ];
+    for (const [input, maxLen, expected] of cases) {
+      expect(snippet(input, maxLen)).toBe(expected);
+    }
   });
 });
 
@@ -142,103 +118,97 @@ describe("dedupeCandidatesPerDocument", () => {
 });
 
 describe("deriveHybridEvidence", () => {
-  it("reports 'none' on zero hits regardless of a reranked top hit", () => {
-    expect(
-      deriveHybridEvidence([], 0, { rerankScore: 0.9, authority: 0.9 }),
-    ).toBe("none");
-  });
-
-  it("reports 'weak' via the lexical path when there is no reranked top hit and lexical ts_rank is low", () => {
-    const lexicalRows = [candidate({ rank: 0.01, authority: 0.9 })];
-    expect(deriveHybridEvidence(lexicalRows, 1)).toBe("weak");
-  });
-
   // Living relevancy (CL-5867): strong also needs the corroboration gate —
   // stated human OR supports ≥ floor. High authority alone is not enough.
-  it("reports 'strong' when reranked + high rerank score + high authority + supports, even though lexical ts_rank is low", () => {
-    const lowLexicalRows = [candidate({ rank: 0.001, authority: 0.9 })];
-    const evidence = deriveHybridEvidence(lowLexicalRows, 1, {
-      rerankScore: 0.85,
-      authority: 0.9,
-      supports: 2,
-    });
-    expect(evidence).toBe("strong");
-  });
-
-  it("reports 'strong' even with NO lexical rows at all, given a confident reranked top hit with supports", () => {
-    const evidence = deriveHybridEvidence([], 1, {
-      rerankScore: 0.85,
-      authority: 0.9,
-      supports: 2,
-    });
-    expect(evidence).toBe("strong");
-  });
-
-  it("reports 'weak' when the reranked top hit's rerank score is below the strong floor", () => {
-    const evidence = deriveHybridEvidence([], 1, {
-      rerankScore: 0.2,
-      authority: 0.9,
-      supports: 5,
-    });
-    expect(evidence).toBe("weak");
-  });
-
-  it("reports 'weak' when the reranked top hit clears the rerank floor but authority is low", () => {
-    const evidence = deriveHybridEvidence([], 1, {
-      rerankScore: 0.9,
-      authority: 0.1,
-      supports: 5,
-    });
-    expect(evidence).toBe("weak");
-  });
-
-  it("reports 'weak' when high score/authority but no corroboration gate (no supports, not stated human)", () => {
-    const evidence = deriveHybridEvidence([], 1, {
-      rerankScore: 0.9,
-      authority: 0.9,
-      supports: 0,
-      provenance: "inferred",
-      createdByKind: "agent",
-    });
-    expect(evidence).toBe("weak");
-  });
-
-  it("reports 'strong' for stated human without supports when score floors clear", () => {
-    const evidence = deriveHybridEvidence([], 1, {
-      rerankScore: 0.85,
-      authority: 0.9,
-      supports: 0,
-      provenance: "stated",
-      createdByKind: "human",
-    });
-    expect(evidence).toBe("strong");
-  });
-
-  it("falls back to the lexical evidence path when reranking did not run (no rerankedTop)", () => {
-    const strongLexicalRows = [
-      candidate({
-        rank: 0.9,
-        authority: 0.9,
-        supports: 2,
-      }),
+  it("maps lexical/rerank signals to evidence tiers", () => {
+    type Top = Parameters<typeof deriveHybridEvidence>[2];
+    const cases: Array<{
+      rows: CandidateRow[];
+      count: number;
+      top?: Top;
+      expected: "strong" | "weak" | "none";
+    }> = [
+      { rows: [], count: 0, top: { rerankScore: 0.9, authority: 0.9 }, expected: "none" },
+      {
+        rows: [candidate({ rank: 0.01, authority: 0.9 })],
+        count: 1,
+        expected: "weak",
+      },
+      {
+        rows: [candidate({ rank: 0.001, authority: 0.9 })],
+        count: 1,
+        top: { rerankScore: 0.85, authority: 0.9, supports: 2 },
+        expected: "strong",
+      },
+      {
+        rows: [],
+        count: 1,
+        top: { rerankScore: 0.85, authority: 0.9, supports: 2 },
+        expected: "strong",
+      },
+      {
+        rows: [],
+        count: 1,
+        top: { rerankScore: 0.2, authority: 0.9, supports: 5 },
+        expected: "weak",
+      },
+      {
+        rows: [],
+        count: 1,
+        top: { rerankScore: 0.9, authority: 0.1, supports: 5 },
+        expected: "weak",
+      },
+      {
+        rows: [],
+        count: 1,
+        top: {
+          rerankScore: 0.9,
+          authority: 0.9,
+          supports: 0,
+          provenance: "inferred",
+          createdByKind: "agent",
+        },
+        expected: "weak",
+      },
+      {
+        rows: [],
+        count: 1,
+        top: {
+          rerankScore: 0.85,
+          authority: 0.9,
+          supports: 0,
+          provenance: "stated",
+          createdByKind: "human",
+        },
+        expected: "strong",
+      },
+      {
+        rows: [candidate({ rank: 0.9, authority: 0.9, supports: 2 })],
+        count: 1,
+        expected: "strong",
+      },
     ];
-    expect(deriveHybridEvidence(strongLexicalRows, 1)).toBe("strong");
+    for (const c of cases) {
+      expect(deriveHybridEvidence(c.rows, c.count, c.top)).toBe(c.expected);
+    }
   });
 });
 
 describe("hnswEfSearch", () => {
-  it("clamps to the product floor of 40 and the GUC max of 1000", () => {
-    expect(hnswEfSearch(0)).toBe(40);
-    expect(hnswEfSearch(1)).toBe(40);
-    expect(hnswEfSearch(40)).toBe(40);
-    expect(hnswEfSearch(250)).toBe(250);
-    expect(hnswEfSearch(1000)).toBe(1000);
-    expect(hnswEfSearch(1001)).toBe(1000);
-  });
-
-  it("falls back to the default for non-finite input", () => {
-    expect(hnswEfSearch(Number.NaN)).toBe(40);
-    expect(hnswEfSearch(Number.POSITIVE_INFINITY)).toBe(40);
+  it("clamps to the product floor of 40 and the GUC max of 1000, defaulting non-finite input", () => {
+    const cases: Array<[input: number, expected: number]> = [
+      [0, 40],
+      [1, 40],
+      [40, 40],
+      [250, 250],
+      [1000, 1000],
+      [1001, 1000],
+      [Number.NaN, 40],
+      [Number.POSITIVE_INFINITY, 40],
+    ];
+    for (const [input, expected] of cases) {
+      expect(hnswEfSearch(input)).toBe(expected);
+    }
   });
 });
 
@@ -678,38 +648,10 @@ describe("hybridSearch — embed unconfigured (CL-6287)", () => {
     };
   }
 
-  it("returns lexical results without ever calling the embed endpoint", async () => {
-    const lexicalRow = candidate({
-      chunkId: "chunk_lexical",
-      documentId: "doc_lexical",
-      title: "Q3 roadmap notes",
-      snippetText: "west coast expansion roadmap",
-      rank: 0.8,
-    });
-    const fetchImpl = mock(() =>
-      Promise.reject(new Error("fetch must not be called when embed is unconfigured")),
-    );
-
-    const hybridSearch = await loadHybridSearch();
-    const result = await hybridSearch(
-      {
-        db: fakeDb([lexicalRow]),
-        sql: untouchableRawSql(),
-        config: unconfiguredEmbedConfig(),
-        fetchImpl: fetchImpl as unknown as typeof fetch,
-        now: new Date("2026-01-01T00:00:00Z"),
-      },
-      { query: "roadmap", tenantId: "tenant-1", principalId: null },
-    );
-
-    expect(result.hits).toHaveLength(1);
-    expect(result.hits[0]?.chunk_id).toBe("chunk_lexical");
-    expect(result.hits[0]?.channels_matched).toEqual(["lexical"]);
-    expect(fetchImpl).not.toHaveBeenCalled();
-  });
-
+  // The no-embed lexical dispatch itself is covered by memory.test.ts's
+  // wiring-blocked plane tests; what stays here is the degraded-flag
+  // contract (configured-off reads differently from a runtime failure).
   it("reports dense_unavailable and lexical_only together, distinguishing configured-off from a runtime failure", async () => {
-    const hybridSearch = await loadHybridSearch();
     const result = await hybridSearch(
       {
         db: fakeDb([candidate()]),
@@ -724,24 +666,32 @@ describe("hybridSearch — embed unconfigured (CL-6287)", () => {
     expect(result.degraded).toContain("lexical_only");
   });
 
-  it("never dispatches an embed HTTP call or touches the embed-model registry", async () => {
-    // untouchableRawSql/fetchImpl both throw if reached at all — reaching
-    // the end of hybridSearch without throwing is itself the assertion that
-    // neither the dense channel nor the embed-model registry ran; the
-    // explicit mock-call check below is belt-and-suspenders.
-    const fetchImpl = mock(() => Promise.reject(new Error("unreachable")));
+  it("returns lexical results without ever calling the embed endpoint", async () => {
+    const lexicalRow = candidate({
+      chunkId: "chunk_lexical",
+      documentId: "doc_lexical",
+      title: "Q3 roadmap notes",
+      snippetText: "west coast expansion roadmap",
+      rank: 0.8,
+    });
+    const fetchImpl = mock(() =>
+      Promise.reject(new Error("fetch must not be called when embed is unconfigured")),
+    );
 
-    const hybridSearch = await loadHybridSearch();
-    await hybridSearch(
+    const result = await hybridSearch(
       {
-        db: fakeDb([candidate()]),
+        db: fakeDb([lexicalRow]),
         sql: untouchableRawSql(),
         config: unconfiguredEmbedConfig(),
         fetchImpl: fetchImpl as unknown as typeof fetch,
+        now: new Date("2026-01-01T00:00:00Z"),
       },
-      { query: "hello", tenantId: "tenant-1", principalId: null },
+      { query: "roadmap", tenantId: "tenant-1", principalId: null },
     );
 
+    expect(result.hits).toHaveLength(1);
+    expect(result.hits[0]?.chunk_id).toBe("chunk_lexical");
+    expect(result.hits[0]?.channels_matched).toEqual(["lexical"]);
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 });

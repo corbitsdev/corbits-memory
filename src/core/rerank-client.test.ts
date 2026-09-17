@@ -184,140 +184,64 @@ describe("rerankDocuments", () => {
     ).rejects.toBeInstanceOf(RerankTimeoutError);
   });
 
-  it("truncates oversized TEI document text to the resolved model's default budget", async () => {
-    // teiConfig sets no `model`, so this resolves to DEFAULT_RERANK_MODEL
-    // (bge-reranker-v2-m3) and its own default budget — NOT the smaller
-    // bge-reranker-base-calibrated value. This is the exact case Finding A
-    // covers: the unconfigured default must use the default model's budget.
-    const longDoc = {
-      id: "chunk-c",
-      text: "x".repeat(DEFAULT_MAX_DOC_CHARS + 500),
-    };
+  const baseBudget = defaultMaxDocCharsForModel("bge-reranker-base");
+  it.each([
+    // The default-model row is the Finding A case: with no `model` set the
+    // unconfigured default must use DEFAULT_RERANK_MODEL's own budget — NOT
+    // the smaller bge-reranker-base-calibrated value.
+    ["default model's own budget", "", DEFAULT_MAX_DOC_CHARS + 500, {}, DEFAULT_MAX_DOC_CHARS],
+    ["explicit bge-reranker-base budget", "", baseBudget + 500, { model: "bge-reranker-base" }, baseBudget],
+    ["configured maxDocChars", "q", 1_200, { maxDocChars: 1_000 }, 999],
+    ["at-budget text passes through untruncated", "", DEFAULT_MAX_DOC_CHARS, {}, DEFAULT_MAX_DOC_CHARS],
+  ])("resolves the document budget — %s", async (_label, query, docChars, override, expected) => {
     const fetchImpl = mock((_url: string, init: RequestInit) => {
       const body = JSON.parse(init.body as string) as { texts: string[] };
-      expect(body.texts[0]?.length).toBe(DEFAULT_MAX_DOC_CHARS);
-      return Promise.resolve(jsonResponse([{ index: 0, score: 0.5 }]));
-    });
-
-    await rerankDocuments(
-      "", // empty query: isolate document-only truncation from the query reserve
-      [longDoc],
-      teiConfig,
-      fetchImpl as unknown as typeof fetch,
-    );
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
-  });
-
-  it("uses the smaller bge-reranker-base budget when that model is set explicitly", async () => {
-    const baseBudget = defaultMaxDocCharsForModel("bge-reranker-base");
-    const longDoc = { id: "chunk-c", text: "x".repeat(baseBudget + 500) };
-    const fetchImpl = mock((_url: string, init: RequestInit) => {
-      const body = JSON.parse(init.body as string) as { texts: string[] };
-      expect(body.texts[0]?.length).toBe(baseBudget);
-      return Promise.resolve(jsonResponse([{ index: 0, score: 0.5 }]));
-    });
-
-    await rerankDocuments(
-      "",
-      [longDoc],
-      { ...teiConfig, model: "bge-reranker-base" },
-      fetchImpl as unknown as typeof fetch,
-    );
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
-  });
-
-  it("respects a configured maxDocChars for TEI requests", async () => {
-    const longDoc = { id: "chunk-c", text: "x".repeat(1_200) };
-    const fetchImpl = mock((_url: string, init: RequestInit) => {
-      const body = JSON.parse(init.body as string) as { texts: string[] };
-      expect(body.texts[0]?.length).toBe(999);
-      return Promise.resolve(jsonResponse([{ index: 0, score: 0.5 }]));
-    });
-
-    await rerankDocuments(
-      "q",
-      [longDoc],
-      { ...teiConfig, maxDocChars: 1_000 },
-      fetchImpl as unknown as typeof fetch,
-    );
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
-  });
-
-  it("reserves the query's length out of the document budget (query+document pair cap, not document alone)", async () => {
-    const longDoc = { id: "chunk-c", text: "x".repeat(1_200) };
-    const longQuery = "q".repeat(150);
-    const fetchImpl = mock((_url: string, init: RequestInit) => {
-      const body = JSON.parse(init.body as string) as { texts: string[] };
-      // budget 1000, query 150 chars -> document truncated to 850, not 1000.
-      expect(body.texts[0]?.length).toBe(850);
-      return Promise.resolve(jsonResponse([{ index: 0, score: 0.5 }]));
-    });
-
-    await rerankDocuments(
-      longQuery,
-      [longDoc],
-      { ...teiConfig, maxDocChars: 1_000 },
-      fetchImpl as unknown as typeof fetch,
-    );
-  });
-
-  it("uses the full remaining budget when the query leaves exactly MIN_DOC_CHARS", async () => {
-    // maxDocChars 1000, query 800 chars -> budget is exactly 200 (the
-    // MIN_DOC_CHARS boundary): must still run, not skip.
-    const longDoc = { id: "chunk-c", text: "x".repeat(500) };
-    const query = "q".repeat(800);
-    const fetchImpl = mock((_url: string, init: RequestInit) => {
-      const body = JSON.parse(init.body as string) as { texts: string[] };
-      expect(body.texts[0]?.length).toBe(200);
+      expect(body.texts[0]?.length).toBe(expected);
       return Promise.resolve(jsonResponse([{ index: 0, score: 0.5 }]));
     });
 
     await rerankDocuments(
       query,
-      [longDoc],
-      { ...teiConfig, maxDocChars: 1_000 },
+      [{ id: "chunk-c", text: "x".repeat(docChars) }],
+      { ...teiConfig, ...override },
       fetchImpl as unknown as typeof fetch,
     );
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
-  it("skips reranking (does not call fetch) when the query leaves one char under MIN_DOC_CHARS", async () => {
-    // Same setup, one char over the query length above -> budget 199, one
-    // under MIN_DOC_CHARS: must throw and never touch the network, rather
-    // than forcing the document budget back up and overflowing the pair.
-    const longDoc = { id: "chunk-c", text: "x".repeat(500) };
-    const query = "q".repeat(801);
-    const fetchImpl = mock(() =>
-      Promise.resolve(jsonResponse([{ index: 0, score: 0.5 }])),
+  it.each([
+    ["reserves the query's length out of the pair cap", "q".repeat(150), 1_200, 1_000, 850],
+    // Query 800 chars against a 1000 budget leaves exactly MIN_DOC_CHARS
+    // (200): must still run, not skip.
+    ["exact MIN_DOC_CHARS boundary still runs", "q".repeat(800), 500, 1_000, 200],
+    // One char longer leaves 199, one under MIN_DOC_CHARS: must throw and
+    // never touch the network rather than forcing the budget back up.
+    ["one char under MIN_DOC_CHARS skips without fetch", "q".repeat(801), 500, 1_000, "throws"],
+    ["query dwarfing maxDocChars skips outright", "q".repeat(10_000), 500, 300, "throws"],
+  ])("query-length reserve — %s", async (_label, query, docChars, maxDocChars, expected) => {
+    const expectedChars: number | null =
+      expected === "throws" ? null : (expected as number);
+    const fetchImpl = mock((_url: string, init?: RequestInit) => {
+      const body = JSON.parse(init?.body as string) as { texts: string[] };
+      if (expectedChars !== null) {
+        expect(body.texts[0]?.length).toBe(expectedChars);
+      }
+      return Promise.resolve(jsonResponse([{ index: 0, score: 0.5 }]));
+    });
+
+    const run = rerankDocuments(
+      query,
+      [{ id: "chunk-c", text: "x".repeat(docChars) }],
+      { ...teiConfig, maxDocChars },
+      fetchImpl as unknown as typeof fetch,
     );
-
-    await expect(
-      rerankDocuments(
-        query,
-        [longDoc],
-        { ...teiConfig, maxDocChars: 1_000 },
-        fetchImpl as unknown as typeof fetch,
-      ),
-    ).rejects.toBeInstanceOf(RerankQueryTooLongError);
-    expect(fetchImpl).not.toHaveBeenCalled();
-  });
-
-  it("skips reranking outright when the query alone dwarfs maxDocChars", async () => {
-    const longDoc = { id: "chunk-c", text: "x".repeat(500) };
-    const veryLongQuery = "q".repeat(10_000);
-    const fetchImpl = mock(() =>
-      Promise.resolve(jsonResponse([{ index: 0, score: 0.5 }])),
-    );
-
-    await expect(
-      rerankDocuments(
-        veryLongQuery,
-        [longDoc],
-        { ...teiConfig, maxDocChars: 300 },
-        fetchImpl as unknown as typeof fetch,
-      ),
-    ).rejects.toBeInstanceOf(RerankQueryTooLongError);
-    expect(fetchImpl).not.toHaveBeenCalled();
+    if (expected === "throws") {
+      await expect(run).rejects.toBeInstanceOf(RerankQueryTooLongError);
+      expect(fetchImpl).not.toHaveBeenCalled();
+    } else {
+      await run;
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+    }
   });
 
   it("trims before truncating so leading padding doesn't yield an all-whitespace document", async () => {

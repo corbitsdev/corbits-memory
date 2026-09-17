@@ -102,35 +102,29 @@ describe("fuseRrf", () => {
 });
 
 describe("isBatchQueriesWithinBound", () => {
-  test("accepts 1 through MAX_BATCH_QUERIES", () => {
-    expect(isBatchQueriesWithinBound(["a"])).toBe(true);
-    expect(isBatchQueriesWithinBound(Array(MAX_BATCH_QUERIES).fill("q"))).toBe(
-      true,
-    );
-  });
-
-  test("rejects zero queries", () => {
-    expect(isBatchQueriesWithinBound([])).toBe(false);
-  });
-
-  test("rejects more than MAX_BATCH_QUERIES", () => {
-    expect(
-      isBatchQueriesWithinBound(Array(MAX_BATCH_QUERIES + 1).fill("q")),
-    ).toBe(false);
+  test("accepts 1 through MAX_BATCH_QUERIES, rejects 0 and MAX+1", () => {
+    const cases: Array<[queries: string[], expected: boolean]> = [
+      [["a"], true],
+      [Array(MAX_BATCH_QUERIES).fill("q"), true],
+      [[], false],
+      [Array(MAX_BATCH_QUERIES + 1).fill("q"), false],
+    ];
+    for (const [queries, expected] of cases) {
+      expect(isBatchQueriesWithinBound(queries)).toBe(expected);
+    }
   });
 });
 
 describe("clampOverfetchMultiplier", () => {
-  test("clamps below the documented floor up to 3x", () => {
-    expect(clampOverfetchMultiplier(1)).toBe(3);
-  });
-
-  test("clamps above the documented ceiling down to 10x", () => {
-    expect(clampOverfetchMultiplier(50)).toBe(10);
-  });
-
-  test("passes through an in-range multiplier unchanged", () => {
-    expect(clampOverfetchMultiplier(5)).toBe(5);
+  test("clamps outside the documented [3x, 10x] range, passes through inside", () => {
+    const cases: Array<[input: number, expected: number]> = [
+      [1, 3],
+      [50, 10],
+      [5, 5],
+    ];
+    for (const [input, expected] of cases) {
+      expect(clampOverfetchMultiplier(input)).toBe(expected);
+    }
   });
 });
 
@@ -212,30 +206,19 @@ describe("temporalRecencyMultiplier", () => {
     ).toBeCloseTo(recencyBoostMultiplier(oneHalfLifeAgo, now), 10);
   });
 
-  test("state and lesson are neutral regardless of age", () => {
+  test("is neutral (1.0) for state, lesson, far-out and dateless deadlines", () => {
     const old = new Date("2020-01-01T00:00:00.000Z");
-    for (const temporalClass of ["state", "lesson"] as const) {
-      expect(
-        temporalRecencyMultiplier({
-          temporalClass,
-          occurredAt: old,
-          validUntil: null,
-          now,
-        }),
-      ).toBe(1.0);
-    }
-  });
-
-  test("deadline far out is neutral", () => {
     const far = new Date(now.getTime() + DEADLINE_LOOKAHEAD_MS * 2);
-    expect(
-      temporalRecencyMultiplier({
-        temporalClass: "deadline",
-        occurredAt: now,
-        validUntil: far,
-        now,
-      }),
-    ).toBe(1.0);
+    type Args = Parameters<typeof temporalRecencyMultiplier>[0];
+    const cases: Array<Pick<Args, "temporalClass" | "occurredAt" | "validUntil">> = [
+      { temporalClass: "state", occurredAt: old, validUntil: null },
+      { temporalClass: "lesson", occurredAt: old, validUntil: null },
+      { temporalClass: "deadline", occurredAt: now, validUntil: far },
+      { temporalClass: "deadline", occurredAt: now, validUntil: null },
+    ];
+    for (const c of cases) {
+      expect(temporalRecencyMultiplier({ ...c, now })).toBe(1.0);
+    }
   });
 
   test("deadline at expiry approaches the urgency ceiling (~1.3)", () => {
@@ -260,16 +243,5 @@ describe("temporalRecencyMultiplier", () => {
         now,
       }),
     ).toBe(BOOST_MULTIPLIER_MIN);
-  });
-
-  test("deadline with null validUntil is neutral", () => {
-    expect(
-      temporalRecencyMultiplier({
-        temporalClass: "deadline",
-        occurredAt: now,
-        validUntil: null,
-        now,
-      }),
-    ).toBe(1.0);
   });
 });
