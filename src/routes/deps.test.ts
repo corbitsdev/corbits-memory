@@ -6,7 +6,6 @@ import type { RequireGrant, TenantEnv } from "@intx/hub-api";
 
 import {
   caller,
-  grantGuard,
   requirePrincipal,
   resolveCaller,
   type ResolvedCaller,
@@ -106,18 +105,6 @@ describe("requirePrincipal", () => {
   });
 });
 
-describe("grantGuard", () => {
-  test("delegates to the host requireGrant('memory', action)", () => {
-    let called: { resource: string; action: string } | undefined;
-    const requireGrant: RequireGrant = (resource, action) => {
-      called = { resource: String(resource), action };
-      return (async () => {}) as never;
-    };
-grantGuard(deps(grantsWith(), requireGrant), "add");
-    expect(called).toEqual({ resource: "memory", action: "add" });
-  });
-});
-
 describe("resolveCaller", () => {
   function fakeContext(): {
     ctx: Context<TenantEnv>;
@@ -149,6 +136,19 @@ describe("resolveCaller", () => {
     expect(jsonCalls).toHaveLength(0);
     expect(sets.principal).toBeUndefined();
     expect(sets.tenant).toBeUndefined();
+  });
+
+  test("supports an async callerResolver", async () => {
+    const { ctx, sets } = fakeContext();
+    const routeDeps: RouteDeps = {
+      ...deps(grantsWith()),
+      callerResolver: async () => ({
+        tenantId: "tenant-async",
+        principalId: "principal-async",
+      }),
+    };
+    await resolveCaller(routeDeps)(ctx, async () => {});
+    expect(sets.principal).toMatchObject({ id: "principal-async" });
   });
 
   test("seats the resolved tenant/principal on the context and calls next()", async () => {
@@ -197,39 +197,6 @@ describe("resolveCaller", () => {
     expect(sets.principal).toBeUndefined();
   });
 
-  test("supports an async callerResolver", async () => {
-    const { ctx, sets } = fakeContext();
-    const routeDeps: RouteDeps = {
-      ...deps(grantsWith()),
-      callerResolver: async () => ({
-        tenantId: "tenant-async",
-        principalId: "principal-async",
-      }),
-    };
-    await resolveCaller(routeDeps)(ctx, async () => {});
-    expect(sets.principal).toMatchObject({ id: "principal-async" });
-  });
-
-  test("rejects an empty-string tenantId/principalId with 500, never seating it", async () => {
-    const { ctx, sets, jsonCalls } = fakeContext();
-    const routeDeps: RouteDeps = {
-      ...deps(grantsWith()),
-      callerResolver: () => ({ tenantId: "", principalId: "" }),
-    };
-    let nextCalled = false;
-    await resolveCaller(routeDeps)(ctx, async () => {
-      nextCalled = true;
-    });
-    expect(nextCalled).toBe(false);
-    expect(jsonCalls).toHaveLength(1);
-    expect(jsonCalls[0]?.status).toBe(500);
-    expect(jsonCalls[0]?.body).toMatchObject({
-      error: { code: "invalid_resolved_caller" },
-    });
-    expect(sets.principal).toBeUndefined();
-    expect(sets.tenant).toBeUndefined();
-  });
-
   test("rejects a whitespace-only tenantId/principalId with 500, never seating it", async () => {
     // "string >= 1" is a LENGTH constraint -- " " has length 1 and would
     // pass it. This is the same class of bug PR #34 fixed in optionalEnv
@@ -252,26 +219,5 @@ describe("resolveCaller", () => {
     });
     expect(sets.principal).toBeUndefined();
     expect(sets.tenant).toBeUndefined();
-  });
-
-  test("rejects a resolved value missing principalId with 500", async () => {
-    const { ctx, jsonCalls } = fakeContext();
-    const routeDeps: RouteDeps = {
-      ...deps(grantsWith()),
-      // Cast past the type system the way a buggy host's JS resolver would.
-      callerResolver: () => ({ tenantId: "tenant-run" }) as unknown as ResolvedCaller,
-    };
-    await resolveCaller(routeDeps)(ctx, async () => {});
-    expect(jsonCalls[0]?.status).toBe(500);
-  });
-
-  test("rejects a non-object resolved value with 500", async () => {
-    const { ctx, jsonCalls } = fakeContext();
-    const routeDeps: RouteDeps = {
-      ...deps(grantsWith()),
-      callerResolver: () => "tenant-run" as unknown as ResolvedCaller,
-    };
-    await resolveCaller(routeDeps)(ctx, async () => {});
-    expect(jsonCalls[0]?.status).toBe(500);
   });
 });

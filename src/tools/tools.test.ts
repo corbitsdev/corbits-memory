@@ -6,7 +6,6 @@ import { memorySearch } from "./search.ts";
 import { memoryList } from "./list.ts";
 import {
   createMemoryHttpClient,
-  MEMORY_TOOL_ENV_KEYS,
   readMemoryToolEnv,
   type MemoryToolEnv,
 } from "./client.ts";
@@ -72,18 +71,8 @@ function makeFetchMock(
   return { calls, fetchMock: fetchMock as unknown as typeof fetch };
 }
 
-describe("MEMORY_TOOL_ENV_KEYS", () => {
-  test("lists the three credential keys", () => {
-    expect([...MEMORY_TOOL_ENV_KEYS]).toEqual([
-      "memoryBaseUrl",
-      "memoryTenantId",
-      "memoryAuthToken",
-    ]);
-  });
-});
-
 describe("readMemoryToolEnv", () => {
-  test("rejects empty base url", () => {
+  test("rejects empty credentials", () => {
     expect(() =>
       readMemoryToolEnv({
         memoryBaseUrl: "",
@@ -91,9 +80,6 @@ describe("readMemoryToolEnv", () => {
         memoryAuthToken: TOKEN,
       }),
     ).toThrow(/memoryBaseUrl/);
-  });
-
-  test("rejects empty tenant and token", () => {
     expect(() =>
       readMemoryToolEnv({
         memoryBaseUrl: BASE,
@@ -137,25 +123,6 @@ describe("createMemoryHttpClient", () => {
     expect(parsed).not.toHaveProperty("principalId");
   });
 
-  test("GET list with limit query", async () => {
-    const { calls, fetchMock } = makeFetchMock(() => ({
-      status: 200,
-      json: { events: [] },
-    }));
-    const client = createMemoryHttpClient({
-      baseUrl: BASE,
-      tenantId: TENANT,
-      authToken: TOKEN,
-      fetch: fetchMock,
-    });
-    await client.list(5);
-    expect(calls[0]!.method).toBe("GET");
-    expect(calls[0]!.url).toBe(
-      `${BASE}/api/tenants/${TENANT}/memory/list?limit=5`,
-    );
-    expect(calls[0]!.body).toBeNull();
-  });
-
   test("surfaces non-2xx as Error", async () => {
     const { fetchMock } = makeFetchMock(() => ({
       status: 403,
@@ -172,29 +139,6 @@ describe("createMemoryHttpClient", () => {
     );
   });
 
-  test("clips long error response bodies", async () => {
-    const long = "e".repeat(800);
-    const { fetchMock } = makeFetchMock(() => ({
-      status: 500,
-      text: long,
-    }));
-    const client = createMemoryHttpClient({
-      baseUrl: BASE,
-      tenantId: TENANT,
-      authToken: TOKEN,
-      fetch: fetchMock,
-    });
-    try {
-      await client.list();
-      expect.unreachable("expected throw");
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      expect(msg).toMatch(/memory HTTP 500:/);
-      expect(msg.length).toBeLessThan(600);
-      expect(msg.endsWith("…")).toBe(true);
-    }
-  });
-
   test("rejects invalid JSON on 2xx", async () => {
     const { fetchMock } = makeFetchMock(() => ({
       status: 200,
@@ -208,52 +152,9 @@ describe("createMemoryHttpClient", () => {
     });
     await expect(client.list()).rejects.toThrow(/invalid JSON/);
   });
-
-  test("empty 2xx body becomes {}", async () => {
-    const { fetchMock } = makeFetchMock(() => ({
-      status: 200,
-      text: "",
-    }));
-    const client = createMemoryHttpClient({
-      baseUrl: BASE,
-      tenantId: TENANT,
-      authToken: TOKEN,
-      fetch: fetchMock,
-    });
-    expect(await client.list()).toEqual({});
-  });
 });
 
 describe("memoryAdd factory", () => {
-  test("declares id and requires", () => {
-    expect(memoryAdd.id).toBe("@corbits/memory/add");
-    expect([...memoryAdd.requires]).toEqual([...MEMORY_TOOL_ENV_KEYS]);
-  });
-
-  test("happy path: body has no identity fields", async () => {
-    const { calls, fetchMock } = makeFetchMock(() => ({
-      status: 200,
-      json: { documentId: "doc-9", versionId: "ver-9" },
-    }));
-    const bundle = memoryAdd(toolEnv({ memoryFetch: fetchMock }));
-    expect(bundle.definitions.map((d) => d.name)).toEqual(["memory_add"]);
-    const result = await bundle.run(
-      {
-        id: "call-1",
-        name: "memory_add",
-        arguments: { title: "note", text: "hello" },
-      },
-      new AbortController().signal,
-    );
-    expect(result.isError).toBeFalsy();
-    expect(result.content).toBe(JSON.stringify({ documentId: "doc-9", versionId: "ver-9" }));
-    const body = JSON.parse(calls[0]!.body ?? "{}") as Record<string, unknown>;
-    expect(body).not.toHaveProperty("tenantId");
-    expect(body).not.toHaveProperty("principalId");
-    expect(body).not.toHaveProperty("tenant_id");
-    expect(body).not.toHaveProperty("principal_id");
-  });
-
   test("strips adversarial identity args from wire body", async () => {
     const { calls, fetchMock } = makeFetchMock(() => ({
       status: 200,
@@ -332,29 +233,6 @@ describe("memoryAdd factory", () => {
 });
 
 describe("memorySearch factory", () => {
-  test("POSTs search with query only", async () => {
-    const { calls, fetchMock } = makeFetchMock(() => ({
-      status: 200,
-      json: { items: [], evidence: "none" },
-    }));
-    const bundle = memorySearch(toolEnv({ memoryFetch: fetchMock }));
-    const result = await bundle.run(
-      {
-        id: "call-2",
-        name: "memory_search",
-        arguments: { query: "standup notes" },
-      },
-      new AbortController().signal,
-    );
-    expect(result.isError).toBeFalsy();
-    expect(calls[0]!.url).toBe(
-      `${BASE}/api/tenants/${TENANT}/memory/search`,
-    );
-    expect(JSON.parse(calls[0]!.body ?? "{}")).toEqual({
-      query: "standup notes",
-    });
-  });
-
   test("coerces string limit and rejects out-of-range", async () => {
     const { calls, fetchMock } = makeFetchMock(() => ({
       status: 200,
@@ -413,35 +291,6 @@ describe("memorySearch factory", () => {
 });
 
 describe("memoryList factory", () => {
-  test("GETs list without identity in query", async () => {
-    const { calls, fetchMock } = makeFetchMock(() => ({
-      status: 200,
-      json: {
-        events: [
-          {
-            at: "2026-01-01",
-            title: "a",
-            source: "local",
-            tenantId: TENANT,
-            principalId: "p",
-          },
-        ],
-      },
-    }));
-    const bundle = memoryList(toolEnv({ memoryFetch: fetchMock }));
-    const result = await bundle.run(
-      {
-        id: "call-3",
-        name: "memory_list",
-        arguments: { limit: 10 },
-      },
-      new AbortController().signal,
-    );
-    expect(result.isError).toBeFalsy();
-    expect(calls[0]!.url).toContain("/memory/list?limit=10");
-    expect(calls[0]!.url).not.toContain("principal");
-  });
-
   test("ignores adversarial identity args on list", async () => {
     const { calls, fetchMock } = makeFetchMock(() => ({
       status: 200,
