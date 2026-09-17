@@ -127,32 +127,31 @@ function stubPlane(opts?: {
   };
 }
 
-function buildApp(
-  grants: GrantRule[],
-  opts?: {
-    timelineCatalog?: Array<
-      TimelineEvent & { visibleTo: readonly string[] | "tenant" }
-    >;
-    principalId?: string;
-  },
-) {
-  const { plane, added, searched, tombstoned, purged, retentionClassChanges } =
-    stubPlane(opts);
+// One shared browser-session app for the whole file: rebuilding the Hono app
+// (route registration + validators) per test is the runtime hotspot, and every
+// per-test input the handlers read — grants, catalog, session principal —
+// flows through a mutable box the shared app closes over. `buildApp` keeps its
+// signature and just resets those boxes, so test bodies are unchanged.
+const sharedBrowser = (() => {
+  const catalog: Array<
+    TimelineEvent & { visibleTo: readonly string[] | "tenant" }
+  > = [];
+  const rec = stubPlane({ timelineCatalog: catalog });
+  const grantList: GrantRule[] = [];
   const grantConfig = {
-    grantStore: createInMemoryGrantStore(grants),
+    grantStore: createInMemoryGrantStore(grantList),
     conditionRegistry: {},
   };
+  const session = { principalId: PRINCIPAL };
   const deps: RouteDeps = {
-    memory: plane,
+    memory: rec.plane,
     grants: grantConfig,
     requireGrant: createRequireGrant(grantConfig),
   };
-
-  const principalId = opts?.principalId ?? PRINCIPAL;
   const app = new Hono<TenantEnv>();
   app.use("*", async (c, next) => {
     c.set("principal", {
-      id: principalId,
+      id: session.principalId,
       tenantId: TENANT,
       kind: "user",
       refId: "u1",
@@ -173,7 +172,38 @@ function buildApp(
     await next();
   });
   registerMemoryRoutes(app, deps);
-  return { app, added, searched, tombstoned, purged, retentionClassChanges };
+  return { app, grantList, catalog, session, rec };
+})();
+
+function buildApp(
+  grants: GrantRule[],
+  opts?: {
+    timelineCatalog?: Array<
+      TimelineEvent & { visibleTo: readonly string[] | "tenant" }
+    >;
+    principalId?: string;
+  },
+) {
+  sharedBrowser.grantList.length = 0;
+  sharedBrowser.grantList.push(...grants);
+  sharedBrowser.catalog.length = 0;
+  if (opts?.timelineCatalog) sharedBrowser.catalog.push(...opts.timelineCatalog);
+  sharedBrowser.session.principalId = opts?.principalId ?? PRINCIPAL;
+  sharedBrowser.rec.added.length = 0;
+  sharedBrowser.rec.searched.length = 0;
+  sharedBrowser.rec.tombstoned.length = 0;
+  sharedBrowser.rec.purged.length = 0;
+  sharedBrowser.rec.retentionClassChanges.length = 0;
+  const { added, searched, tombstoned, purged, retentionClassChanges } =
+    sharedBrowser.rec;
+  return {
+    app: sharedBrowser.app,
+    added,
+    searched,
+    tombstoned,
+    purged,
+    retentionClassChanges,
+  };
 }
 
 /**
@@ -264,6 +294,36 @@ function stubMachinePlane(opts?: {
   return { plane, added, searched, fed, tombstoned, purged, retentionClassChanges };
 }
 
+// Same shared-app treatment as the browser harness above: the resolver varies
+// per test, so it flows through a box the shared app closes over. Resolver
+// semantics (null/throwing/async) are covered in deps.test.ts; here only the
+// wiring through to the plane matters.
+const sharedMachine = (() => {
+  const catalog: Array<
+    TimelineEvent & { visibleTo: readonly string[] | "tenant" }
+  > = [];
+  const rec = stubMachinePlane({ timelineCatalog: catalog });
+  const grantList: GrantRule[] = [];
+  const grantConfig = {
+    grantStore: createInMemoryGrantStore(grantList),
+    conditionRegistry: {},
+  };
+  const resolverBox: {
+    fn: NonNullable<RouteDeps["callerResolver"]>;
+  } = { fn: () => null };
+  const deps: RouteDeps = {
+    memory: rec.plane,
+    grants: grantConfig,
+    requireGrant: createRequireGrant(grantConfig),
+    callerResolver: (c) => resolverBox.fn(c),
+  };
+  // No tenant-session middleware mounted at all — a machine caller has no
+  // browser session; `callerResolver` is the only source of identity here.
+  const app = new Hono<TenantEnv>();
+  registerMemoryRoutes(app, deps);
+  return { app, grantList, catalog, resolverBox, rec };
+})();
+
 function buildAppWithCallerResolver(
   grants: GrantRule[],
   callerResolver: RouteDeps["callerResolver"],
@@ -273,23 +333,28 @@ function buildAppWithCallerResolver(
     >;
   },
 ) {
-  const { plane, added, searched, fed, tombstoned, purged, retentionClassChanges } =
-    stubMachinePlane(opts);
-  const grantConfig = {
-    grantStore: createInMemoryGrantStore(grants),
-    conditionRegistry: {},
+  sharedMachine.grantList.length = 0;
+  sharedMachine.grantList.push(...grants);
+  sharedMachine.catalog.length = 0;
+  if (opts?.timelineCatalog) sharedMachine.catalog.push(...opts.timelineCatalog);
+  if (callerResolver !== undefined) sharedMachine.resolverBox.fn = callerResolver;
+  sharedMachine.rec.added.length = 0;
+  sharedMachine.rec.searched.length = 0;
+  sharedMachine.rec.fed.length = 0;
+  sharedMachine.rec.tombstoned.length = 0;
+  sharedMachine.rec.purged.length = 0;
+  sharedMachine.rec.retentionClassChanges.length = 0;
+  const { added, searched, fed, tombstoned, purged, retentionClassChanges } =
+    sharedMachine.rec;
+  return {
+    app: sharedMachine.app,
+    added,
+    searched,
+    fed,
+    tombstoned,
+    purged,
+    retentionClassChanges,
   };
-  const deps: RouteDeps = {
-    memory: plane,
-    grants: grantConfig,
-    requireGrant: createRequireGrant(grantConfig),
-    ...(callerResolver !== undefined ? { callerResolver } : {}),
-  };
-  // No tenant-session middleware mounted at all — a machine caller has no
-  // browser session; `callerResolver` is the only source of identity here.
-  const app = new Hono<TenantEnv>();
-  registerMemoryRoutes(app, deps);
-  return { app, added, searched, fed, tombstoned, purged, retentionClassChanges };
 }
 
 function buildAppWithoutPrincipal() {
@@ -650,46 +715,40 @@ describe("memory HTTP routes — retention (CL-6288)", () => {
     expect(retentionClassChanges).toHaveLength(0);
   });
 
-  test("missing principal on forget is 401", async () => {
-    const app = buildAppWithoutPrincipal();
-    const res = await app.request(
-      "/api/tenants/t1/memory/documents/doc-mine/forget",
-      jsonPost({}),
-    );
-    expect(res.status).toBe(401);
-  });
+  // The search-route "missing principal is 401" covers the no-session gate;
+  // the forget-route twin added nothing (deps.test.ts pins the 401 path).
 
-  test("forget rejects a whitespace-only documentId (400, never reaching the plane)", async () => {
-    const { app, tombstoned } = buildApp([grant(PRINCIPAL, "forget")]);
-    const res = await app.request(
+  test.each([
+    [
+      "forget",
+      "forget",
       "/api/tenants/t1/memory/documents/%20/forget",
-      jsonPost({}),
-    );
-    expect(res.status).toBe(400);
-    expect(tombstoned).toHaveLength(0);
-  });
-
-  test("purge rejects a whitespace-only documentId (400, never reaching the plane)", async () => {
-    const { app, purged } = buildApp([grant(PRINCIPAL, "purge")]);
-    const res = await app.request(
+      {},
+      "tombstoned",
+    ],
+    [
+      "purge",
+      "purge",
       "/api/tenants/t1/memory/documents/%20/purge",
-      jsonPost({}),
-    );
-    expect(res.status).toBe(400);
-    expect(purged).toHaveLength(0);
-  });
-
-  test("retention-class rejects a whitespace-only versionId (400, never reaching the plane)", async () => {
-    const { app, retentionClassChanges } = buildApp([
-      grant(PRINCIPAL, "forget"),
-    ]);
-    const res = await app.request(
+      {},
+      "purged",
+    ],
+    [
+      "retention-class",
+      "forget",
       "/api/tenants/t1/memory/versions/%20/retention-class",
-      jsonPost({ retention_class: "durable" }),
-    );
-    expect(res.status).toBe(400);
-    expect(retentionClassChanges).toHaveLength(0);
-  });
+      { retention_class: "durable" },
+      "retentionClassChanges",
+    ],
+  ] as const)(
+    "%s rejects a whitespace-only id (400, never reaching the plane)",
+    async (_route, action, path, body, recKey) => {
+      const built = buildApp([grant(PRINCIPAL, action)]);
+      const res = await built.app.request(path, jsonPost(body));
+      expect(res.status).toBe(400);
+      expect(built[recKey]).toHaveLength(0);
+    },
+  );
 });
 
 describe("memory HTTP routes — machine caller (callerResolver)", () => {

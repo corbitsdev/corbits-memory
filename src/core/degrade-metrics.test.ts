@@ -316,49 +316,29 @@ describe("degrade-metrics", () => {
   });
 
   describe("configureDegradeMetrics validation", () => {
-    it("rejects a zero windowSize (which would otherwise unbounded-grow the window via slice(-0))", () => {
-      expect(() => configureDegradeMetrics({ windowSize: 0 })).toThrow();
-    });
-
-    it("rejects a negative windowSize", () => {
-      expect(() => configureDegradeMetrics({ windowSize: -5 })).toThrow();
-    });
-
-    it("rejects a zero summaryInterval (which would otherwise divide by zero and never summarize)", () => {
-      expect(() => configureDegradeMetrics({ summaryInterval: 0 })).toThrow();
-    });
-
-    it("rejects a negative summaryInterval", () => {
-      expect(() => configureDegradeMetrics({ summaryInterval: -1 })).toThrow();
-    });
-
-    it("rejects a non-integer windowSize or summaryInterval", () => {
-      expect(() => configureDegradeMetrics({ windowSize: 1.5 })).toThrow();
-      expect(() => configureDegradeMetrics({ summaryInterval: 1.5 })).toThrow();
-    });
-
-    it("rejects highWatermark/lowWatermark out of [0, 1] bounds", () => {
-      expect(() => configureDegradeMetrics({ highWatermark: 0 })).toThrow();
-      expect(() => configureDegradeMetrics({ highWatermark: 1.5 })).toThrow();
-      expect(() => configureDegradeMetrics({ lowWatermark: -0.1 })).toThrow();
-      expect(() => configureDegradeMetrics({ lowWatermark: 1 })).toThrow();
-    });
-
-    it("rejects highWatermark <= lowWatermark", () => {
-      expect(() =>
-        configureDegradeMetrics({ highWatermark: 0.1, lowWatermark: 0.2 }),
-      ).toThrow();
-      expect(() =>
-        configureDegradeMetrics({ highWatermark: 0.2, lowWatermark: 0.2 }),
-      ).toThrow();
-    });
-
-    it("rejects a zero or negative maxTrackedTenants", () => {
-      expect(() => configureDegradeMetrics({ maxTrackedTenants: 0 })).toThrow();
-      expect(() => configureDegradeMetrics({ maxTrackedTenants: -1 })).toThrow();
-    });
-
-    it("accepts a valid full override", () => {
+    it("rejects invalid configs and accepts a valid full override", () => {
+      type Config = Parameters<typeof configureDegradeMetrics>[0];
+      const bad: Config[] = [
+        // Zero would otherwise unbounded-grow the window via slice(-0).
+        { windowSize: 0 },
+        { windowSize: -5 },
+        // Zero would otherwise divide by zero and never summarize.
+        { summaryInterval: 0 },
+        { summaryInterval: -1 },
+        { windowSize: 1.5 },
+        { summaryInterval: 1.5 },
+        { highWatermark: 0 },
+        { highWatermark: 1.5 },
+        { lowWatermark: -0.1 },
+        { lowWatermark: 1 },
+        { highWatermark: 0.1, lowWatermark: 0.2 },
+        { highWatermark: 0.2, lowWatermark: 0.2 },
+        { maxTrackedTenants: 0 },
+        { maxTrackedTenants: -1 },
+      ];
+      for (const cfg of bad) {
+        expect(() => configureDegradeMetrics(cfg)).toThrow();
+      }
       expect(() =>
         configureDegradeMetrics({
           windowSize: 50,
@@ -387,31 +367,19 @@ describe("degrade-metrics", () => {
   });
 
   describe("no accepted config can make escalation unreachable", () => {
-    it("rejects highWatermark=1 (5/(1*0) = Infinity samples needed — can never evaluate)", () => {
-      expect(() =>
-        configureDegradeMetrics({ highWatermark: 1, lowWatermark: 0.5 }),
-      ).toThrow();
-    });
-
-    it("still escalates a fully-degraded tenant if highWatermark=1 were ever in effect (regression guard on the rejected config's runtime behavior)", () => {
-      // Guard against a future relaxation of the validator silently
-      // reintroducing the round-3 bug: even if someone loosens the
-      // (0,1] bound to allow exactly 1, the invariant check must still
-      // reject it specifically because escalation would never fire.
-      expect(() => configureDegradeMetrics({ highWatermark: 1 })).toThrow(
-        /can never escalate|infinite/i,
-      );
-    });
-
-    it("rejects a windowSize smaller than the derived minimum-sample floor", () => {
-      // minSamplesFor(0.05) = ceil(5 / (0.05*0.95)) = 106, which does not
-      // fit in a 20-slot window — the alarm could never fire.
-      expect(() =>
-        configureDegradeMetrics({ windowSize: 20, highWatermark: 0.05, lowWatermark: 0.01 }),
-      ).toThrow();
-    });
-
-    it("accepts a windowSize exactly at the derived floor", () => {
+    it("rejects configs that make escalation unreachable, accepts the boundary floor", () => {
+      type Config = Parameters<typeof configureDegradeMetrics>[0];
+      const bad: Config[] = [
+        // highWatermark: 1 needs 5/(1*0) = Infinity samples — the alarm
+        // could never fire, so the validator rejects it outright.
+        { highWatermark: 1, lowWatermark: 0.5 },
+        // minSamplesFor(0.05) = ceil(5 / (0.05*0.95)) = 106, which does not
+        // fit in a 20-slot window — the alarm could never fire.
+        { windowSize: 20, highWatermark: 0.05, lowWatermark: 0.01 },
+      ];
+      for (const cfg of bad) {
+        expect(() => configureDegradeMetrics(cfg)).toThrow();
+      }
       const floor = Math.ceil(5 / (0.05 * 0.95));
       expect(() =>
         configureDegradeMetrics({

@@ -31,6 +31,17 @@ import * as realDb from "./db/client.ts";
 import * as realSearch from "./services/search.ts";
 import * as realCapture from "./services/capture.ts";
 import * as realRetention from "./services/retention.ts";
+
+// Bun's module registry is process-global and `mock.module()` rewrites live
+// bindings in place — including these `realX` namespaces — with no unmock
+// API (`mock.restore()` leaves module mocks installed, and re-mocking with
+// the live namespace just reinstalls the mock). A spread snapshot taken here,
+// before any mock runs, is immune to that rewrite and is what the afterAll
+// hooks below reinstall so later test files import the real modules.
+const pristineDb = { ...realDb };
+const pristineSearch = { ...realSearch };
+const pristineCapture = { ...realCapture };
+const pristineRetention = { ...realRetention };
 import type { HybridSearchResult } from "./services/search.ts";
 
 const PRINCIPAL = "p1";
@@ -266,8 +277,8 @@ describe("createMemory.find — grant-tag post-filter wiring", () => {
   });
 
   afterAll(() => {
-    mock.module("./db/client.ts", () => realDb);
-    mock.module("./services/search.ts", () => realSearch);
+    mock.module("./db/client.ts", () => pristineDb);
+    mock.module("./services/search.ts", () => pristineSearch);
   });
 
   it("keeps creator docs and drops others when grants are absent", async () => {
@@ -528,8 +539,8 @@ describe("add() — documentId, content/file XOR, share", () => {
   });
 
   afterAll(() => {
-    mock.module("./db/client.ts", () => realDb);
-    mock.module("./services/capture.ts", () => realCapture);
+    mock.module("./db/client.ts", () => pristineDb);
+    mock.module("./services/capture.ts", () => pristineCapture);
   });
 
 async function freshPlane(opts?: {
@@ -820,8 +831,8 @@ describe("retention writes — ownership gate (CL-6288)", () => {
   });
 
   afterAll(() => {
-    mock.module("./db/client.ts", () => realDb);
-    mock.module("./services/retention.ts", () => realRetention);
+    mock.module("./db/client.ts", () => pristineDb);
+    mock.module("./services/retention.ts", () => pristineRetention);
   });
 
   async function freshPlane() {

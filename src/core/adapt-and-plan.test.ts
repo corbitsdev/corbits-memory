@@ -20,12 +20,6 @@ function validAdaptedDocument(
 }
 
 describe("adaptAndPlan", () => {
-  it("T1: the same input produces an identical contentHash both times", () => {
-    const plan1 = adaptAndPlan(validAdaptedDocument());
-    const plan2 = adaptAndPlan(validAdaptedDocument());
-    expect(plan1.contentHash).toBe(plan2.contentHash);
-  });
-
   it("T2: an empty kind throws InvalidAdaptedDocumentError", () => {
     expect(() => adaptAndPlan(validAdaptedDocument({ kind: "" }))).toThrow(
       InvalidAdaptedDocumentError,

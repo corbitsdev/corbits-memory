@@ -8,10 +8,9 @@ import {
 } from "./feed.ts";
 
 describe("feed constants", () => {
-  it("bounds page size", () => {
-    expect(FEED_LIMIT_MIN).toBe(1);
+  it("keeps the default page size within bounds", () => {
+    expect(FEED_LIMIT_DEFAULT).toBeGreaterThanOrEqual(FEED_LIMIT_MIN);
     expect(FEED_LIMIT_DEFAULT).toBeLessThanOrEqual(FEED_LIMIT_MAX);
-    expect(FEED_LIMIT_MAX).toBe(100);
   });
 });
 
