@@ -10,7 +10,7 @@ bundle and call the run-scoped routes under `/api/workflow-memory/*`;
 ingestion modules call the tenant routes or the in-process plane. That’s the
 product.
 
-Requires Bun 1.2+.
+Requires Bun 1.2+ and Node 24+.
 
 ## Install
 
