@@ -2,7 +2,7 @@
  * Imperative distill tick — for hosts that want a function, not a workflow.
  * Inference stays injected: host supplies `distill` (call your model).
  */
-import type { MemoryHttpClient } from "../tools/client.ts";
+import type { MemoryHttpClient } from "../http-client.ts";
 import {
   buildDistilledClaim,
   shouldProcessFeedEntry,

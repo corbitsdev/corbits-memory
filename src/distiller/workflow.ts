@@ -3,12 +3,12 @@
  *
  * ```ts
  * import { createResidentDistiller } from "@corbits/memory/distiller";
- * import { memoryAdd, memoryFeed, memorySearch } from "@corbits/memory/tools";
  *
  * const workflow = createResidentDistiller({
  *   inference: { sources: [{ provider: "openai", model: "gpt-4.1-mini" }] },
  * });
- * // deploy with host workflow-deploy + env: memoryBaseUrl, memoryTenantId, memoryAuthToken
+ * // deploy with host workflow-deploy; the host binds the `hub` credential
+ * // handle the sidecar bundle resolves at run time
  * ```
  */
 import {
@@ -20,9 +20,7 @@ import {
 } from "@intx/agent";
 import { defineWorkflow, type WorkflowDefinition } from "@intx/workflow";
 
-import { memoryAdd } from "../tools/add.ts";
-import { memoryFeed } from "../tools/feed.ts";
-import { memorySearch } from "../tools/search.ts";
+import { memory } from "../sidecar-bundle.ts";
 import { capabilityIdsForSurface } from "../grant-requirements.ts";
 import {
   RESIDENT_DISTILLER_AGENT_ID,
@@ -61,8 +59,8 @@ export type CreateResidentDistillerOpts = {
   /** Override system prompt. */
   systemPrompt?: string;
   /**
-   * Extra tool factories beyond memory_feed / memory_add / memory_search.
-   * Default tools are always included first.
+   * Extra tool factories beyond the memory sidecar bundle, which is always
+   * included first.
    */
   extraTools?: readonly AnnotatedToolFactory<BaseEnv>[];
   /** Optional agent description. */
@@ -84,11 +82,9 @@ export function createResidentDistiller(
 ): ResidentDistiller {
   const generatorAgentId = opts.agentId ?? RESIDENT_DISTILLER_AGENT_ID;
   const tools = [
-    memoryFeed,
-    memoryAdd,
-    memorySearch,
+    memory,
     ...(opts.extraTools ?? []),
-  ] as AnnotatedToolFactory<BaseEnv>[];
+  ] as unknown as AnnotatedToolFactory<BaseEnv>[];
 
   const agent = defineAgent({
     id: generatorAgentId,

@@ -24,8 +24,11 @@ CI runs `typecheck` + `test` — both must pass before any push.
 - `src/mount-config.ts` / `src/config.ts` — mount config + engine config
 - `src/routes/` — Hono routes (`add`, `search`, `list`, `feed`, retention
   `forget`/`purge`/`retention-class`)
-- `src/tools/` — Interchange `defineTool` factories (`@corbits/memory/tools`);
-  HTTP clients for mounted routes (env credentials; no in-process plane)
+- `src/workflow-mount.ts` — run-scoped routes for deployed agents (agent-token
+  bearer + run address; no session auth)
+- `src/sidecar-bundle.ts` + `src/tools.ts` — the agent tool bundle
+  (`@corbits/memory/sidecar-bundle`) and its tool descriptors
+- `src/http-client.ts` — host-side HTTP client for the tenant routes
 - `src/services/` — capture / search / transform internals (not public verbs)
 - `src/ports/` — `DocumentStore` / `SourceProvider` + fakes
 - `src/core/` — embed/rerank clients, merge, arktype schemas

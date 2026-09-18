@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import type { MemoryHttpClient } from "../tools/client.ts";
+import type { MemoryHttpClient } from "../http-client.ts";
 import { RESIDENT_DISTILLER_AGENT_ID } from "./constants.ts";
 import { runDistillTick } from "./tick.ts";
 

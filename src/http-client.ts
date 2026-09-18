@@ -1,13 +1,13 @@
 /**
- * Thin HTTP client for mounted hub memory routes.
+ * Thin HTTP client a HOST uses to call the tenant memory routes
+ * (`/api/tenants/:tenantId/memory/*`) with its own credentials — the
+ * imperative distill tick takes one. Agents never use it: they carry the
+ * sidecar bundle, which calls the run-scoped routes instead.
  *
- * Tools never touch the in-process plane — they only call
- * `/api/tenants/:tenantId/memory/*` with credentials from install env.
- *
- * Pass `signal` on each call (or via the tool runner) so a hung hub can be
- * cancelled; this client does not invent a default timeout.
+ * Pass `signal` on each call so a hung hub can be cancelled; this client
+ * does not invent a default timeout.
  */
-import type { AddRequest, SearchRequest } from "../http-bodies.ts";
+import type { AddRequest, SearchRequest } from "./http-bodies.ts";
 
 export type MemoryHttpConfig = {
   baseUrl: string;
@@ -155,42 +155,3 @@ export function createMemoryHttpClient(
   };
 }
 
-/** Env keys declared by every memory tool factory via `requires`. */
-export const MEMORY_TOOL_ENV_KEYS = [
-  "memoryBaseUrl",
-  "memoryTenantId",
-  "memoryAuthToken",
-] as const;
-
-export type MemoryToolEnvKeys = (typeof MEMORY_TOOL_ENV_KEYS)[number];
-
-export type MemoryToolEnv = {
-  memoryBaseUrl: string;
-  memoryTenantId: string;
-  memoryAuthToken: string;
-  /**
-   * Optional host/test inject. Not part of `requires` — agents never set this.
-   */
-  memoryFetch?: typeof globalThis.fetch;
-};
-
-export function readMemoryToolEnv(env: MemoryToolEnv): MemoryHttpConfig {
-  const baseUrl = env.memoryBaseUrl;
-  const tenantId = env.memoryTenantId;
-  const authToken = env.memoryAuthToken;
-  if (typeof baseUrl !== "string" || baseUrl.length === 0) {
-    throw new Error("memoryBaseUrl must be a non-empty string");
-  }
-  if (typeof tenantId !== "string" || tenantId.length === 0) {
-    throw new Error("memoryTenantId must be a non-empty string");
-  }
-  if (typeof authToken !== "string" || authToken.length === 0) {
-    throw new Error("memoryAuthToken must be a non-empty string");
-  }
-  return {
-    baseUrl,
-    tenantId,
-    authToken,
-    ...(env.memoryFetch !== undefined ? { fetch: env.memoryFetch } : {}),
-  };
-}

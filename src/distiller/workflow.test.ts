@@ -4,6 +4,7 @@ import {
   RESIDENT_DISTILLER_AGENT_ID,
   RESIDENT_DISTILLER_WORKFLOW_ID,
 } from "./constants.ts";
+import { SIDECAR_BUNDLE_ID } from "../sidecar-bundle.ts";
 import { createResidentDistiller } from "./workflow.ts";
 
 describe("createResidentDistiller", () => {
@@ -20,7 +21,10 @@ describe("createResidentDistiller", () => {
       { type: "schedule", cron: "*/5 * * * *" },
     ]);
     expect(agent.id).toBe(RESIDENT_DISTILLER_AGENT_ID);
-    expect(agent.toolFactories.length).toBeGreaterThanOrEqual(3);
+    // One factory: the memory sidecar bundle carries every memory tool.
+    expect(agent.toolFactories.map((factory) => factory.id)).toEqual([
+      SIDECAR_BUNDLE_ID,
+    ]);
     expect(agent.systemPrompt).toContain("memory_feed");
     expect(agent.systemPrompt).toContain(RESIDENT_DISTILLER_AGENT_ID);
   });
