@@ -9,7 +9,7 @@ the hub’s existing `createResolveTenant` middleware supplies principal + tenan
 `defineTool` factories; ingestion modules call the same routes or the in-process
 plane. That’s the product.
 
-Requires Bun 1.2+.
+Requires Bun 1.2+ and Node 24+.
 
 ## Install
 
