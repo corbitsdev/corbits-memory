@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { Hono } from "hono";
 
-import type { Memory } from "./memory.ts";
+import { createMemory, type Memory } from "./memory.ts";
+import { createFakeDocumentStore } from "./ports/fakes.ts";
 import {
   mountWorkflowMemory,
   type AgentTokenAuth,
@@ -157,5 +158,73 @@ describe("the routes the memory tools call", () => {
     });
     expect(res.status).toBe(400);
     expect(seen).toHaveLength(0);
+  });
+});
+
+describe("a workbench team shares its memories", () => {
+  // Real plane over the fake store: the point is what other runs can read
+  // back, which a params-recording fake cannot show.
+  function teamHost(memory: Memory, scope: ResolvedWorkflowRunScope) {
+    return mountWorkflowMemory(new Hono<WorkflowMemoryEnv>(), {
+      memory,
+      agentToken: {
+        verify: () => ({ tenantId: scope.tenantId, definitionId: "def-1" }),
+        resolveRun: () => scope,
+      },
+    });
+  }
+
+  async function addNote(memory: Memory, scope: ResolvedWorkflowRunScope) {
+    const res = await teamHost(memory, scope).request("/add", {
+      method: "POST",
+      headers: { "content-type": "application/json", ...agentHeaders },
+      body: JSON.stringify({ title: "Deploy plan", text: "ship on friday" }),
+    });
+    expect(res.status).toBe(200);
+  }
+
+  async function searchNotes(memory: Memory, scope: ResolvedWorkflowRunScope) {
+    const res = await teamHost(memory, scope).request("/search", {
+      method: "POST",
+      headers: { "content-type": "application/json", ...agentHeaders },
+      body: JSON.stringify({ query: "deploy plan" }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: { items: { title: string }[] } };
+    return body.data.items;
+  }
+
+  const alice: ResolvedWorkflowRunScope = {
+    tenantId: "bench-1",
+    principalId: "alice",
+    runId: "run-a",
+  };
+  const bob: ResolvedWorkflowRunScope = {
+    tenantId: "bench-1",
+    principalId: "bob",
+    runId: "run-b",
+  };
+  const carol: ResolvedWorkflowRunScope = {
+    tenantId: "bench-2",
+    principalId: "carol",
+    runId: "run-c",
+  };
+
+  test("a run's note carries the workbench tag without asking for it", async () => {
+    const seen: Record<string, unknown>[] = [];
+    await addNote(fakeMemory(seen), alice);
+    expect(seen[0]).toMatchObject({ share: { tenant: true } });
+  });
+
+  test("another run in the same workbench finds it", async () => {
+    const memory = createMemory({ documentStore: createFakeDocumentStore() });
+    await addNote(memory, alice);
+    expect(await searchNotes(memory, bob)).toHaveLength(1);
+  });
+
+  test("a run in another workbench does not", async () => {
+    const memory = createMemory({ documentStore: createFakeDocumentStore() });
+    await addNote(memory, alice);
+    expect(await searchNotes(memory, carol)).toHaveLength(0);
   });
 });

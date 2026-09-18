@@ -79,7 +79,23 @@ export type CanAccessDocumentParams = {
   createdByPrincipalId: string | null | undefined;
   accessTags: readonly string[];
   conditionRegistry?: ConditionRegistry;
+  /** Tags the caller already holds — see `matchesVisibleTags`. */
+  visibleTags?: readonly string[];
 };
+
+/**
+ * Tags the caller is proven to hold without a grant row, because the call
+ * itself proved them: a verified agent token is minted for exactly one
+ * tenant, so a run may read its own tenant's shared documents. Never a
+ * caller-supplied value.
+ */
+export function matchesVisibleTags(
+  accessTags: readonly string[],
+  visibleTags: readonly string[] | undefined,
+): boolean {
+  if (!visibleTags || visibleTags.length === 0) return false;
+  return accessTags.some((tag) => tag !== "" && visibleTags.includes(tag));
+}
 
 /**
  * True when the principal may see this document under grant-tag rules.
@@ -89,6 +105,8 @@ export type CanAccessDocumentParams = {
 export async function canAccessDocument(
   params: CanAccessDocumentParams,
 ): Promise<boolean> {
+  if (matchesVisibleTags(params.accessTags, params.visibleTags)) return true;
+
   if (
     params.createdByPrincipalId != null &&
     params.createdByPrincipalId !== "" &&

@@ -23,7 +23,16 @@ import {
 } from "./http-bodies.ts";
 import { formatCaughtError, log } from "./log.ts";
 import { MemoryError, type Memory } from "./memory.ts";
-import type { ShareSugar } from "./grant-tags.ts";
+import { tenantTag, type ShareSugar } from "./grant-tags.ts";
+
+/**
+ * The tags a verified run already proves: the token is minted for exactly one
+ * tenant, so a run reads its workbench's shared memories without a grant row —
+ * and never another tenant's, since the tag carries the verified tenant id.
+ */
+function teamTags(scope: ResolvedWorkflowRunScope): readonly string[] {
+  return [tenantTag(scope.tenantId)];
+}
 
 /** Who a run authenticates as, and which run it is acting on behalf of. */
 export type ResolvedWorkflowRunScope = {
@@ -121,7 +130,9 @@ export function mountWorkflowMemory(
         tenantId: scope.tenantId,
         principalId: scope.principalId,
         ...(body.access_tags !== undefined ? { accessTags: body.access_tags } : {}),
-        ...(body.share !== undefined ? { share: body.share as ShareSugar } : {}),
+        // A workbench is the team: a run's memories are shared with it by
+        // default, and an explicit share only ever adds to that.
+        share: { ...((body.share ?? {}) as ShareSugar), tenant: true },
         ...(body.kind !== undefined ? { kind: body.kind } : {}),
         ...(body.generator_agent_id !== undefined
           ? { generatorAgentId: body.generator_agent_id }
@@ -155,6 +166,7 @@ export function mountWorkflowMemory(
         query: body.query,
         tenantId: scope.tenantId,
         principalId: scope.principalId,
+        visibleTags: teamTags(scope),
         ...(body.limit !== undefined ? { limit: body.limit } : {}),
         ...(body.kinds !== undefined ? { kinds: body.kinds } : {}),
         ...(body.entity_ids !== undefined ? { entityIds: body.entity_ids } : {}),
@@ -181,6 +193,7 @@ export function mountWorkflowMemory(
       const events = await memory.list({
         tenantId: scope.tenantId,
         principalId: scope.principalId,
+        visibleTags: teamTags(scope),
         ...(limit !== undefined ? { limit } : {}),
       });
       return c.json({ data: events });
@@ -208,6 +221,7 @@ export function mountWorkflowMemory(
       const result = await memory.feed({
         tenantId: scope.tenantId,
         principalId: scope.principalId,
+        visibleTags: teamTags(scope),
         ...parsed.value,
       });
       return c.json({ data: result });

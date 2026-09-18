@@ -2,6 +2,7 @@ import { authorize } from "@intx/authz";
 
 import {
   canAccessDocument,
+  matchesVisibleTags,
   resolveAccessTags,
   ownerTag,
   type ShareSugar,
@@ -114,6 +115,7 @@ export {
   ownerTag,
   tenantTag,
   canAccessDocument,
+  matchesVisibleTags,
   type ShareSugar,
 } from "./grant-tags.ts";
 
@@ -159,6 +161,11 @@ export type MemorySearchParams = MemoryIdentity & {
   sources?: string[];
   /** Include deprecated versions in local retrieval (CL-5871). Default false. */
   includeDeprecated?: boolean;
+  /**
+   * Tags the caller is proven to hold without a grant row. The run-scoped
+   * mount passes the run's own tenant tag; never read from a request body.
+   */
+  visibleTags?: readonly string[];
 };
 
 export type MemoryShare = ShareSugar;
@@ -256,6 +263,11 @@ export type SearchResult = {
 
 export type MemoryListParams = MemoryIdentity & {
   limit?: number;
+  /**
+   * Tags the caller is proven to hold without a grant row. The run-scoped
+   * mount passes the run's own tenant tag; never read from a request body.
+   */
+  visibleTags?: readonly string[];
 };
 
 export type MemoryFeedParams = MemoryIdentity & {
@@ -263,6 +275,11 @@ export type MemoryFeedParams = MemoryIdentity & {
   after?: number;
   limit?: number;
   excludeGenerator?: string;
+  /**
+   * Tags the caller is proven to hold without a grant row. The run-scoped
+   * mount passes the run's own tenant tag; never read from a request body.
+   */
+  visibleTags?: readonly string[];
 };
 
 export type MemoryFeedEntry = {
@@ -766,6 +783,9 @@ function createPlaneFromStore(
         ...(grants?.conditionRegistry !== undefined
           ? { conditionRegistry: grants.conditionRegistry }
           : {}),
+        ...(params.visibleTags !== undefined
+          ? { visibleTags: params.visibleTags }
+          : {}),
       });
       localItems = local.items.map((it) => ({
         documentId: it.documentId,
@@ -976,6 +996,9 @@ function createPlaneFromStore(
         ...(grants?.conditionRegistry !== undefined
           ? { conditionRegistry: grants.conditionRegistry }
           : {}),
+        ...(params.visibleTags !== undefined
+          ? { visibleTags: params.visibleTags }
+          : {}),
       });
     },
 
@@ -993,6 +1016,9 @@ function createPlaneFromStore(
         ...(params.limit !== undefined ? { limit: params.limit } : {}),
         ...(params.excludeGenerator !== undefined
           ? { excludeGenerator: params.excludeGenerator }
+          : {}),
+        ...(params.visibleTags !== undefined
+          ? { visibleTags: params.visibleTags }
           : {}),
         ...(grants !== undefined ? { grants: grants.grantStore } : {}),
         ...(grants?.conditionRegistry !== undefined
@@ -1209,6 +1235,7 @@ function createEngineDocumentStore(config: MemoryConfig): {
     includeDeprecated?: boolean;
     grants?: DocumentStoreSearchParams["grants"];
     conditionRegistry?: DocumentStoreSearchParams["conditionRegistry"];
+    visibleTags?: DocumentStoreSearchParams["visibleTags"];
   }): Promise<HybridSearchResult> {
     try {
       await ensureVerified();
@@ -1265,6 +1292,11 @@ function createEngineDocumentStore(config: MemoryConfig): {
       for (const id of docIds) {
         const meta = byId.get(id);
         if (!meta) continue;
+        // A tag the caller is proven to hold needs no grant lookup.
+        if (matchesVisibleTags(meta.accessTags, params.visibleTags)) {
+          allowed.add(id);
+          continue;
+        }
         // No grants → creator-only (safe default for standalone / unit tests).
         if (!params.grants) {
           if (meta.createdByPrincipalId === params.principalId) {
@@ -1278,6 +1310,9 @@ function createEngineDocumentStore(config: MemoryConfig): {
           principalId: params.principalId,
           createdByPrincipalId: meta.createdByPrincipalId,
           accessTags: meta.accessTags,
+          ...(params.visibleTags !== undefined
+            ? { visibleTags: params.visibleTags }
+            : {}),
           ...(params.conditionRegistry !== undefined
             ? { conditionRegistry: params.conditionRegistry }
             : {}),
@@ -1410,6 +1445,9 @@ function createEngineDocumentStore(config: MemoryConfig): {
           ...(params.conditionRegistry !== undefined
             ? { conditionRegistry: params.conditionRegistry }
             : {}),
+          ...(params.visibleTags !== undefined
+            ? { visibleTags: params.visibleTags }
+            : {}),
         });
         const items = hitsToSearchItems(result.hits, result.evidence);
         if (params.includeEvidence) {
@@ -1435,6 +1473,9 @@ function createEngineDocumentStore(config: MemoryConfig): {
           ...(params.conditionRegistry !== undefined
             ? { conditionRegistry: params.conditionRegistry }
             : {}),
+          ...(params.visibleTags !== undefined
+            ? { visibleTags: params.visibleTags }
+            : {}),
         });
       },
 
@@ -1451,6 +1492,10 @@ function createEngineDocumentStore(config: MemoryConfig): {
 
         const allowed: FeedEntry[] = [];
         for (const entry of raw.entries) {
+          if (matchesVisibleTags(entry.accessTags, params.visibleTags)) {
+            allowed.push(entry);
+            continue;
+          }
           if (!params.grants) {
             if (entry.createdByPrincipalId === params.principalId) {
               allowed.push(entry);
@@ -1463,6 +1508,9 @@ function createEngineDocumentStore(config: MemoryConfig): {
             principalId: params.principalId,
             createdByPrincipalId: entry.createdByPrincipalId,
             accessTags: entry.accessTags,
+            ...(params.visibleTags !== undefined
+              ? { visibleTags: params.visibleTags }
+              : {}),
             ...(params.conditionRegistry !== undefined
               ? { conditionRegistry: params.conditionRegistry }
               : {}),

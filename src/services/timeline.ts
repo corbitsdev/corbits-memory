@@ -9,7 +9,7 @@
  */
 import { and, desc, eq, sql } from "drizzle-orm";
 import type { ConditionRegistry, GrantStore } from "@intx/authz";
-import { canAccessDocument } from "../grant-tags.ts";
+import { canAccessDocument, matchesVisibleTags } from "../grant-tags.ts";
 import { LIVE_GENERATION } from "../core/generation.ts";
 
 import type { Db } from "../db/client.ts";
@@ -32,6 +32,8 @@ export type ListTimelineParams = {
   /** Host grant store — required for non-creator document access. */
   grants?: GrantStore;
   conditionRegistry?: ConditionRegistry;
+  /** Tags the caller already holds without a grant row (see grant-tags). */
+  visibleTags?: readonly string[];
   /**
    * Replay-generation tag. Defaults to live so staged replay versions never
    * appear in the default timeline (matches hybrid search).
@@ -85,33 +87,31 @@ export async function filterTimelineRows(
     tenantId: string;
     grants?: GrantStore;
     conditionRegistry?: ConditionRegistry;
+    visibleTags?: readonly string[];
   },
 ): Promise<{ events: TimelineEvent[]; withheld: number }> {
   const events: TimelineEvent[] = [];
   let withheld = 0;
 
   for (const row of rows) {
-    if (!params.grants) {
-      // Safe default: creator-only when no GrantStore is mounted.
-      if (row.createdByPrincipalId !== params.principalId) {
-        withheld += 1;
-        continue;
-      }
-    } else {
-      const ok = await canAccessDocument({
-        grants: params.grants,
-        tenantId: params.tenantId,
-        principalId: params.principalId,
-        createdByPrincipalId: row.createdByPrincipalId,
-        accessTags: row.accessTags ?? [],
-        ...(params.conditionRegistry !== undefined
-          ? { conditionRegistry: params.conditionRegistry }
-          : {}),
-      });
-      if (!ok) {
-        withheld += 1;
-        continue;
-      }
+    const visible = matchesVisibleTags(row.accessTags ?? [], params.visibleTags)
+      ? true
+      : params.grants
+        ? await canAccessDocument({
+            grants: params.grants,
+            tenantId: params.tenantId,
+            principalId: params.principalId,
+            createdByPrincipalId: row.createdByPrincipalId,
+            accessTags: row.accessTags ?? [],
+            ...(params.conditionRegistry !== undefined
+              ? { conditionRegistry: params.conditionRegistry }
+              : {}),
+          })
+        : // Safe default: creator-only when no GrantStore is mounted.
+          row.createdByPrincipalId === params.principalId;
+    if (!visible) {
+      withheld += 1;
+      continue;
     }
 
     events.push({
@@ -162,6 +162,9 @@ export async function listTimelineEvents(
     ...(params.grants !== undefined ? { grants: params.grants } : {}),
     ...(params.conditionRegistry !== undefined
       ? { conditionRegistry: params.conditionRegistry }
+      : {}),
+    ...(params.visibleTags !== undefined
+      ? { visibleTags: params.visibleTags }
       : {}),
   });
 
