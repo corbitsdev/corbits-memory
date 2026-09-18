@@ -21,10 +21,11 @@ export const MEMORY_TOOL_DEFINITIONS: readonly MemoryToolDefinition[] = [
   {
     name: "memory_add",
     description:
-      "Store a note in tenant memory. Returns { documentId, versionId }. " +
-      "For distilled claims set generator_agent_id, provenance=inferred, " +
-      "lineage_class=derived, and derived_from source version ids. " +
-      "Identity is the run this agent is acting for.",
+      "Store a note in workbench memory. Every note you store is shared with " +
+      "your workbench team automatically — do not pass share. Returns " +
+      "{ documentId, versionId }. For distilled claims set generator_agent_id, " +
+      "provenance=inferred, lineage_class=derived, and derived_from source " +
+      "version ids. Identity is the run this agent is acting for.",
     inputSchema: {
       type: "object",
       properties: {
@@ -74,7 +75,8 @@ export const MEMORY_TOOL_DEFINITIONS: readonly MemoryToolDefinition[] = [
             tags: { type: "array", items: { type: "string" } },
           },
           description:
-            "Optional share sugar that mints access tags (tenant / principals / tags)",
+            "Rarely needed: team sharing is already on. Only widens further " +
+            "(named principals / extra tags); it can never narrow.",
         },
       },
       required: ["title", "text"],
@@ -84,7 +86,8 @@ export const MEMORY_TOOL_DEFINITIONS: readonly MemoryToolDefinition[] = [
   {
     name: "memory_search",
     description:
-      "Hybrid semantic + keyword search over tenant memory. " +
+      "Hybrid semantic + keyword search over your workbench's memory, " +
+      "including memories your teammates' agents stored. " +
       "Returns ranked items with optional additive attribution " +
       "(provenance, temporal class, corroboration, derivedFrom) and evidence. " +
       "Attribute stated content to the actor; treat inferred as own-voice claims.",
@@ -128,7 +131,7 @@ export const MEMORY_TOOL_DEFINITIONS: readonly MemoryToolDefinition[] = [
   },
   {
     name: "memory_list",
-    description: "List recent documents visible to this run in the tenant's memory.",
+    description: "List recent documents in your workbench's memory, including your teammates'.",
     inputSchema: {
       type: "object",
       properties: {

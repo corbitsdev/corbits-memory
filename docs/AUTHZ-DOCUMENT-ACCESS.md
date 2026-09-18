@@ -89,6 +89,17 @@ Tag minting is **not** grant minting. For peer share to work in product:
 4. `share.tenant` / `share.tags` still only mint tags — hosts issue role/pattern
    grants on those resources (no auto-principal grants).
 
+### Run-scoped mount (deployed agents)
+
+The run-scoped mount (`src/workflow-mount.ts`) is a team surface: a workbench
+is the team, so an agent run's `add` always stamps `memory.tenant:<tenantId>`
+alongside the owner tag, and an explicit `share` / `access_tags` only widens
+further. Its `search` / `list` / `feed` pass that same tag as `visibleTags` —
+tags the caller is proven to hold without a grant row, because the hub mints a
+verified agent token for exactly one tenant. `visibleTags` is never read from a
+request body, so a run can only ever see its own tenant's shared documents.
+Human-facing tenant routes are unchanged: owner-only by default, grants only.
+
 ### Audience widening (write-narrow-then-widen)
 
 Distiller / claim writes that propose tags **beyond** the source document's

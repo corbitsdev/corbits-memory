@@ -6,7 +6,7 @@
  * authorize(grants, …, tag, "search") allows when grants are provided. Without
  * grants, only creator access (safe default for unit tests).
  */
-import { canAccessDocument } from "../grant-tags.ts";
+import { canAccessDocument, matchesVisibleTags } from "../grant-tags.ts";
 
 import type {
   DocumentStore,
@@ -37,8 +37,10 @@ async function visibleTo(
     tenantId: string;
     grants?: DocumentStoreSearchParams["grants"];
     conditionRegistry?: DocumentStoreSearchParams["conditionRegistry"];
+    visibleTags?: DocumentStoreSearchParams["visibleTags"];
   },
 ): Promise<boolean> {
+  if (matchesVisibleTags(doc.accessTags, params.visibleTags)) return true;
   if (!params.grants) {
     return doc.principalId === params.principalId;
   }
@@ -48,6 +50,7 @@ async function visibleTo(
     principalId: params.principalId,
     createdByPrincipalId: doc.principalId,
     accessTags: doc.accessTags,
+    ...(params.visibleTags !== undefined ? { visibleTags: params.visibleTags } : {}),
     ...(params.conditionRegistry !== undefined
       ? { conditionRegistry: params.conditionRegistry }
       : {}),

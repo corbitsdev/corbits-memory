@@ -64,6 +64,11 @@ export type DocumentStoreSearchParams = {
    */
   grants?: GrantStore;
   conditionRegistry?: ConditionRegistry;
+  /**
+   * Tags the caller already holds without a grant row (the run-scoped mount
+   * passes the run's own tenant tag). Never taken from a request body.
+   */
+  visibleTags?: readonly string[];
 };
 
 export type DocumentStoreSearchItem = {
@@ -109,6 +114,11 @@ export type DocumentStoreListParams = {
   limit?: number;
   grants?: GrantStore;
   conditionRegistry?: ConditionRegistry;
+  /**
+   * Tags the caller already holds without a grant row (the run-scoped mount
+   * passes the run's own tenant tag). Never taken from a request body.
+   */
+  visibleTags?: readonly string[];
 };
 
 export type DocumentStoreListEvent = {
@@ -127,6 +137,11 @@ export type DocumentStoreFeedParams = {
   excludeGenerator?: string;
   grants?: GrantStore;
   conditionRegistry?: ConditionRegistry;
+  /**
+   * Tags the caller already holds without a grant row (the run-scoped mount
+   * passes the run's own tenant tag). Never taken from a request body.
+   */
+  visibleTags?: readonly string[];
 };
 
 export type DocumentStoreFeedEntry = {
