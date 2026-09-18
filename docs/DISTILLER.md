@@ -38,7 +38,7 @@ When other writers also `add`, drain new versions with the capture feed:
 
 ```ts
 import { runDistillTick } from "@corbits/memory/distiller";
-import { createMemoryHttpClient } from "@corbits/memory/tools";
+import { createMemoryHttpClient } from "@corbits/memory";
 
 const client = createMemoryHttpClient({
   baseUrl: process.env.MEMORY_BASE_URL!,
@@ -92,7 +92,7 @@ const { workflow, generatorAgentId } = createResidentDistiller({
 | Claim identity on add | `generator_agent_id`, `provenance`, `lineage_class`, `derived_from` |
 | Wire attribution on search | `SearchItem.attribution` |
 | Retention / forgetting | [RETENTION.md](./RETENTION.md) |
-| Tools | `@corbits/memory/tools` |
+| Tools | `@corbits/memory/sidecar-bundle` |
 
 ## Grant manifest (process principal)
 
@@ -100,7 +100,7 @@ Installer discovery (not live grants):
 
 - `package.json` → `interchange.grantRequirements`
 - typed SSOT: `MEMORY_GRANT_REQUIREMENTS` / `MEMORY_CAPABILITY_IDS` from
-  `@corbits/memory` (or `@corbits/memory/tools`)
+  `@corbits/memory`
 
 Minimum capabilities:
 

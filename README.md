@@ -5,9 +5,10 @@ Memory for [Interchange](https://github.com/corbitsdev) hubs: **add**, **search*
 
 Mount it on the hub. Routes land under `/api/tenants/:tenantId/memory/*`, so
 the hub’s existing `createResolveTenant` middleware supplies principal + tenant
-— same as workflows, assets, and agents. Workflow agents install the package’s
-`defineTool` factories; ingestion modules call the same routes or the in-process
-plane. That’s the product.
+— same as workflows, assets, and agents. Deployed agents carry the sidecar
+bundle and call the run-scoped routes under `/api/workflow-memory/*`;
+ingestion modules call the tenant routes or the in-process plane. That’s the
+product.
 
 Requires Bun 1.2+.
 
@@ -57,46 +58,47 @@ POST /api/tenants/:tenantId/memory/search   { "query", "limit"?, "kinds"?, "enti
 GET  /api/tenants/:tenantId/memory/list     ?limit=
 ```
 
-## Workflow agent tools
+## Agent tools (sidecar bundle)
 
-This package exports Interchange `defineTool` factories at
-`@corbits/memory/tools` (also `package.json` → `interchange.tools`). Each tool
-is a thin HTTP client: install credentials in agent env, call the mounted hub
-routes. No plane inject, no model-supplied identity.
+A deployed agent carries the memory tools through one factory at
+`@corbits/memory/sidecar-bundle`. It holds no client code, no base URL and no
+token: it resolves the `hub` credential handle from the host-assembled runtime
+capabilities and calls the run-scoped routes through that mediated fetch,
+naming its run with the `x-workflow-run-address` header.
 
-| Factory id | Tool name | HTTP |
-| --- | --- | --- |
-| `@corbits/memory/add` | `memory_add` | `POST …/memory/add` |
-| `@corbits/memory/search` | `memory_search` | `POST …/memory/search` |
-| `@corbits/memory/list` | `memory_list` | `GET …/memory/list` |
-
-**Env keys** (declared on each factory’s `requires`):
-
-| Key | Meaning |
+| Tool | Route |
 | --- | --- |
-| `memoryBaseUrl` | Hub **origin** only, e.g. `https://hub.example` (no `/api/...` path) |
-| `memoryTenantId` | Tenant path segment (must match the principal’s tenant on the hub) |
-| `memoryAuthToken` | Bearer token the hub accepts for that agent principal |
+| `memory_add` | `POST /api/workflow-memory/add` |
+| `memory_search` | `POST /api/workflow-memory/search` |
+| `memory_list` | `GET /api/workflow-memory/list` |
+| `memory_feed` | `GET /api/workflow-memory/feed` |
+
+Those routes are a **second, parallel mount** — the tenant routes above keep
+their session auth untouched:
+
+```ts
+import { mountWorkflowMemory } from "@corbits/memory";
+
+mountWorkflowMemory(workflowMemoryApi, {
+  memory,
+  agentToken: { verify, resolveRun }, // host's own token + run lookup
+});
+app.route("/api/workflow-memory", workflowMemoryApi);
+```
+
+`verify` returns `{ tenantId, definitionId }` for a recognized bearer (or
+`undefined`), `resolveRun` maps the run address to `{ tenantId, principalId,
+runId }`. A token whose tenant is not the run's tenant is refused with the same
+401 as an unknown bearer. Every call is scoped to that run's tenant and
+principal; the body never carries identity.
 
 **Host checklist**
 
-1. Mount routes: `createMemory({ app, grantStore, … })` under the hub tenant tree.
-2. Grant the agent principal `memory:add` and/or `memory:search` (`list` uses `search`).
-3. For peer/space share visibility, also grant `search` on the relevant document tags (see `docs/AUTHZ-DOCUMENT-ACCESS.md`).
-4. Install factories on the workflow and set the three env keys above.
-5. Auth is **Bearer only** on the tool client — session cookies are not sent.
-6. Tool results are **JSON strings** (`stringTool`); pass `AbortSignal` if you need hang protection (no default client timeout).
-
-```ts
-import { memoryAdd, memorySearch, memoryList } from "@corbits/memory/tools";
-
-// On a workflow / agent definition — install like any open tool package:
-// tools: [memoryAdd, memorySearch, memoryList]
-// and supply memoryBaseUrl / memoryTenantId / memoryAuthToken in agent env.
-```
-
-OpenAPI→MCP remains available as an alternative host bridge; the shipped
-`defineTool`s are the primary install path for workflow agents.
+1. Mount the tenant routes: `createMemory({ app, grantStore, … })`.
+2. Mount `mountWorkflowMemory` and bind the agent's hub credential to the
+   `hub` handle on its definition.
+3. For peer/space share visibility, grant `search` on the relevant document
+   tags (see `docs/AUTHZ-DOCUMENT-ACCESS.md`).
 
 ## Ingestion (in-process)
 

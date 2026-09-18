@@ -195,6 +195,27 @@ export {
 } from "./core/embed-model-registry.ts";
 
 
+// Run-scoped routes for deployed agents (bearer + run address, no session).
+// The tools that call them ship at `@corbits/memory/sidecar-bundle`.
+export { mountWorkflowMemory } from "./workflow-mount.ts";
+export type {
+  AgentTokenAuth,
+  AgentTokenIdentity,
+  MountWorkflowMemoryOpts,
+  ResolvedWorkflowRunScope,
+  WorkflowMemoryEnv,
+} from "./workflow-mount.ts";
+export { MEMORY_TOOL_DEFINITIONS, type MemoryToolDefinition } from "./tools.ts";
+
+// Host-side HTTP client for the tenant routes (the imperative distill tick).
+export {
+  createMemoryHttpClient,
+  type MemoryAddBody,
+  type MemoryHttpClient,
+  type MemoryHttpConfig,
+  type MemorySearchBody,
+} from "./http-client.ts";
+
 // Migrations
 export { runMemoryMigrations } from "./migrations.ts";
 
