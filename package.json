@@ -64,7 +64,7 @@
     "postgres": "^3.4.7"
   },
   "devDependencies": {
-    "@types/bun": "latest",
+    "@types/bun": "1.4.2",
     "typescript": "^5.9.0"
   },
   "author": "Sawyer Cutler <sawyer@dirtroad.dev>",

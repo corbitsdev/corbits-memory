@@ -10,9 +10,14 @@ bundle and call the run-scoped routes under `/api/workflow-memory/*`;
 ingestion modules call the tenant routes or the in-process plane. That’s the
 product.
 
-Requires Bun 1.2+. `engines.node` is `>=24` as a floor for Node-side tooling
-(typecheck, pack); native Node does not load this package's extensionless
-TypeScript source.
+## Requirements
+
+**Bun-only runtime.** This package ships TypeScript source (`src/*.ts`, see
+`package.json` `exports`) and declares `"engines": { "bun": ">=1.2.0" }` — run
+it under Bun 1.2+. There is intentionally no `dist` build step. `engines.node`
+is `>=24` as a floor for Node-side tooling (typecheck, pack); native Node does
+not load this package's extensionless TypeScript source.
+
 
 ## Install
 
@@ -49,6 +54,10 @@ That exposes:
 | POST | `/api/tenants/:tenantId/memory/add` | `("memory", "add")` |
 | POST | `/api/tenants/:tenantId/memory/search` | `("memory", "search")` |
 | GET | `/api/tenants/:tenantId/memory/list` | `("memory", "search")` |
+| GET | `/api/tenants/:tenantId/memory/feed` | `("memory", "search")` |
+| POST | `/api/tenants/:tenantId/memory/documents/:documentId/forget` | `("memory", "forget")` |
+| POST | `/api/tenants/:tenantId/memory/documents/:documentId/purge` | `("memory", "purge")` |
+| POST | `/api/tenants/:tenantId/memory/versions/:versionId/retention-class` | `("memory", "forget")` |
 
 Bodies never carry tenant/principal — routes read `c.get("principal")` from
 context (set by the hub’s tenant middleware). Missing principal → **401**.
@@ -58,7 +67,38 @@ Missing grant → **403**.
 POST /api/tenants/:tenantId/memory/add      { "title", "text", "access_tags"?, "share"? }
 POST /api/tenants/:tenantId/memory/search   { "query", "limit"?, "kinds"?, "entity_ids"?, "sources"?, "includeEvidence"? }
 GET  /api/tenants/:tenantId/memory/list     ?limit=
+GET  /api/tenants/:tenantId/memory/feed     ?after=&limit=&exclude_generator=
+POST /api/tenants/:tenantId/memory/documents/:documentId/forget            { "reason"? }
+POST /api/tenants/:tenantId/memory/documents/:documentId/purge             (no body)
+POST /api/tenants/:tenantId/memory/versions/:versionId/retention-class     { "retention_class": "durable" | "standard" | "ephemeral" | "source_only" }
 ```
+
+### Feed
+
+`GET …/memory/feed` pulls new live versions after a cursor (`after` = last
+consumed `feedSeq`, `limit` 1–100, `exclude_generator` skips one
+`generator_agent_id`). Grant: `("memory", "search")`, same grant-tag
+post-filter as search. Details: [`docs/FEED.md`](docs/FEED.md); the resident
+distiller consumes this feed — see `@corbits/memory/distiller`
+(`createResidentDistiller`, `runDistillTick`) and
+[`docs/DISTILLER.md`](docs/DISTILLER.md).
+
+### Retention (`forget`, `purge`, `retention-class`)
+
+- `POST …/documents/:documentId/forget` — tombstone: stops appearing in
+  search/feed, chunk text redacted, version rows stay for audit.
+  Grant `("memory", "forget")` **plus** the caller must be the document’s
+  creator. Plane verb: `memory.tombstoneDocument`.
+- `POST …/documents/:documentId/purge` — hard delete, irreversible; refused
+  while a durable version is untombstoned. Grant `("memory", "purge")`
+  **plus** creator check. Plane verb: `memory.hardDeleteDocument`.
+- `POST …/versions/:versionId/retention-class` — set a version’s retention
+  class (`setRetentionClass`). Grant `("memory", "forget")` **plus** the
+  caller must be that version’s creator.
+
+Details: [`docs/RETENTION.md`](docs/RETENTION.md). Engine config for these
+paths comes from `@corbits/memory/config` (`loadMemoryConfig`,
+`MemoryConfig`).
 
 ## Agent tools (sidecar bundle)
 
@@ -127,7 +167,7 @@ always sees their own docs. Details:
 
 ## Config
 
-`loadMemoryConfig()` reads env (see `.env.example`). For the default pgvector
+`loadMemoryConfig()` (from `@corbits/memory/config`) reads env (see `.env.example`). For the default pgvector
 store you need `DATABASE_URL`, `EMBED_BASE_URL`, `EMBED_MODEL`.
 
 ```ts
