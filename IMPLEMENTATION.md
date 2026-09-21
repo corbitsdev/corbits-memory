@@ -8,23 +8,25 @@ and wire shapes. For the "why standalone" / boundaries story, read
 
 ```
 src/
-  index.ts                # createMemory / registerMemoryRoutes + distiller re-exports
+  index.ts                # createMemory / registerMemoryRoutes / mountWorkflowMemory + distiller re-exports
 
   mount-config.ts         # MemoryConfig + loadMemoryConfig() — the mount config
   config.ts               # EngineConfig — the core vector-plane config (db + embed + rerank)
   memory.ts               # createMemory — add/search/list against store or pgvector
   grant-tags.ts           # resolveAccessTags + canAccessDocument (host grants)
+  workflow-mount.ts       # mountWorkflowMemory — run-scoped /api/workflow-memory/*
+  sidecar-bundle.ts       # @corbits/memory/sidecar-bundle factory (no client, no token)
+  tools.ts                # MEMORY_TOOL_DEFINITIONS — sidecar binds names to run-scoped routes
+  http-client.ts          # host-side HTTP client for tenant routes (imperative distill tick)
 
   log.ts                  # getLogger(["memory"]) from @intx/log
   migrations.ts           # runMemoryMigrations(url)
   ports/                  # DocumentStore / SourceProvider + fakes
-  routes/                 # the mounted routes
+  routes/                 # the mounted tenant routes
     mount.ts              # registerMemoryRoutes (HTTP)
 
     deps.ts               # RouteDeps, caller(c) (context identity), grantGuard
     add.ts, search.ts, list.ts, feed.ts
-  tools/                  # Interchange defineTool factories (HTTP clients)
-    add.ts, search.ts, list.ts, feed.ts, client.ts, install.ts
   distiller/              # Resident distiller (CL-5869) — workflow + tick helpers
     index.ts              # createResidentDistiller, runDistillTick, buildDistilledClaim
     workflow.ts           # defineWorkflow + defineAgent with memory tools
@@ -640,20 +642,68 @@ surface, or a migrating host silently loses them.
 
 `registerMemoryRoutes` and `createMemory({ app })` register these seven HTTP
 routes (add, search, list, feed, forget, purge, retention-class).
-Agent tools ship in this package as Interchange `defineTool` factories
-(`@corbits/memory/tools` / `interchange.tools`): thin HTTP clients that call the
-mounted routes with install env (`memoryBaseUrl`, `memoryTenantId`,
-`memoryAuthToken`). They do not import the plane. Host checklist: agent principal
-needs `memory:add` and/or `memory:search` grants; Bearer token only (no session
-cookie path); tool results are JSON strings; pass `AbortSignal` if you need hang
-protection — the client has no default timeout. OpenAPI→MCP remains an optional
-host bridge. The plane surface is `add` / `search` / `list` / `close`, plus
-optional transform methods when backed by the engine DocumentStore
-(`createTransformConfig`, `listTransformConfigs`, `runTransform`,
-`promoteGeneration`, `demoteGeneration`) and optional retention methods
-(`tombstoneDocument`, `hardDeleteDocument`, `setRetentionClass`,
-`sweepEphemeral`, `deprecateVersion`) — see docs/RETENTION.md. Inference stays
-on the host.
+**Capture** (`services/capture.ts`) is the write path inside `add`.
+**Search** (`services/search.ts`) is hybrid retrieval. Deployed agents do
+not call these tenant routes with a git-installed client; they use the
+sidecar mount below. The plane surface is `add` / `search` / `list` /
+`close`, plus optional transform methods when backed by the engine
+DocumentStore (`createTransformConfig`, `listTransformConfigs`,
+`runTransform`, `promoteGeneration`, `demoteGeneration`) and optional
+retention methods (`tombstoneDocument`, `hardDeleteDocument`,
+`setRetentionClass`, `sweepEphemeral`, `deprecateVersion`) — see
+docs/RETENTION.md. Inference stays on the host. Host workers that already
+have HTTP to the tenant tree can use `createMemoryHttpClient`
+(`src/http-client.ts`) — that is a host client, not the agent sidecar.
+
+### Run-scoped sidecar (`mountWorkflowMemory`)
+
+`src/workflow-mount.ts`, re-exported from the barrel. Parallel to the
+tenant tree — do not fold agent-bearer auth into `registerMemoryRoutes`.
+`package.json` exports `@corbits/memory/sidecar-bundle` →
+`src/sidecar-bundle.ts`.
+
+```ts
+import { mountWorkflowMemory } from "@corbits/memory";
+
+mountWorkflowMemory(workflowMemoryApp, {
+  memory,
+  agentToken: { verify, resolveRun },
+});
+app.route("/api/workflow-memory", workflowMemoryApp);
+```
+
+| Constant | Value |
+| --- | --- |
+| `WORKFLOW_MEMORY_BASE_PATH` | `/api/workflow-memory` |
+| `HUB_CREDENTIAL_HANDLE` | `hub` |
+| `SIDECAR_BUNDLE_ID` | `@corbits/memory/sidecar-bundle` |
+
+**Auth.** Every route sits behind middleware: `agentToken.verify(c)` reads
+the presented `Authorization`; `agentToken.resolveRun` looks up
+`x-workflow-run-address`. Same **401** body whether the bearer is
+unrecognized, the address names no run, or the run's tenant is not the
+token's tenant. No `requireGrant`. No tenant override. Scope on context:
+`workflowRunScope` `{ tenantId, principalId, runId }`.
+
+**Wire (relative to the mount; sidecar never names a host).** Responses
+are `{ data: … }` on success. Sidecar `requires`: `capabilities`,
+`address` (run address). Tool results are JSON strings.
+
+| Tool name | Method + path | Notes |
+| --- | --- | --- |
+| `memory_add` | `POST /add` | Body same as tenant add. Forces `share.tenant = true` (team share; explicit share only widens). Capture path is `memory.add` → `captureDocument`. |
+| `memory_search` | `POST /search` | Body same as tenant search; `visibleTags` = `[tenantTag(tenantId)]`. |
+| `memory_list` | `GET /list?limit=` | Same grant-tag visibility as search (`visibleTags` team tag). |
+| `memory_feed` | `GET /feed?after=&limit=&exclude_generator=` | **501** if `memory.feed` is undefined on this plane. |
+
+Unknown tool name → tool error (`isError: true`). Non-HTTP hub credential
+kind → error. `callMemoryRoute` sends `x-workflow-run-address` and
+optional JSON body; mediated `credential.fetch` injects the bearer and
+pins origin.
+
+`callerResolver` on the **tenant** routes is a different seam (machine
+caller through the same grant path). Do not treat it as a replacement for
+`mountWorkflowMemory`.
 
 ### Share materialization (CL-5873)
 
