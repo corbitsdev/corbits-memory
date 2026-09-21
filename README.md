@@ -10,7 +10,9 @@ bundle and call the run-scoped routes under `/api/workflow-memory/*`;
 ingestion modules call the tenant routes or the in-process plane. That’s the
 product.
 
-Requires Bun 1.2+ and Node 24+.
+Requires Bun 1.2+. `engines.node` is `>=24` as a floor for Node-side tooling
+(typecheck, pack); native Node does not load this package's extensionless
+TypeScript source.
 
 ## Install
 
