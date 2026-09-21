@@ -311,3 +311,123 @@ describe("background embed pass honors the configured embed timeout (CL-8615)", 
     }
   });
 });
+
+describe("findPendingChunks skips tombstoned and non-live versions", () => {
+  it("joins memory.version and binds live generation so a forget-then-add cannot sweep [redacted] text", async () => {
+    const { findPendingChunks } = await loadRealCapture();
+    const queries: Array<{ sql: string; params: readonly unknown[] }> = [];
+    const client = {
+      query: (sql: string, params: readonly unknown[]) => {
+        queries.push({ sql, params });
+        return Promise.resolve([{ id: "chunk_live", text: "keep me" }]);
+      },
+    };
+    const table = {
+      tableName: `"memory"."embedding_0123456789abcdef"`,
+      dims: 128,
+      modelId: "test-model",
+    };
+
+    const pending = await findPendingChunks(client, "tenant-1", table, 100);
+
+    expect(pending).toEqual([{ id: "chunk_live", text: "keep me" }]);
+    expect(queries).toHaveLength(1);
+    const { sql, params } = queries[0]!;
+    expect(sql).toContain('INNER JOIN "memory"."version" v ON v.id = c.version_id');
+    expect(sql).toContain("v.status <> 'tombstoned'");
+    expect(sql).toContain("v.generation = $3");
+    expect(params).toEqual(["tenant-1", 100, "live"]);
+  });
+});
+
+describe("background embed scheduler serializes overlapping adds", () => {
+  it("overlapping enqueues for one tenant share one in-flight pass and never overlap run()", async () => {
+    const { createBackgroundEmbedScheduler } = await loadRealCapture();
+    const scheduler = createBackgroundEmbedScheduler();
+    let current = 0;
+    const batches: string[][] = [];
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let holding = true;
+
+    const run = async (chunks: EmbeddableChunk[]) => {
+      current++;
+      batches.push(chunks.map((chunk) => chunk.id));
+      if (holding) {
+        holding = false;
+        await held;
+      }
+      current--;
+    };
+
+    const p1 = scheduler.enqueue({
+      tenantId: "tenant-1",
+      chunks: [{ id: "a", text: "a" }],
+      run,
+    });
+    const p2 = scheduler.enqueue({
+      tenantId: "tenant-1",
+      chunks: [{ id: "b", text: "b" }],
+      run,
+    });
+    const p3 = scheduler.enqueue({
+      tenantId: "tenant-1",
+      chunks: [{ id: "c", text: "c" }],
+      run,
+    });
+
+    await Promise.resolve();
+    expect(scheduler.passStarts()).toBe(1);
+    expect(scheduler.maxConcurrent()).toBe(1);
+    expect(current).toBe(1);
+    release();
+    await Promise.all([p1, p2, p3]);
+
+    expect(scheduler.maxConcurrent()).toBe(1);
+    expect(scheduler.passStarts()).toBeLessThanOrEqual(2);
+    expect(batches.flat().sort()).toEqual(["a", "b", "c"]);
+  });
+
+  it("passes for two tenants still never run concurrently", async () => {
+    const { createBackgroundEmbedScheduler } = await loadRealCapture();
+    const scheduler = createBackgroundEmbedScheduler();
+    let releaseFirst!: () => void;
+    const held = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let holding = true;
+    const seenTenants: string[] = [];
+
+    const runFor = (tenantId: string) => async (_chunks: EmbeddableChunk[]) => {
+      seenTenants.push(tenantId);
+      if (holding) {
+        holding = false;
+        await held;
+      }
+    };
+
+    const pA = scheduler.enqueue({
+      tenantId: "tenant-a",
+      chunks: [{ id: "a", text: "a" }],
+      run: runFor("tenant-a"),
+    });
+    const pB = scheduler.enqueue({
+      tenantId: "tenant-b",
+      chunks: [{ id: "b", text: "b" }],
+      run: runFor("tenant-b"),
+    });
+
+    await Promise.resolve();
+    expect(scheduler.passStarts()).toBe(1);
+    expect(scheduler.maxConcurrent()).toBe(1);
+    expect(seenTenants).toEqual(["tenant-a"]);
+    releaseFirst();
+    await Promise.all([pA, pB]);
+
+    expect(scheduler.maxConcurrent()).toBe(1);
+    expect(scheduler.passStarts()).toBe(2);
+    expect(seenTenants).toEqual(["tenant-a", "tenant-b"]);
+  });
+});
