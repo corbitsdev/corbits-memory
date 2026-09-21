@@ -51,12 +51,12 @@
     "test:coverage": "bun test --coverage --coverage-reporter=lcov --coverage-reporter=text ./src"
   },
   "dependencies": {
-    "@intx/agent": "0.2.2",
-    "@intx/authz": "0.2.2",
-    "@intx/hub-api": "0.2.2",
-    "@intx/log": "0.2.2",
+    "@intx/agent": "^0.3.0",
+    "@intx/authz": "^0.3.0",
+    "@intx/hub-api": "^0.3.0",
+    "@intx/log": "^0.3.0",
     "@intx/types": "^0.3.0",
-    "@intx/workflow": "0.2.2",
+    "@intx/workflow": "^0.3.0",
     "arktype": "^2.1.29",
     "drizzle-orm": "^0.45.1",
     "hono": "^4.9.0",
