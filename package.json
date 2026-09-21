@@ -41,7 +41,8 @@
   "type": "module",
   "module": "src/index.ts",
   "engines": {
-    "bun": ">=1.2.0"
+    "bun": ">=1.2.0",
+    "node": ">=24"
   },
   "scripts": {
     "db:setup": "bun run scripts/db-setup.ts",
