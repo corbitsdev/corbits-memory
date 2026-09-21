@@ -53,92 +53,39 @@ function sorted(values: readonly string[]): string[] {
 describe("enum lockstep: TS constants match migration CHECK constraints", () => {
   const sql = allMigrationSql();
 
-  it("edge_rel_check matches EDGE_RELS", () => {
-    expect(sorted(lastCheckInList(sql, "edge_rel_check"))).toEqual(
-      sorted(EDGE_RELS),
-    );
-  });
-
-  it("edge_from_type_check matches EDGE_REF_TYPES_DB", () => {
-    expect(sorted(lastCheckInList(sql, "edge_from_type_check"))).toEqual(
-      sorted(EDGE_REF_TYPES_DB),
-    );
-  });
-
-  it("edge_to_type_check matches EDGE_REF_TYPES_DB", () => {
-    expect(sorted(lastCheckInList(sql, "edge_to_type_check"))).toEqual(
-      sorted(EDGE_REF_TYPES_DB),
-    );
-  });
-
-  it("version_source_class_check matches LINEAGE_CLASSES", () => {
-    expect(sorted(lastCheckInList(sql, "version_source_class_check"))).toEqual(
-      sorted(LINEAGE_CLASSES),
-    );
-  });
-
-  it("version_provenance_check matches PROVENANCE_MODES", () => {
-    expect(sorted(lastCheckInList(sql, "version_provenance_check"))).toEqual(
-      sorted(PROVENANCE_MODES),
-    );
-  });
-
-  it("version_temporal_class_check matches TEMPORAL_CLASSES", () => {
-    expect(sorted(lastCheckInList(sql, "version_temporal_class_check"))).toEqual(
-      sorted(TEMPORAL_CLASSES),
-    );
-  });
-
-  it("version_retention_class_check matches RETENTION_CLASSES", () => {
-    expect(sorted(lastCheckInList(sql, "version_retention_class_check"))).toEqual(
-      sorted(RETENTION_CLASSES),
-    );
+  it.each([
+    ["edge_rel_check", EDGE_RELS],
+    ["edge_from_type_check", EDGE_REF_TYPES_DB],
+    ["edge_to_type_check", EDGE_REF_TYPES_DB],
+    ["version_source_class_check", LINEAGE_CLASSES],
+    ["version_provenance_check", PROVENANCE_MODES],
+    ["version_temporal_class_check", TEMPORAL_CLASSES],
+    ["version_retention_class_check", RETENTION_CLASSES],
+  ] as const)("%s matches its SSOT constant", (constraint, values) => {
+    expect(sorted(lastCheckInList(sql, constraint))).toEqual(sorted(values));
   });
 });
 
 describe("enum lockstep: arktype accepts every SSOT value and rejects unknown", () => {
-  it("MemoryEdgeRelSchema accepts all EDGE_RELS", () => {
-    for (const rel of EDGE_RELS) {
-      const out = MemoryEdgeRelSchema(rel);
-      expect(out instanceof type.errors ? out.summary : out).toBe(rel);
+  // "produced_by" is in neither the rel set nor the ref-type sets, so it is
+  // a safe unknown-value probe for both schemas.
+  it.each([
+    ["MemoryEdgeRelSchema", MemoryEdgeRelSchema, EDGE_RELS, "produced_by"],
+    [
+      "MemoryEdgeRefTypeSchema",
+      MemoryEdgeRefTypeSchema,
+      ["document", "version", "chunk", "entity", "native"],
+      "produced_by",
+    ],
+    ["LineageClassSchema", LineageClassSchema, LINEAGE_CLASSES, "thread"],
+    ["ProvenanceModeSchema", ProvenanceModeSchema, PROVENANCE_MODES, "guessed"],
+    ["TemporalClassSchema", TemporalClassSchema, TEMPORAL_CLASSES, "forecast"],
+    ["RetentionClassSchema", RetentionClassSchema, RETENTION_CLASSES, "forever"],
+  ] as const)("%s accepts its SSOT values and rejects unknown", (_name, schema, valid, invalid) => {
+    for (const value of valid) {
+      const out = schema(value);
+      expect(out instanceof type.errors ? out.summary : out).toBe(value);
     }
-    expect(MemoryEdgeRelSchema("produced_by") instanceof type.errors).toBe(
-      true,
-    );
-  });
-
-  it("MemoryEdgeRefTypeSchema accepts adapter set including native", () => {
-    for (const t of ["document", "version", "chunk", "entity", "native"] as const) {
-      const out = MemoryEdgeRefTypeSchema(t);
-      expect(out instanceof type.errors ? out.summary : out).toBe(t);
-    }
-  });
-
-  it("LineageClassSchema accepts LINEAGE_CLASSES only", () => {
-    for (const c of LINEAGE_CLASSES) {
-      expect(LineageClassSchema(c) instanceof type.errors).toBe(false);
-    }
-    expect(LineageClassSchema("thread") instanceof type.errors).toBe(true);
-  });
-
-  it("ProvenanceModeSchema accepts PROVENANCE_MODES only", () => {
-    for (const p of PROVENANCE_MODES) {
-      expect(ProvenanceModeSchema(p) instanceof type.errors).toBe(false);
-    }
-    expect(ProvenanceModeSchema("guessed") instanceof type.errors).toBe(true);
-  });
-
-  it("TemporalClassSchema accepts TEMPORAL_CLASSES only", () => {
-    for (const t of TEMPORAL_CLASSES) {
-      expect(TemporalClassSchema(t) instanceof type.errors).toBe(false);
-    }
-    expect(TemporalClassSchema("forecast") instanceof type.errors).toBe(true);
-  });
-
-  it("RetentionClassSchema accepts RETENTION_CLASSES only", () => {
-    for (const r of RETENTION_CLASSES) {
-      expect(RetentionClassSchema(r) instanceof type.errors).toBe(false);
-    }
-    expect(RetentionClassSchema("forever") instanceof type.errors).toBe(true);
+    expect(schema(invalid) instanceof type.errors).toBe(true);
   });
 });
