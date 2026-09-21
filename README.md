@@ -6,23 +6,23 @@ existing tenant middleware supplies principal + tenant. Host workers call
 the same plane in-process. Inference stays host-owned — this package does
 not ship an answer endpoint.
 
-## Install
+## Runtime support
 
-```bash
-npm install @corbits/memory
-pnpm add @corbits/memory
-yarn add @corbits/memory
-bun add @corbits/memory
-```
-
-Requires Bun >= 1.2. The package ships TypeScript source (`package.json`
-`exports`) and has no `dist` build; native Node does not load it.
-`engines.node` is `>=24` as a floor for Node-side tooling (typecheck, pack).
+Bun >= 1.2 runs the published TypeScript source (`package.json` `exports`);
+there is no `dist` build, so native Node does not load it. `engines.node` is
+`>=24` as a floor for Node-side tooling (typecheck, pack).
 
 Peer stack you already have on an Interchange hub: `@intx/authz`,
 `@intx/hub-api`, `hono`.
 
-## Use
+## Quickstart
+
+```bash
+npm add @corbits/memory
+pnpm add @corbits/memory
+yarn add @corbits/memory
+bun add @corbits/memory
+```
 
 ```ts
 import { createMemory, loadMemoryConfig } from "@corbits/memory";
@@ -38,8 +38,6 @@ const memory = createMemory({
 That registers the tenant routes. Identity is `c.get("principal")` — bodies
 never carry tenant or principal. Missing principal → 401. Missing grant →
 403.
-
-## Full example
 
 In-process, no HTTP and no Postgres — uses the exported fake store. Creator
 always sees their own documents.
@@ -110,15 +108,18 @@ app.route("/api/workflow-memory", workflowMemoryApp);
 The resident distiller (`createResidentDistiller` / `runDistillTick`) is at
 `@corbits/memory/distiller`.
 
-## Contributing
+## Development
 
 ```bash
+git clone https://github.com/corbitsdev/corbits-memory.git
+cd corbits-memory
 bun install
 bun run typecheck  # tsc --noEmit
 bun run test       # bun test ./src
 ```
 
-Bun >= 1.2.0. Node >= 24 for typecheck and pack. There is no `build`
-script — the published surface is `src/`.
+There is no `build` script — the published surface is `src/`.
+
+## License
 
 LGPL-2.1-only — see [`LICENSE`](LICENSE).
