@@ -8,8 +8,9 @@ import { SIDECAR_BUNDLE_ID } from "../sidecar-bundle.ts";
 import { createResidentDistiller } from "./workflow.ts";
 
 describe("createResidentDistiller", () => {
-  it("returns a schedule workflow with memory tools on the agent", () => {
+  it("returns a mail-triggered workflow with memory tools on the agent", () => {
     const { workflow, agent, generatorAgentId } = createResidentDistiller({
+      mailTo: "resident-distiller@tenant.example.com",
       inference: {
         sources: [{ provider: "openai", model: "gpt-4.1-mini" }],
       },
@@ -18,7 +19,7 @@ describe("createResidentDistiller", () => {
     expect(generatorAgentId).toBe(RESIDENT_DISTILLER_AGENT_ID);
     expect(workflow.id).toBe(RESIDENT_DISTILLER_WORKFLOW_ID);
     expect(workflow.triggers).toEqual([
-      { type: "schedule", cron: "*/5 * * * *" },
+      { type: "mail", to: "resident-distiller@tenant.example.com" },
     ]);
     expect(agent.id).toBe(RESIDENT_DISTILLER_AGENT_ID);
     // One factory: the memory sidecar bundle carries every memory tool.
@@ -29,11 +30,11 @@ describe("createResidentDistiller", () => {
     expect(agent.systemPrompt).toContain(RESIDENT_DISTILLER_AGENT_ID);
   });
 
-  it("allows cron and id overrides", () => {
+  it("allows mailTo and id overrides", () => {
     const { workflow, generatorAgentId, agent } = createResidentDistiller({
       id: "my-distiller",
       agentId: "my-agent",
-      cron: "0 * * * *",
+      mailTo: "my-agent@acme.example.com",
       inference: {
         sources: [{ provider: "openai", model: "gpt-4.1-mini" }],
       },
@@ -41,10 +42,18 @@ describe("createResidentDistiller", () => {
     expect(workflow.id).toBe("my-distiller");
     expect(generatorAgentId).toBe("my-agent");
     expect(workflow.triggers[0]).toEqual({
-      type: "schedule",
-      cron: "0 * * * *",
+      type: "mail",
+      to: "my-agent@acme.example.com",
     });
     expect(agent.systemPrompt).toContain("my-agent");
     expect(agent.systemPrompt).not.toContain(RESIDENT_DISTILLER_AGENT_ID);
+  });
+
+  it("does not carry a cron/schedule field in its public options", () => {
+    const opts: import("./workflow.ts").CreateResidentDistillerOpts = {
+      mailTo: "resident-distiller@tenant.example.com",
+      inference: { sources: [{ provider: "openai", model: "gpt-4.1-mini" }] },
+    };
+    expect("cron" in opts).toBe(false);
   });
 });
