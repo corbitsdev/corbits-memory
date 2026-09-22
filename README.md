@@ -24,58 +24,103 @@ yarn add @corbits/memory
 bun add @corbits/memory
 ```
 
-```ts
-import { createMemory, loadMemoryConfig } from "@corbits/memory";
-
-const memory = createMemory({
-  app, // your Hono app — routes register under /api/tenants/:tenantId/memory/*
-  config: loadMemoryConfig(), // DATABASE_URL + embed env
-  grantStore, // your Interchange grant store (required for the HTTP mount)
-  conditionRegistry, // your condition registry
-});
-```
-
-That registers the tenant routes. Identity is `c.get("principal")` — bodies
-never carry tenant or principal. Missing principal → 401. Missing grant →
-403.
-
-In-process, no HTTP and no Postgres — uses the exported fake store. Creator
-always sees their own documents.
+Write the mount as a function that takes your hub's `app`, `grantStore`, and
+`conditionRegistry` — the same trio you already pass to
+`createRequireGrant`/`createApp`:
 
 ```ts
-import { createMemory, createFakeDocumentStore } from "@corbits/memory";
+import { Hono } from "hono";
+import type { TenantEnv } from "@intx/hub-api";
+import type { ConditionRegistry, GrantStore } from "@intx/authz";
+import { createMemory, loadMemoryConfig, type Memory } from "@corbits/memory";
 
-const memory = createMemory({
-  documentStore: createFakeDocumentStore(),
-});
-
-await memory.add({
-  tenantId: "acme",
-  principalId: "alice",
-  content: {
-    title: "Deploy notes",
-    text: "Staging deploys run from main.",
-  },
-});
-
-const { items } = await memory.search({
-  tenantId: "acme",
-  principalId: "alice",
-  query: "staging",
-});
-
-console.log(items.map((item) => item.title));
+export function installMemory(
+  app: Hono<TenantEnv>,
+  grantStore: GrantStore,
+  conditionRegistry: ConditionRegistry,
+): Memory {
+  const memoryApp = new Hono<TenantEnv>();
+  const memory = createMemory({
+    app: memoryApp,
+    config: loadMemoryConfig(), // DATABASE_URL + embed env — see below
+    grantStore,
+    conditionRegistry,
+  });
+  app.route("/", memoryApp);
+  return memory;
+}
 ```
 
-On a real hub, omit `documentStore` and pass `config: loadMemoryConfig()`
-(needs `DATABASE_URL`, `EMBED_BASE_URL`, `EMBED_MODEL`; see `.env.example`).
-Apply migrations first:
+Mount `installMemory` below the middleware that sets `principal`/`tenant`
+(a real hub's `createResolveTenant` on `/api/tenants/:tenantId/*` already
+does). Identity comes from `c.get("principal")` — request bodies never
+carry tenant or principal. Missing principal → 401, missing grant → 403.
+
+Apply migrations before serving traffic:
 
 ```ts
 import { runMemoryMigrations } from "@corbits/memory/migrations";
 
-await runMemoryMigrations(process.env.DATABASE_URL!);
+export async function migrateMemory(databaseUrl: string): Promise<void> {
+  await runMemoryMigrations(databaseUrl);
+}
+
+const databaseUrl = process.env.DATABASE_URL;
+if (databaseUrl === undefined) {
+  throw new Error("DATABASE_URL is required to run memory migrations");
+}
+await migrateMemory(databaseUrl);
 ```
+
+`loadMemoryConfig()` reads `DATABASE_URL` (required — tables live in a
+`memory` Postgres schema, pgvector-capable) plus the embed pair:
+`EMBED_BASE_URL`/`EMBED_MODEL` (OpenAI-compatible by default; `EMBED_API_KEY`
+optional, `EMBED_API_STYLE`/`EMBED_TIMEOUT_MS` to override). Set both to
+enable dense retrieval, or leave both unset to run lexical-only — full-text
+search with no embed endpoint, a fully-supported mode rather than a degraded
+one. Setting exactly one throws at load time. There is no credential-based
+fallback: the embed pair is deployment config, resolved once per process
+from the environment, the same for every tenant it serves. `RERANK_BASE_URL`/
+`RERANK_MODEL`/`RERANK_API_KEY` are the equivalent optional pair for
+reranking. See `.env.example` in this repo for the full list.
+
+### Deployed agents (run-scoped routes)
+
+A deployed agent authenticates with its own sidecar bearer token, not a
+browser session, so it gets a second mount, scoped to the run rather than to
+a tenant-session request:
+
+```ts
+import { Hono } from "hono";
+import {
+  mountWorkflowMemory,
+  type Memory,
+  type WorkflowMemoryEnv,
+} from "@corbits/memory";
+
+export function installWorkflowMemory(
+  app: Hono<TenantEnv>,
+  memory: Memory,
+  agentToken: {
+    verify: (
+      ctx: unknown,
+    ) => Promise<{ tenantId: string; definitionId: string } | undefined>;
+    resolveRun: (runAddress: string) => Promise<{
+      tenantId: string;
+      principalId: string;
+      runId: string;
+    } | null>;
+  },
+): void {
+  const workflowMemoryApi = new Hono<WorkflowMemoryEnv>();
+  mountWorkflowMemory(workflowMemoryApi, { memory, agentToken });
+  app.route("/api/workflow-memory", workflowMemoryApi);
+}
+```
+
+`memory` here is the same plane `installMemory` built — one engine, two
+mounts. The tool definitions a deployed agent calls against this mount ship
+at `@corbits/memory/sidecar-bundle`.
 
 ## How it works
 
@@ -92,6 +137,34 @@ docs. Details: [`docs/AUTHZ-DOCUMENT-ACCESS.md`](docs/AUTHZ-DOCUMENT-ACCESS.md).
 The resident distiller (`createResidentDistiller` / `runDistillTick`) is at
 `@corbits/memory/distiller`.
 
+### Lower-level: in-process calls, no HTTP
+
+`app` is optional. Passing only `config` builds the plane without
+registering routes, for a host worker that calls `add`/`search` directly
+(the resident distiller does this):
+
+```ts
+import { createMemory, loadMemoryConfig } from "@corbits/memory";
+
+const memory = createMemory({ config: loadMemoryConfig() });
+
+await memory.add({
+  tenantId: "acme",
+  principalId: "alice",
+  content: { title: "Deploy notes", text: "Staging deploys run from main." },
+});
+
+const { items } = await memory.search({
+  tenantId: "acme",
+  principalId: "alice",
+  query: "staging",
+});
+```
+
+Without `grantStore`, search/list fall back to creator-only visibility — a
+safe default for a standalone caller, but not the shared-document behavior a
+real tenant gets through `installMemory` above.
+
 ## Development
 
 ```bash
@@ -102,7 +175,9 @@ bun run typecheck  # tsc --noEmit
 bun run test       # bun test ./src
 ```
 
-There is no `build` script — the published surface is `src/`.
+Tests use `createFakeDocumentStore`/`createFakeSourceProvider` (exported for
+this purpose) so the suite runs without Postgres. There is no `build`
+script — the published surface is `src/`.
 
 ## License
 
