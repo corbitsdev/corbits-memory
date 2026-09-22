@@ -3,8 +3,11 @@
 Memory for Interchange hubs: durable documents, hybrid search, recent list.
 
 **You mount it on the hub (~5 lines). That exposes protected routes. Agents
-and ingestion modules call those routes.** Workbench and coding agents are
-clients — not owners of auth. Inference stays host-injected.
+and ingestion modules call those routes.** Capture (`add`) writes; search
+retrieves. Workbench and coding agents are clients — not owners of auth.
+Inference stays host-injected. Deployed agents do **not** git-install this
+package: they carry `@corbits/memory/sidecar-bundle` and hit the parallel
+`mountWorkflowMemory` routes.
 
 ## Default pipeline (locked)
 
@@ -34,10 +37,11 @@ never creates one; it mounts onto yours.
 | Surface | Role |
 | --- | --- |
 | `createMemory({ app, … })` | Register `/api/tenants/:tenantId/memory/*` + return the plane |
+| `mountWorkflowMemory(app, { memory, agentToken })` | Parallel run-scoped `/api/workflow-memory/*` for deployed agents |
 | `loadMemoryConfig()` | Config from env |
 | `runMemoryMigrations(url)` | Apply pgvector schema |
 | `registerMemoryRoutes` | Low-level HTTP only (optional) |
-| `@corbits/memory/tools` | Interchange tools (`memory_add` / `search` / `list` / `feed`) |
+| `@corbits/memory/sidecar-bundle` | Deployed-agent factory — no client code, no base URL, no token |
 | `@corbits/memory/distiller` | Optional process helpers: `runDistillTick`, `createResidentDistiller` |
 
 ### Verbs
@@ -55,9 +59,11 @@ share-grant materialization. Process helpers:
 `createResidentDistiller` / `runDistillTick` (`docs/DISTILLER.md`) — host
 injects inference; not the default ingest path.
 
-Identity is always **`principalId` + `tenantId`** on the plane. HTTP routes
-never take body identity — they read `c.get("principal")` from Interchange
-context.
+Identity is always **`principalId` + `tenantId`** on the plane. Tenant HTTP
+routes never take body identity — they read `c.get("principal")` from
+Interchange context. Run-scoped sidecar routes read the verified workflow
+run (`agentToken.verify` + `x-workflow-run-address`); the sidecar factory
+never names a host or carries a token.
 
 ### How it is used
 
@@ -66,6 +72,10 @@ Agent / host ingest workflow
         │  tool call or host worker
         │  → POST|GET /api/tenants/:tenantId/memory/*
         │  authenticated by Interchange (session | API key | MCP OAuth)
+        │
+Deployed agent (sidecar-bundle)
+        │  hub credential + run address
+        │  → POST|GET /api/workflow-memory/*   (mountWorkflowMemory)
         ▼
 ┌──────────────────────────────────────────────┐
 │  Host Interchange createApp                  │
@@ -73,22 +83,26 @@ Agent / host ingest workflow
 │  + createMemory({ app, grantStore, … })      │
 │       grants: memory:add | memory:search     │
 │       documentStore: pgvector | host | fake  │
+│  + mountWorkflowMemory(app, { memory, … })   │
 │         │  in-process                        │
 │         ▼                                    │
-│  Memory plane: add / search / list           │
+│  Memory plane: add (capture) / search / list │
 │  → DocumentStore (sole durable backend)      │
 └──────────────────────────────────────────────┘
 ```
 
 1. **Mount** — host passes `app` + the same grant store it already uses.
-2. **Tools** — install `@corbits/memory/tools` (`defineTool` factories) on a
-   workflow with env credentials (`memoryBaseUrl`, `memoryTenantId`,
-   `memoryAuthToken`). Tools HTTP-call the mounted routes; identity is the
-   hub-authenticated principal. OpenAPI→MCP remains an optional host bridge.
+2. **Sidecar (deployed agents)** — agents carry
+   `@corbits/memory/sidecar-bundle`. It holds no client code, no base URL,
+   and no token: it resolves the host `hub` credential and calls
+   `/api/workflow-memory/*`. Host wires `mountWorkflowMemory` in parallel
+   with the tenant routes (see README How it works). Not the primary
+   install — that is still `createMemory` + `loadMemoryConfig`.
 3. **Ingestion** — preferred: one host workflow (or module) does
-   **add → ingest elements → process**. Mechanical ingest is inside `add` on
-   the default store; process (claims / links) is host-injected inference in
-   the same pipeline when you want a company brain.
+   **add → ingest elements (capture) → process**. Mechanical capture is
+   inside `add` on the default store; process (claims / links) is
+   host-injected inference in the same pipeline when you want a company
+   brain.
 
 ### Ports
 
@@ -106,6 +120,8 @@ stores, Linear tools. Core never imports vendor SDKs.
 - No answer/generation endpoint — host owns inference.
 - Workbench is a client, not required.
 - Core does not run the ingest workflow process — the host does.
+- Deployed agents do not git-install this package as a sidecar and do not
+  receive a memory base URL or token — that is the sidecar-bundle contract.
 
 **Default durable store:** Postgres via `DATABASE_URL`, tables under the
 **`memory`** schema. When

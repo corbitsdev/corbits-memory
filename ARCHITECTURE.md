@@ -29,6 +29,10 @@ add  →  ingest elements (store/chunk/embed)  →  process (optional, host)
 tools / host ingest workflow  →  /api/tenants/:tenantId/memory/*  →  Memory plane  →  DocumentStore
          ↑
    Interchange auth + principal + grants
+
+sidecar-bundle (deployed agent)  →  /api/workflow-memory/*  →  Memory plane  →  DocumentStore
+         ↑
+   hub credential + x-workflow-run-address  (mountWorkflowMemory, no session)
 ```
 
 Mount is intentionally small. The host already has `app`, grants, and
@@ -117,10 +121,42 @@ Returns an in-process `Memory` (`add`, `search`, `list`, `close`, plus the
 optional retention writes) for host workers and ingestion modules that
 already resolved identity.
 
-**Agent tools live in this package** as thin HTTP clients
-(`@corbits/memory/tools` / `interchange.tools`): `defineTool` factories that
-`fetch` the mounted routes with install credentials. They do not import the
-in-process plane. OpenAPI→MCP remains an optional host bridge.
+**Capture** is the write path inside `add` (raw capture → chunks / edges /
+embed on the default store). **Search** is hybrid retrieval on the same
+plane, whether the caller arrived via tenant routes or the sidecar mount.
+
+## Sidecar mount (`mountWorkflowMemory`)
+
+Deployed agents do not install this package as a git sidecar. They carry
+the factory at `@corbits/memory/sidecar-bundle`, which holds no client
+code, no base URL, and no token: it resolves the host `hub` credential and
+calls the run-scoped routes under `/api/workflow-memory/*`. That mount is
+**parallel** to the tenant routes — two auth conventions stay on two
+mounts so neither is harder to reason about.
+
+```ts
+import { mountWorkflowMemory } from "@corbits/memory";
+
+mountWorkflowMemory(workflowMemoryApp, {
+  memory,
+  agentToken: { verify, resolveRun },
+});
+app.route("/api/workflow-memory", workflowMemoryApp);
+```
+
+Authorization on this mount **is the token itself**: the hub only mints an
+agent token for a definition it already authorized, and every call is
+confined to the verified run's tenant and principal. The mount runs **no
+grant check of its own** and has no tenant override. A bearer minted for
+one workbench cannot act on another's run (`verify` tenant must match
+`resolveRun` tenant). Unrecognized bearer, unknown run address, and
+cross-tenant mismatch all return the same **401**.
+
+The sidecar factory (`src/sidecar-bundle.ts`) maps `memory_add` /
+`memory_search` / `memory_list` / `memory_feed` onto those run-scoped
+routes. Relative paths only — a mediated HTTP handle resolves them against
+the origin it is pinned to. Capture and search still execute on the same
+in-process `Memory` plane as the tenant routes.
 
 ## Provenance
 
