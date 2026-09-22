@@ -65,6 +65,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Breaking:** `createResidentDistiller` runs on a `mail` trigger (CL-8798).
+  `CreateResidentDistillerOpts.cron` is replaced by a required `mailTo`, the
+  address the workflow's run is triggered at, and
+  `RESIDENT_DISTILLER_CRON_DEFAULT` is removed. The `schedule` trigger was
+  reserved with nothing behind it in `@intx/workflow`, so the distiller never
+  ticked, and 0.4.0 rejects it at `defineWorkflow`. Ticking is the host's job:
+  mail `mailTo` on a schedule, e.g. from `@corbits/cron`.
+- `@intx/*` dependencies move to 0.4.0 (CL-8797).
 - **Product narrative:** default path is **add → ingest elements → process**
   (one host pipeline). Pull feed + `createResidentDistiller` are optional
   multi-writer / backfill process helpers, not the primary ingest story.
