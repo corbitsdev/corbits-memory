@@ -66,7 +66,7 @@ cursor = result.nextCursor; // persist
 Inference is **always injected** (`distill` callback or host agent sources).
 The package never embeds a model.
 
-## Optional: schedule workflow scaffold (`createResidentDistiller`)
+## Optional: mail-triggered workflow scaffold (`createResidentDistiller`)
 
 Scaffold for hosts that still want a deployed agent with memory tools +
 system prompt (loop-safety, access-tag copy). Prefer wiring **process next to
@@ -76,12 +76,16 @@ add** in your ingest workflow; use this for backfill-style residency only.
 import { createResidentDistiller } from "@corbits/memory/distiller";
 
 const { workflow, generatorAgentId } = createResidentDistiller({
+  mailTo: "resident-distiller@tenant.example.com",
   inference: {
     sources: [{ provider: "openai", model: "gpt-4.1-mini" }],
   },
 });
 // Deploy only if you need a multi-writer pull consumer — not default ingest.
 ```
+
+The run fires on mail to `mailTo`. The host decides when: mail that address
+on a schedule, e.g. from `@corbits/cron`. This package owns no clock.
 
 ## Substrate (plane)
 

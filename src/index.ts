@@ -154,7 +154,6 @@ export {
 // Resident distiller (CL-5869) — also `@corbits/memory/distiller`
 export {
   RESIDENT_DISTILLER_AGENT_ID,
-  RESIDENT_DISTILLER_CRON_DEFAULT,
   RESIDENT_DISTILLER_WORKFLOW_ID,
   buildDistilledClaim,
   createResidentDistiller,
