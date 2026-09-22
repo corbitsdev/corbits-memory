@@ -92,6 +92,7 @@ a tenant-session request:
 
 ```ts
 import { Hono } from "hono";
+import type { TenantEnv } from "@intx/hub-api";
 import {
   mountWorkflowMemory,
   type Memory,
@@ -136,6 +137,33 @@ docs. Details: [`docs/AUTHZ-DOCUMENT-ACCESS.md`](docs/AUTHZ-DOCUMENT-ACCESS.md).
 
 The resident distiller (`createResidentDistiller` / `runDistillTick`) is at
 `@corbits/memory/distiller`.
+
+### Resident distiller
+
+`createResidentDistiller` returns a mail-triggered workflow + agent, preloaded
+with the memory sidecar tools. It never ships a scheduler — the host owns
+ticking:
+
+```ts
+import { createResidentDistiller } from "@corbits/memory/distiller";
+
+const { workflow, agent } = createResidentDistiller({
+  mailTo: "resident-distiller@tenant.example.com",
+  inference: { sources: [{ provider: "openai", model: "gpt-4.1-mini" }] },
+});
+// deploy `workflow` (and `agent`) with the host's workflow-deploy; the run
+// fires on the first inbound mail at `mailTo` and stays live for the host
+// to keep addressing.
+```
+
+Ticking is a host concern, not this package's: point a scheduler at
+`mailTo` on whatever cadence you want. If the host already runs
+`@corbits/cron`, wire a schedule whose delivery mails `mailTo` — the same
+pattern a cron-ticked workflow uses everywhere on Interchange: the ticker
+polls for due rows and hands each one to the host's mail transport, so a
+mail-triggered workflow is ticked by addressing it directly. No import of
+`@corbits/cron` is required here; see its own README for `mountCron` /
+`createCronTicker` wiring.
 
 ### Lower-level: in-process calls, no HTTP
 
