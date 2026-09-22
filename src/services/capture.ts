@@ -26,7 +26,13 @@ import type {
 } from "../core/schemas/adapted-document.ts";
 import type { MemoryEdgeHint } from "../core/schemas/entity-edge.ts";
 import { createRawSqlClient } from "../core/embed-sql.ts";
-import { activateEmbedModel, ensureEmbedModel } from "../core/embed-model-registry.ts";
+import {
+  activateEmbedModel,
+  EMBED_TABLE_NAME_PATTERN,
+  ensureEmbedModel,
+  type ActiveEmbedTable,
+  type EmbedRegistrySqlClient,
+} from "../core/embed-model-registry.ts";
 import type { EmbedClientConfig } from "../core/embed-client.ts";
 import {
   embedChunks,
@@ -39,8 +45,9 @@ type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 
 // The single doorway a caller uses to reach the memory store: parses an
 // already-adapted document into a capture plan (adaptAndPlan), writes
-// document/version/chunk/edge rows in one transaction, then embeds the
-// version's chunks after commit. Unlike a fire-and-forget capture hook, this
+// document/version/chunk/edge rows in one transaction, then schedules
+// background embedding of the version's chunks after commit (CL-8615 — a
+// slow embedder never stalls the awaiting HTTP caller). Unlike a fire-and-forget capture hook, this
 // IS the primary write the HTTP caller is waiting on — a real DB failure is
 // allowed to throw (fail loud) rather than being swallowed into a
 // `{status: "failed"}` result.
@@ -552,12 +559,16 @@ export { toEmbedClientConfig };
 // Exported (like toEmbedClientConfig above) so tests can assert this
 // specific decision directly, without standing up a fake transactional Db
 // for the full captureDocument/deriveFromRawCapture path.
+//
+// `opts.fetchImpl` (default `fetch`) is the HTTP implementation the registry
+// probe and the embed calls run through — captureDocument's background pass
+// forwards its own here so a test (or host) can observe or stub the wire.
 export async function embedInsertedChunksWithConfig(
   sql: RawSql,
   tenantId: string,
   chunks: EmbeddableChunk[],
   embedClientConfig: EmbedClientConfig | undefined,
-  opts: { promoteActive?: boolean } = {},
+  opts: { promoteActive?: boolean; fetchImpl?: typeof fetch } = {},
 ): Promise<{ degraded: CaptureDegradedReason[] }> {
   if (chunks.length === 0) return { degraded: [] };
   if (!embedClientConfig) {
@@ -567,10 +578,11 @@ export async function embedInsertedChunksWithConfig(
   try {
     const client = createRawSqlClient(sql);
     const promoteActive = opts.promoteActive !== false;
+    const fetchImpl = opts.fetchImpl ?? fetch;
 
     const table = promoteActive
-      ? await activateEmbedModel(client, tenantId, embedClientConfig)
-      : await ensureEmbedModel(client, tenantId, embedClientConfig);
+      ? await activateEmbedModel(client, tenantId, embedClientConfig, fetchImpl)
+      : await ensureEmbedModel(client, tenantId, embedClientConfig, fetchImpl);
 
     const result = await embedChunks(
       client,
@@ -578,6 +590,7 @@ export async function embedInsertedChunksWithConfig(
       table,
       chunks,
       embedClientConfig,
+      fetchImpl,
     );
 
     if (result.clientError) {
@@ -605,9 +618,362 @@ export async function embedInsertedChunksWithConfig(
   }
 }
 
+export interface CaptureBackgroundOpts {
+  /** HTTP implementation the background embed pass runs through (default `fetch`). */
+  fetchImpl?: typeof fetch | undefined;
+  /**
+   * Schedules the detached background task. Defaults to a `queueMicrotask`
+   * fire-and-forget so `captureDocument` returns as soon as the row store
+   * commits. Tests inject a capturing scheduler to run the task deterministically.
+   */
+  schedule?: ((task: () => Promise<void>) => void) | undefined;
+  /** Delay between embed retries (default `setTimeout`). Injected as no-op in tests. */
+  sleep?: ((ms: number) => Promise<void>) | undefined;
+  /** Total embed attempts per pass stage, first try included (default 3). */
+  maxAttempts?: number | undefined;
+  /** Max pending chunks swept per background pass (default 100). */
+  pendingLimit?: number | undefined;
+}
+
+const BACKGROUND_EMBED_MAX_ATTEMPTS = 3;
+const BACKGROUND_EMBED_PENDING_LIMIT = 100;
+// A busy local embedder (shared Ollama queuing chat inference ahead of
+// embeddings) usually drains within seconds — retry quickly, then once more
+// after a longer pause, rather than hammering it.
+const BACKGROUND_EMBED_RETRY_DELAYS_MS = [1_000, 5_000];
+
+export type BackgroundEmbedPassFn = (
+  chunks: EmbeddableChunk[],
+) => Promise<void>;
+
+export type BackgroundEmbedEnqueue = {
+  tenantId: string;
+  chunks: readonly EmbeddableChunk[];
+  run: BackgroundEmbedPassFn;
+};
+
+export type BackgroundEmbedScheduler = {
+  /**
+   * Queue a pass. Overlapping calls for the same tenant coalesce into the
+   * in-flight drain (at most one trailing rerun); different tenants share one
+   * process-wide chain so N concurrent adds never fan out N retry storms.
+   */
+  enqueue: (work: BackgroundEmbedEnqueue) => Promise<void>;
+  /** Count of `run` invocations started (test seam). */
+  passStarts: () => number;
+  /** Peak overlapping `run` invocations (test seam). */
+  maxConcurrent: () => number;
+};
+
+/**
+ * Serial, coalescing gate for detached embed passes. One `run` at a time
+ * process-wide; same-tenant chunks that arrive while a drain is queued or
+ * running join that drain instead of starting another 3-retry + sweep storm.
+ */
+export function createBackgroundEmbedScheduler(): BackgroundEmbedScheduler {
+  type TenantState = {
+    chunks: EmbeddableChunk[];
+    run: BackgroundEmbedPassFn;
+    waiters: Array<{
+      resolve: () => void;
+      reject: (err: unknown) => void;
+    }>;
+    queued: boolean;
+  };
+
+  const tenants = new Map<string, TenantState>();
+  let chain: Promise<void> = Promise.resolve();
+  let passStarts = 0;
+  let inRun = 0;
+  let maxConcurrent = 0;
+
+  async function drainTenant(tenantId: string): Promise<void> {
+    const state = tenants.get(tenantId);
+    if (!state) return;
+    let error: unknown;
+    try {
+      for (;;) {
+        const batch = state.chunks.splice(0, state.chunks.length);
+        if (batch.length === 0) break;
+        passStarts++;
+        inRun++;
+        if (inRun > maxConcurrent) maxConcurrent = inRun;
+        try {
+          await state.run(batch);
+        } finally {
+          inRun--;
+        }
+      }
+    } catch (err) {
+      error = err;
+    }
+    const waiters = state.waiters.splice(0, state.waiters.length);
+    tenants.delete(tenantId);
+    if (error !== undefined) {
+      for (const waiter of waiters) waiter.reject(error);
+      return;
+    }
+    for (const waiter of waiters) waiter.resolve();
+  }
+
+  return {
+    enqueue(work) {
+      let state = tenants.get(work.tenantId);
+      if (!state) {
+        state = { chunks: [], run: work.run, waiters: [], queued: false };
+        tenants.set(work.tenantId, state);
+      }
+      state.chunks.push(...work.chunks);
+      state.run = work.run;
+      const done = new Promise<void>((resolve, reject) => {
+        state.waiters.push({ resolve, reject });
+      });
+      if (!state.queued) {
+        state.queued = true;
+        const tenantId = work.tenantId;
+        chain = chain.then(
+          () => drainTenant(tenantId),
+          () => drainTenant(tenantId),
+        );
+      }
+      return done;
+    },
+    passStarts: () => passStarts,
+    maxConcurrent: () => maxConcurrent,
+  };
+}
+
+const backgroundEmbedScheduler = createBackgroundEmbedScheduler();
+
+function resolveBackgroundOpts(opts: CaptureBackgroundOpts = {}): {
+  fetchImpl: typeof fetch;
+  schedule: (task: () => Promise<void>) => void;
+  sleep: (ms: number) => Promise<void>;
+  maxAttempts: number;
+  pendingLimit: number;
+} {
+  return {
+    fetchImpl: opts.fetchImpl ?? fetch,
+    schedule:
+      opts.schedule ??
+      ((task) => {
+        queueMicrotask(() => void task().catch(() => {}));
+      }),
+    sleep: opts.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms))),
+    maxAttempts: opts.maxAttempts ?? BACKGROUND_EMBED_MAX_ATTEMPTS,
+    pendingLimit: opts.pendingLimit ?? BACKGROUND_EMBED_PENDING_LIMIT,
+  };
+}
+
+/**
+ * Finds this tenant's chunks with no vector in the active embedding table —
+ * the chunks a failed or timed-out embed pass left pending. Bounded by
+ * `limit` (oldest first) so a long outage sweeps incrementally, one
+ * background pass at a time, instead of embedding an unbounded backlog in a
+ * single call.
+ *
+ * Joins `memory.version` so a forget-then-add cannot sweep `[redacted]`
+ * placeholder text: tombstoned versions and non-live generations are skipped.
+ * Search already hides tombstones; this filter is wasted-work / placeholder-
+ * vector prevention, not a hit-leak fix.
+ */
+export async function findPendingChunks(
+  client: EmbedRegistrySqlClient,
+  tenantId: string,
+  activeTable: ActiveEmbedTable,
+  limit: number,
+): Promise<EmbeddableChunk[]> {
+  if (!EMBED_TABLE_NAME_PATTERN.test(activeTable.tableName)) {
+    throw new Error(
+      `Resolved embed table name "${activeTable.tableName}" failed identifier validation`,
+    );
+  }
+  const rows = await client.query(
+    `SELECT c.id AS id, c.text AS text FROM "memory"."chunk" c
+     INNER JOIN "memory"."version" v ON v.id = c.version_id
+     LEFT JOIN ${activeTable.tableName} e ON e.chunk_id = c.id
+     WHERE c.tenant_id = $1 AND e.chunk_id IS NULL
+       AND v.status <> 'tombstoned'
+       AND v.generation = $3
+     ORDER BY c.created_at ASC
+     LIMIT $2`,
+    [tenantId, Math.max(1, Math.floor(limit)), LIVE_GENERATION],
+  );
+  return rows.map((row) => ({
+    id: row["id"] as string,
+    text: row["text"] as string,
+  }));
+}
+
+export interface ReembedPendingResult {
+  /** Pending chunks newly vectorized by this sweep. */
+  swept: number;
+  /** Pending chunks still without a vector after this sweep. */
+  stillPending: number;
+}
+
+/**
+ * Re-embeds one bounded batch of pending chunks for the tenant: resolves the
+ * active embed table, discovers chunks missing vectors, and embeds them.
+ * Client failures leave the chunks pending and are reported via the counts,
+ * never thrown — the next background pass retries. `undefined` config (a
+ * lexical-only deployment) is a no-op: there is no endpoint to sweep with.
+ */
+export async function reembedPendingChunksWithClient(
+  client: EmbedRegistrySqlClient,
+  tenantId: string,
+  embedClientConfig: EmbedClientConfig | undefined,
+  opts: {
+    promoteActive?: boolean;
+    limit?: number;
+    fetchImpl?: typeof fetch;
+  } = {},
+): Promise<ReembedPendingResult> {
+  if (!embedClientConfig) return { swept: 0, stillPending: 0 };
+  const fetchImpl = opts.fetchImpl ?? fetch;
+  const promoteActive = opts.promoteActive !== false;
+
+  const table = promoteActive
+    ? await activateEmbedModel(client, tenantId, embedClientConfig, fetchImpl)
+    : await ensureEmbedModel(client, tenantId, embedClientConfig, fetchImpl);
+  const pending = await findPendingChunks(
+    client,
+    tenantId,
+    table,
+    opts.limit ?? BACKGROUND_EMBED_PENDING_LIMIT,
+  );
+  if (pending.length === 0) return { swept: 0, stillPending: 0 };
+
+  const result = await embedChunks(
+    client,
+    tenantId,
+    table,
+    pending,
+    embedClientConfig,
+    fetchImpl,
+  );
+  if (result.clientError) {
+    log.warn(
+      `capture: pending re-embed failed (${pending.length} chunk(s) still pending): ${result.clientError.name}: ${result.clientError.message}`,
+      { tenantId, chunkCount: pending.length, error: result.clientError },
+    );
+    return { swept: 0, stillPending: pending.length };
+  }
+  if (result.rejected.length > 0) {
+    log.warn(
+      `capture: ${result.rejected.length} pending chunk(s) rejected during re-embedding`,
+      { tenantId, rejected: result.rejected },
+    );
+  }
+  return {
+    swept: result.embedded,
+    stillPending: pending.length - result.embedded,
+  };
+}
+
+export async function reembedPendingChunks(
+  sql: RawSql,
+  tenantId: string,
+  embedClientConfig: EmbedClientConfig | undefined,
+  opts: {
+    promoteActive?: boolean;
+    limit?: number;
+    fetchImpl?: typeof fetch;
+  } = {},
+): Promise<ReembedPendingResult> {
+  return reembedPendingChunksWithClient(
+    createRawSqlClient(sql),
+    tenantId,
+    embedClientConfig,
+    opts,
+  );
+}
+
+// One attempt at the fresh chunks, then one bounded pending sweep. Throws
+// nothing — every failure is logged and reported via `degraded` so the retry
+// loop (and the detached scheduler) can decide what to do next.
+async function attemptBackgroundEmbedPass(args: {
+  sql: RawSql;
+  tenantId: string;
+  chunks: EmbeddableChunk[];
+  embedClientConfig: EmbedClientConfig;
+  fetchImpl: typeof fetch;
+  pendingLimit: number;
+}): Promise<{ degraded: CaptureDegradedReason[] }> {
+  const { degraded } = await embedInsertedChunksWithConfig(
+    args.sql,
+    args.tenantId,
+    args.chunks,
+    args.embedClientConfig,
+    { fetchImpl: args.fetchImpl },
+  );
+  if (degraded.length > 0) return { degraded };
+  try {
+    await reembedPendingChunks(args.sql, args.tenantId, args.embedClientConfig, {
+      fetchImpl: args.fetchImpl,
+      limit: args.pendingLimit,
+    });
+  } catch (err) {
+    log.warn(`capture: background pending sweep failed: ${formatCaughtError(err)}`, {
+      tenantId: args.tenantId,
+      error: formatCaughtError(err),
+    });
+  }
+  return { degraded };
+}
+
+// The background embedding pass a successful capture schedules (CL-8615): the
+// fresh chunks are embedded with retry, then one bounded batch of older
+// pending chunks is swept, so a slow or busy embedder (a local Ollama queuing
+// embeddings behind chat inference) never stalls the `add` tool call and
+// never leaves chunks pending. Never throws — a detached task must not
+// produce an unhandled rejection.
+export async function runBackgroundEmbedPass(
+  sql: RawSql,
+  tenantId: string,
+  chunks: EmbeddableChunk[],
+  embedClientConfig: EmbedClientConfig,
+  opts: CaptureBackgroundOpts = {},
+): Promise<void> {
+  const resolved = resolveBackgroundOpts(opts);
+  const maxAttempts = Math.max(1, Math.floor(resolved.maxAttempts));
+  for (let attempt = 1; ; attempt++) {
+    let degraded: CaptureDegradedReason[];
+    try {
+      ({ degraded } = await attemptBackgroundEmbedPass({
+        sql,
+        tenantId,
+        chunks,
+        embedClientConfig,
+        fetchImpl: resolved.fetchImpl,
+        pendingLimit: resolved.pendingLimit,
+      }));
+    } catch (err) {
+      log.warn(
+        `capture: background embedding pass failed; chunks remain pending: ${formatCaughtError(err)}`,
+        { tenantId, chunkCount: chunks.length, error: formatCaughtError(err) },
+      );
+      degraded = ["embed_unavailable"];
+    }
+    if (degraded.length === 0) return;
+    if (attempt >= maxAttempts) {
+      log.warn(
+        `capture: background embedding pass gave up after ${attempt} attempt(s); chunks remain pending for a later pass`,
+        { tenantId, chunkCount: chunks.length },
+      );
+      return;
+    }
+    const delay =
+      BACKGROUND_EMBED_RETRY_DELAYS_MS[attempt - 1] ??
+      BACKGROUND_EMBED_RETRY_DELAYS_MS[BACKGROUND_EMBED_RETRY_DELAYS_MS.length - 1]!;
+    await resolved.sleep(delay);
+  }
+}
+
 export async function captureDocument(
   deps: { db: Db; sql: RawSql; config: EngineConfig },
   input: CaptureInput,
+  background: CaptureBackgroundOpts = {},
 ): Promise<CaptureResult> {
   const plan = adaptAndPlan(input.document);
   const now = new Date();
@@ -625,11 +991,48 @@ export async function captureDocument(
     };
   }
 
-  const { degraded } = await embedInsertedChunksWithConfig(
-    deps.sql,
-    input.tenantId,
-    txResult.insertedChunks,
-    toEmbedClientConfig(deps.config.embed),
+  // CL-8615: the rows are durable — return now and embed in the background.
+  // A slow or busy embedder (a local Ollama queuing embeddings behind chat
+  // inference) must never stall the `add` tool call, so the embed pass runs
+  // detached with retry plus a bounded pending-chunk sweep (see
+  // runBackgroundEmbedPass), and failures stay in the logs rather than the
+  // response. The success path therefore omits `degraded: ["embed_unavailable"]`
+  // even while chunks are still pending: a captured result means the row store
+  // committed, not that the embedder has caught up. The synchronous paths
+  // below pay for no network: no chunks means nothing to embed, and no embed
+  // endpoint (lexical-only) is decided locally without touching the registry.
+  const embedClientConfig = toEmbedClientConfig(deps.config.embed);
+  if (txResult.insertedChunks.length === 0 || !embedClientConfig) {
+    const { degraded } = await embedInsertedChunksWithConfig(
+      deps.sql,
+      input.tenantId,
+      txResult.insertedChunks,
+      embedClientConfig,
+    );
+
+    return {
+      status: "captured",
+      documentId: txResult.documentId,
+      versionId: txResult.versionId,
+      chunks: txResult.insertedChunks.length,
+      ...(degraded.length > 0 ? { degraded } : {}),
+    };
+  }
+
+  const resolved = resolveBackgroundOpts(background);
+  const backgroundChunks = txResult.insertedChunks;
+  resolved.schedule(() =>
+    backgroundEmbedScheduler.enqueue({
+      tenantId: input.tenantId,
+      chunks: backgroundChunks,
+      run: (chunks) =>
+        runBackgroundEmbedPass(deps.sql, input.tenantId, chunks, embedClientConfig, {
+          fetchImpl: resolved.fetchImpl,
+          sleep: resolved.sleep,
+          maxAttempts: resolved.maxAttempts,
+          pendingLimit: resolved.pendingLimit,
+        }),
+    }),
   );
 
   return {
@@ -637,7 +1040,6 @@ export async function captureDocument(
     documentId: txResult.documentId,
     versionId: txResult.versionId,
     chunks: txResult.insertedChunks.length,
-    ...(degraded.length > 0 ? { degraded } : {}),
   };
 }
 
