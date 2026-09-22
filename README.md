@@ -24,23 +24,7 @@ yarn add @corbits/memory
 bun add @corbits/memory
 ```
 
-```ts
-import { createMemory, loadMemoryConfig } from "@corbits/memory";
-
-const memory = createMemory({
-  app, // your Hono app — routes register under /api/tenants/:tenantId/memory/*
-  config: loadMemoryConfig(), // DATABASE_URL + embed env
-  grantStore, // your Interchange grant store (required for the HTTP mount)
-  conditionRegistry, // your condition registry
-});
-```
-
-That registers the tenant routes. Identity is `c.get("principal")` — bodies
-never carry tenant or principal. Missing principal → 401. Missing grant →
-403.
-
-In-process, no HTTP and no Postgres — uses the exported fake store. Creator
-always sees their own documents.
+In-process, no HTTP and no Postgres — the exported fake store keeps this program self-contained. Creator always sees their own documents.
 
 ```ts
 import { createMemory, createFakeDocumentStore } from "@corbits/memory";
@@ -67,22 +51,18 @@ const { items } = await memory.search({
 console.log(items.map((item) => item.title));
 ```
 
-On a real hub, omit `documentStore` and pass `config: loadMemoryConfig()`
-(needs `DATABASE_URL`, `EMBED_BASE_URL`, `EMBED_MODEL`; see `.env.example`).
-Apply migrations first:
-
-```ts
-import { runMemoryMigrations } from "@corbits/memory/migrations";
-
-await runMemoryMigrations(process.env.DATABASE_URL!);
-```
-
 ## How it works
 
 `createMemory` builds the plane. Pass `app` to register
 `/api/tenants/:tenantId/memory/*` behind `requireGrant("memory", …)` —
 `grantStore` is required for that mount. `loadMemoryConfig` lives on the
 barrel and at `@corbits/memory/config`.
+
+On a real hub, omit `documentStore` and pass `config: loadMemoryConfig()`
+(needs `DATABASE_URL`, `EMBED_BASE_URL`, `EMBED_MODEL`; see `.env.example`);
+apply migrations first with `runMemoryMigrations` (also on the barrel).
+Identity is `c.get("principal")` — bodies never carry tenant or principal.
+Missing principal → 401. Missing grant → 403.
 
 Capability grants (`memory:add` / `memory:search` / `memory:forget` /
 `memory:purge`) gate the routes. Per-document visibility is Interchange
