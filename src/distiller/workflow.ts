@@ -5,10 +5,12 @@
  * import { createResidentDistiller } from "@corbits/memory/distiller";
  *
  * const workflow = createResidentDistiller({
+ *   mailTo: "resident-distiller@tenant.example.com",
  *   inference: { sources: [{ provider: "openai", model: "gpt-4.1-mini" }] },
  * });
  * // deploy with host workflow-deploy; the host binds the `hub` credential
- * // handle the sidecar bundle resolves at run time
+ * // handle the sidecar bundle resolves at run time, and ticks the workflow
+ * // by mailing `mailTo` (e.g. a @corbits/cron schedule) — see the README.
  * ```
  */
 import {
@@ -24,7 +26,6 @@ import { memory } from "../sidecar-bundle.ts";
 import { capabilityIdsForSurface } from "../grant-requirements.ts";
 import {
   RESIDENT_DISTILLER_AGENT_ID,
-  RESIDENT_DISTILLER_CRON_DEFAULT,
   RESIDENT_DISTILLER_WORKFLOW_ID,
 } from "./constants.ts";
 
@@ -52,8 +53,13 @@ export type CreateResidentDistillerOpts = {
   id?: string;
   /** Agent id / generatorAgentId (default resident-distiller). */
   agentId?: string;
-  /** Cron schedule (default every 5 minutes). */
-  cron?: string;
+  /**
+   * The mail address this workflow's run is triggered at — the first
+   * inbound mail here fires the deployment's stable top-level run. The
+   * host owns ticking: mail this address on whatever cadence it wants
+   * (e.g. a `@corbits/cron` schedule), see the README.
+   */
+  mailTo: string;
   /** Host inference preferences (required for deploy hashing). */
   inference: { sources: readonly InferencePreference[] };
   /** Override system prompt. */
@@ -74,8 +80,9 @@ export type ResidentDistiller = {
 };
 
 /**
- * Build a schedule-triggered workflow + agent preloaded with memory tools.
- * Host supplies inference sources and deploys with memory* env credentials.
+ * Build a mail-triggered workflow + agent preloaded with memory tools. Host
+ * supplies inference sources and `mailTo`, and deploys with memory* env
+ * credentials. Ticking (deciding when to mail `mailTo`) is the host's job.
  */
 export function createResidentDistiller(
   opts: CreateResidentDistillerOpts,
@@ -105,8 +112,8 @@ export function createResidentDistiller(
   const workflow = defineWorkflow({
     id: opts.id ?? RESIDENT_DISTILLER_WORKFLOW_ID,
     trigger: {
-      type: "schedule",
-      cron: opts.cron ?? RESIDENT_DISTILLER_CRON_DEFAULT,
+      type: "mail",
+      to: opts.mailTo,
     },
     agent,
   });

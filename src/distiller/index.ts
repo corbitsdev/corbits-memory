@@ -4,7 +4,8 @@
  * Two ways to run:
  *
  * 1. **Workflow** (recommended on Interchange):
- *    `createResidentDistiller({ inference })` → deploy the workflow.
+ *    `createResidentDistiller({ mailTo, inference })` → deploy the
+ *    workflow, then have the host mail `mailTo` on a schedule to tick it.
  *
  * 2. **Imperative tick** (any scheduler):
  *    `runDistillTick({ client, distill, after })` with your model in `distill`.
@@ -14,7 +15,6 @@
  */
 export {
   RESIDENT_DISTILLER_AGENT_ID,
-  RESIDENT_DISTILLER_CRON_DEFAULT,
   RESIDENT_DISTILLER_WORKFLOW_ID,
 } from "./constants.ts";
 
