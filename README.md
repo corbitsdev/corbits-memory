@@ -61,7 +61,15 @@ Apply migrations before serving traffic:
 ```ts
 import { runMemoryMigrations } from "@corbits/memory/migrations";
 
-await runMemoryMigrations(process.env.DATABASE_URL!);
+export async function migrateMemory(databaseUrl: string): Promise<void> {
+  await runMemoryMigrations(databaseUrl);
+}
+
+const databaseUrl = process.env.DATABASE_URL;
+if (databaseUrl === undefined) {
+  throw new Error("DATABASE_URL is required to run memory migrations");
+}
+await migrateMemory(databaseUrl);
 ```
 
 `loadMemoryConfig()` reads `DATABASE_URL` (required — tables live in a
@@ -97,9 +105,7 @@ export function installWorkflowMemory(
     verify: (
       ctx: unknown,
     ) => Promise<{ tenantId: string; definitionId: string } | undefined>;
-    resolveRun: (
-      runAddress: string,
-    ) => Promise<{
+    resolveRun: (runAddress: string) => Promise<{
       tenantId: string;
       principalId: string;
       runId: string;
