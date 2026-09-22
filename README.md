@@ -1,138 +1,108 @@
 # @corbits/memory
 
-Memory for [Interchange](https://github.com/corbitsdev) hubs: **add**, **search**, **list**.
+Memory for Interchange hubs: **add**, **search**, **list**. Mount it on the
+hub; routes land under `/api/tenants/:tenantId/memory/*` so the hub's
+existing tenant middleware supplies principal + tenant. Host workers call
+the same plane in-process. Inference stays host-owned — this package does
+not ship an answer endpoint.
 
-Mount it on the hub and routes land under `/api/tenants/:tenantId/memory/*`, where the hub's existing `createResolveTenant` middleware supplies principal plus tenant — the same pattern as workflows, assets, and agents. Deployed agents use the sidecar bundle against the run-scoped routes under `/api/workflow-memory/*`; ingestion modules use the tenant routes or the in-process plane.
+## Runtime support
 
-## Install
+Bun >= 1.2 runs the published TypeScript source (`package.json` `exports`);
+there is no `dist` build, so native Node does not load it. `engines.node` is
+`>=24` as a floor for Node-side tooling (typecheck, pack).
 
-```bash
-bun add @corbits/memory
-```
-
-Runs on Bun 1.2+. TypeScript source ships as the package entry (see `package.json` `exports`); Node >= 24 covers Node-side tooling such as typecheck and pack.
-
-Pair with the peer stack already present on an Interchange hub: `@intx/authz`, `@intx/hub-api`, `hono`. Agent tools also use `@intx/agent` (a direct dependency).
+Peer stack you already have on an Interchange hub: `@intx/authz`,
+`@intx/hub-api`, `hono`.
 
 ## Quickstart
+
+```bash
+npm add @corbits/memory
+pnpm add @corbits/memory
+yarn add @corbits/memory
+bun add @corbits/memory
+```
 
 ```ts
 import { createMemory, loadMemoryConfig } from "@corbits/memory";
 
 const memory = createMemory({
-  app,
+  app, // your Hono app — routes register under /api/tenants/:tenantId/memory/*
   config: loadMemoryConfig(), // DATABASE_URL + embed env
-  grantStore,
-  conditionRegistry,
+  grantStore, // your Interchange grant store (required for the HTTP mount)
+  conditionRegistry, // your condition registry
 });
 ```
 
-That exposes:
+That registers the tenant routes. Identity is `c.get("principal")` — bodies
+never carry tenant or principal. Missing principal → 401. Missing grant →
+403.
 
-| Method | Path | Grant |
-| --- | --- | --- |
-| POST | `/api/tenants/:tenantId/memory/add` | `("memory", "add")` |
-| POST | `/api/tenants/:tenantId/memory/search` | `("memory", "search")` |
-| GET | `/api/tenants/:tenantId/memory/list` | `("memory", "search")` |
-| GET | `/api/tenants/:tenantId/memory/feed` | `("memory", "search")` |
-| POST | `/api/tenants/:tenantId/memory/documents/:documentId/forget` | `("memory", "forget")` |
-| POST | `/api/tenants/:tenantId/memory/documents/:documentId/purge` | `("memory", "purge")` |
-| POST | `/api/tenants/:tenantId/memory/versions/:versionId/retention-class` | `("memory", "forget")` |
-
-Bodies stay lean: tenant and principal come from `c.get("principal")` in context (set by the hub's tenant middleware). Requests without a principal receive a 401; requests without the grant receive a 403.
-
-```http
-POST /api/tenants/:tenantId/memory/add      { "title", "text", "access_tags"?, "share"? }
-POST /api/tenants/:tenantId/memory/search   { "query", "limit"?, "kinds"?, "entity_ids"?, "sources"?, "includeEvidence"? }
-GET  /api/tenants/:tenantId/memory/list     ?limit=
-GET  /api/tenants/:tenantId/memory/feed     ?after=&limit=&exclude_generator=
-POST /api/tenants/:tenantId/memory/documents/:documentId/forget            { "reason"? }
-POST /api/tenants/:tenantId/memory/documents/:documentId/purge             (empty body)
-POST /api/tenants/:tenantId/memory/versions/:versionId/retention-class     { "retention_class": "durable" | "standard" | "ephemeral" | "source_only" }
-```
-
-## Feed
-
-`GET …/memory/feed` pulls new live versions after a cursor (`after` = last consumed `feedSeq`, `limit` 1–100, `exclude_generator` skips one `generator_agent_id`). It uses the `("memory", "search")` grant with the same grant-tag post-filter as search. Details: [`docs/FEED.md`](docs/FEED.md). The resident distiller consumes this feed — see `@corbits/memory/distiller` (`createResidentDistiller`, `runDistillTick`) and [`docs/DISTILLER.md`](docs/DISTILLER.md).
-
-## Retention
-
-- `POST …/documents/:documentId/forget` — tombstone: the document leaves search and feed, chunk text is redacted, and version rows remain for audit. Uses grant `("memory", "forget")` plus a creator check. Plane verb: `memory.tombstoneDocument`.
-- `POST …/documents/:documentId/purge` — hard delete. Applies once durable versions are tombstoned. Uses grant `("memory", "purge")` plus a creator check. Plane verb: `memory.hardDeleteDocument`.
-- `POST …/versions/:versionId/retention-class` — sets a version's retention class (`setRetentionClass`). Uses grant `("memory", "forget")` plus a check that the caller created the version.
-
-Details: [`docs/RETENTION.md`](docs/RETENTION.md). Engine config for these paths comes from `@corbits/memory/config` (`loadMemoryConfig`, `MemoryConfig`).
-
-## Agent tools
-
-A deployed agent carries the memory tools through one factory at `@corbits/memory/sidecar-bundle`. The bundle holds client code free of base URLs and tokens: it resolves the `hub` credential handle from the host-assembled runtime capabilities and calls the run-scoped routes through that mediated fetch, naming its run with the `x-workflow-run-address` header.
-
-| Tool | Route |
-| --- | --- |
-| `memory_add` | `POST /api/workflow-memory/add` |
-| `memory_search` | `POST /api/workflow-memory/search` |
-| `memory_list` | `GET /api/workflow-memory/list` |
-| `memory_feed` | `GET /api/workflow-memory/feed` |
-
-Those routes are a second, parallel mount — the tenant routes above keep their session auth:
+In-process, no HTTP and no Postgres — uses the exported fake store. Creator
+always sees their own documents.
 
 ```ts
-import { mountWorkflowMemory } from "@corbits/memory";
+import { createMemory, createFakeDocumentStore } from "@corbits/memory";
 
-mountWorkflowMemory(workflowMemoryApi, {
-  memory,
-  agentToken: { verify, resolveRun }, // host token + run lookup
+const memory = createMemory({
+  documentStore: createFakeDocumentStore(),
 });
-app.route("/api/workflow-memory", workflowMemoryApi);
-```
 
-`verify` returns `{ tenantId, definitionId }` for a recognized bearer, and `resolveRun` maps the run address to `{ tenantId, principalId, runId }`. A token from another tenant receives the same 401 as an unknown bearer. Every call stays scoped to that run's tenant and principal; the body carries content only.
-
-Host checklist:
-
-1. Mount the tenant routes: `createMemory({ app, grantStore, … })`.
-2. Mount `mountWorkflowMemory` and bind the agent's hub credential to the `hub` handle on its definition.
-3. For peer and space share visibility, grant `search` on the relevant document tags (see `docs/AUTHZ-DOCUMENT-ACCESS.md`).
-
-## Ingestion
-
-Host workers with resolved identity call the plane directly, without HTTP:
-
-```ts
 await memory.add({
-  tenantId,
-  principalId,
-  content: { title, text },
+  tenantId: "acme",
+  principalId: "alice",
+  content: {
+    title: "Deploy notes",
+    text: "Staging deploys run from main.",
+  },
 });
-const { items } = await memory.search({ tenantId, principalId, query });
+
+const { items } = await memory.search({
+  tenantId: "acme",
+  principalId: "alice",
+  query: "staging",
+});
+
+console.log(items.map((item) => item.title));
 ```
 
-Inference stays host-owned: run a model, then `add` / `search`. Core focuses on the memory workflow.
-
-## Document access
-
-Capability grants (`memory:add` / `memory:search`) gate the routes. Per-document visibility uses Interchange grant tags on the row (`access_tags`); the creator always sees their own docs. Details: [`docs/AUTHZ-DOCUMENT-ACCESS.md`](docs/AUTHZ-DOCUMENT-ACCESS.md).
-
-## Config
-
-`loadMemoryConfig()` (from `@corbits/memory/config`) reads env (see `.env.example`). For the default pgvector store, set `DATABASE_URL`, `EMBED_BASE_URL`, and `EMBED_MODEL`.
+On a real hub, omit `documentStore` and pass `config: loadMemoryConfig()`
+(needs `DATABASE_URL`, `EMBED_BASE_URL`, `EMBED_MODEL`; see `.env.example`).
+Apply migrations first:
 
 ```ts
 import { runMemoryMigrations } from "@corbits/memory/migrations";
+
 await runMemoryMigrations(process.env.DATABASE_URL!);
 ```
 
-Pass `documentStore` to use fakes, a host store, or a sibling adapter alongside Postgres. `createFakeDocumentStore` (from `@corbits/memory`) covers tests and local development.
+## How it works
 
-## Interchange
+`createMemory` builds the plane. Pass `app` to register
+`/api/tenants/:tenantId/memory/*` behind `requireGrant("memory", …)` —
+`grantStore` is required for that mount. `loadMemoryConfig` lives on the
+barrel and at `@corbits/memory/config`.
 
-This package is built for Interchange hubs: tenant-scoped routes, grant-gated tools, and the sidecar bundle follow hub conventions for auth, tenancy, and agent deployment. The in-process plane (`memory.add` / `memory.search`) gives ingestion workers the same semantics without HTTP.
+Capability grants (`memory:add` / `memory:search` / `memory:forget` /
+`memory:purge`) gate the routes. Per-document visibility is Interchange
+grant tags on the row (`access_tags`); the creator always sees their own
+docs. Details: [`docs/AUTHZ-DOCUMENT-ACCESS.md`](docs/AUTHZ-DOCUMENT-ACCESS.md).
 
-## More
+The resident distiller (`createResidentDistiller` / `runDistillTick`) is at
+`@corbits/memory/distiller`.
 
-- Product: [`PRODUCT.md`](PRODUCT.md)
-- Architecture: [`ARCHITECTURE.md`](ARCHITECTURE.md)
-- Internals: [`IMPLEMENTATION.md`](IMPLEMENTATION.md)
+## Development
+
+```bash
+git clone https://github.com/corbitsdev/corbits-memory.git
+cd corbits-memory
+bun install
+bun run typecheck  # tsc --noEmit
+bun run test       # bun test ./src
+```
+
+There is no `build` script — the published surface is `src/`.
 
 ## License
 
