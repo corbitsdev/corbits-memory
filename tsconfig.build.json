@@ -12,7 +12,8 @@
     "declarationMap": false,
     "sourceMap": false,
     "outDir": "dist",
-    "rootDir": "src"
+    "rootDir": "src",
+    "composite": false
   },
   "include": ["src"],
   "exclude": ["src/**/*.test.ts", "dist", "node_modules"]
