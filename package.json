@@ -2,29 +2,26 @@
   "name": "@corbits/memory",
   "version": "0.1.3",
   "description": "Mountable memory add/search/list SDK for Interchange hubs — includes resident distiller",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "intx-src": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
     "./migrations": {
-      "intx-src": "./src/migrations.ts",
       "types": "./dist/migrations.d.ts",
       "default": "./dist/migrations.js"
     },
     "./config": {
-      "intx-src": "./src/mount-config.ts",
       "types": "./dist/mount-config.d.ts",
       "default": "./dist/mount-config.js"
     },
     "./sidecar-bundle": {
-      "intx-src": "./src/sidecar-bundle.ts",
       "types": "./dist/sidecar-bundle.d.ts",
       "default": "./dist/sidecar-bundle.js"
     },
     "./distiller": {
-      "intx-src": "./src/distiller/index.ts",
       "types": "./dist/distiller/index.d.ts",
       "default": "./dist/distiller/index.js"
     }
