@@ -4,8 +4,8 @@ import {
   MemoryEdgeHintSchema,
   MemoryEdgeSchema,
   MemoryEntitySchema,
-} from "./entity-edge.ts";
-import type { MemoryEdge } from "./entity-edge.ts";
+} from "./entity-edge.js";
+import type { MemoryEdge } from "./entity-edge.js";
 
 describe("MemoryEntitySchema", () => {
   it("round-trips a full fixture", () => {

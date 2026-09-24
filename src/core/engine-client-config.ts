@@ -5,9 +5,9 @@
  * future caller) must go through these functions so operator overrides like
  * EMBED_TIMEOUT_MS / RERANK_TIMEOUT_MS reach every code path uniformly.
  */
-import type { EngineConfig } from "../config.ts";
-import type { EmbedClientConfig } from "./embed-client.ts";
-import type { RerankClientConfig } from "./rerank-client.ts";
+import type { EngineConfig } from "../config.js";
+import type { EmbedClientConfig } from "./embed-client.js";
+import type { RerankClientConfig } from "./rerank-client.js";
 
 const VALID_EMBED_API_STYLES = new Set(["openai", "tei", "ollama"]);
 

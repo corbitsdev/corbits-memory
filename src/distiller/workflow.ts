@@ -22,12 +22,12 @@ import {
 } from "@intx/agent";
 import { defineWorkflow, type WorkflowDefinition } from "@intx/workflow";
 
-import { memory } from "../sidecar-bundle.ts";
-import { capabilityIdsForSurface } from "../grant-requirements.ts";
+import { memory } from "../sidecar-bundle.js";
+import { capabilityIdsForSurface } from "../grant-requirements.js";
 import {
   RESIDENT_DISTILLER_AGENT_ID,
   RESIDENT_DISTILLER_WORKFLOW_ID,
-} from "./constants.ts";
+} from "./constants.js";
 
 const DEFAULT_SYSTEM_PROMPT = (generatorAgentId: string) =>
   `You are the resident memory distiller for a Corbits tenant.

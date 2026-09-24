@@ -3,8 +3,8 @@ import { type } from "arktype";
 import {
   MemoryDocumentSchema,
   MemoryVersionSchema,
-} from "./document.ts";
-import type { MemoryDocument, MemoryVersion } from "./document.ts";
+} from "./document.js";
+import type { MemoryDocument, MemoryVersion } from "./document.js";
 
 describe("MemoryDocumentSchema", () => {
   it("round-trips a full fixture", () => {

@@ -5,7 +5,7 @@ import {
   FEED_LIMIT_MIN,
   FeedInputError,
   feedPageAfterAccessFilter,
-} from "./feed.ts";
+} from "./feed.js";
 
 describe("feed constants", () => {
   it("keeps the default page size within bounds", () => {

@@ -12,8 +12,8 @@ import {
   LIST_LIMIT_MIN,
   SEARCH_LIMIT_MAX,
   SEARCH_LIMIT_MIN,
-} from "./limits.ts";
-import { NonBlankId } from "./core/schemas/non-blank-id.ts";
+} from "./limits.js";
+import { NonBlankId } from "./core/schemas/non-blank-id.js";
 
 export const ShareBody = type({
   "tenant?": "boolean",

@@ -7,7 +7,7 @@ import {
   filterTimelineRows,
   timelineWhere,
   type TimelineRow,
-} from "./timeline.ts";
+} from "./timeline.js";
 
 const dialect = new PgDialect();
 

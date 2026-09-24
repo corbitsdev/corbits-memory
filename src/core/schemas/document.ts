@@ -5,7 +5,7 @@ import {
   RETENTION_CLASSES,
   TEMPORAL_CLASSES,
   arktypeStringUnion,
-} from "../enums.ts";
+} from "../enums.js";
 
 export const MemoryVersionStatusSchema = type(
   "'active'|'superseded'|'deprecated'|'archived'|'tombstoned'",

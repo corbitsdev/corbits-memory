@@ -7,8 +7,8 @@ import {
   createFakeDocumentStore,
   createFakeSourceProvider,
   createMemory,
-} from "../index.ts";
-import type { LiveSearchItem } from "./types.ts";
+} from "../index.js";
+import type { LiveSearchItem } from "./types.js";
 
 const TENANT = "t_merge";
 const PRINCIPAL = "p_merge";

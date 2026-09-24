@@ -6,32 +6,32 @@ import {
   resolveAccessTags,
   ownerTag,
   type ShareSugar,
-} from "./grant-tags.ts";
+} from "./grant-tags.js";
 
-import type { EngineConfig } from "./config.ts";
-import { formatCaughtError, log } from "./log.ts";
-import { createDb, type Db, type RawSql } from "./db/client.ts";
-import { createFtsVerification, parseFtsLanguage } from "./core/fts-language.ts";
-import { createRawSqlClient } from "./core/embed-sql.ts";
-import type { SearchHit } from "./core/schemas/search.ts";
-import { validateRerankConfig } from "./core/rerank-client.ts";
-import { captureDocument, type CaptureDegradedReason } from "./services/capture.ts";
+import type { EngineConfig } from "./config.js";
+import { formatCaughtError, log } from "./log.js";
+import { createDb, type Db, type RawSql } from "./db/client.js";
+import { createFtsVerification, parseFtsLanguage } from "./core/fts-language.js";
+import { createRawSqlClient } from "./core/embed-sql.js";
+import type { SearchHit } from "./core/schemas/search.js";
+import { validateRerankConfig } from "./core/rerank-client.js";
+import { captureDocument, type CaptureDegradedReason } from "./services/capture.js";
 import {
   hybridSearch,
   MemorySearchInputError,
   toRerankClientConfig,
   type HybridSearchResult,
   DEFAULT_HYBRID_TOP_K,
-} from "./services/search.ts";
+} from "./services/search.js";
 import {
   listTimelineEvents,
   type TimelineEvent,
-} from "./services/timeline.ts";
+} from "./services/timeline.js";
 import {
   fetchFeed,
   feedPageAfterAccessFilter,
   type FeedEntry,
-} from "./services/feed.ts";
+} from "./services/feed.js";
 
 import {
   createTransformConfig,
@@ -41,65 +41,65 @@ import {
   runTransform,
   type TransformConfigRow,
   type TransformRunRow,
-} from "./services/transform.ts";
+} from "./services/transform.js";
 import {
   deprecateVersion,
   hardDeleteDocument,
   setRetentionClass,
   sweepEphemeral,
   tombstoneDocument,
-} from "./services/retention.ts";
+} from "./services/retention.js";
 import {
   isOwner,
   resolveDocumentOwner,
   resolveVersionOwner,
-} from "./services/retention-ownership.ts";
+} from "./services/retention-ownership.js";
 import {
   documentTag,
   materializeShareGrants,
   MEMORY_SHARE_CONDITION_REGISTRY,
-} from "./services/share-grants.ts";
+} from "./services/share-grants.js";
 
 import {
   isWritableGrantStore,
-} from "./ports/writable-grant-store.ts";
-import type { TransformConfigParams, TransformScope } from "./core/schemas/transform.ts";
+} from "./ports/writable-grant-store.js";
+import type { TransformConfigParams, TransformScope } from "./core/schemas/transform.js";
 import {
   LIVE_TIMEOUT_MS,
   mergeLocalLiveV1,
   withTimeout,
   type MergeChannelItem,
   type MergeDegradeFlag,
-} from "./core/merge-local-live.ts";
-import type { DegradeFlag } from "./core/hybrid-search.ts";
-import type { MemoryConfig } from "./mount-config.ts";
-import type { GrantConfig } from "./routes/deps.ts";
+} from "./core/merge-local-live.js";
+import type { DegradeFlag } from "./core/hybrid-search.js";
+import type { MemoryConfig } from "./mount-config.js";
+import type { GrantConfig } from "./routes/deps.js";
 import type {
   DocumentStore,
   DocumentStoreCapabilities,
   DocumentStoreSearchParams,
   SourceProvider,
-} from "./ports/types.ts";
+} from "./ports/types.js";
 import {
   LIST_LIMIT_MAX,
   LIST_LIMIT_MIN,
   SEARCH_LIMIT_MAX,
   SEARCH_LIMIT_MIN,
-} from "./limits.ts";
+} from "./limits.js";
 
 // (drizzle select was used briefly for grant-tag load; raw sql keeps unit-test
 // mocks simple and matches the rest of the engine store.)
 
 // Re-export so hosts typing plane results don't reach into services/.
-export type { HybridSearchResult } from "./services/search.ts";
-export type { SearchHit } from "./core/schemas/search.ts";
+export type { HybridSearchResult } from "./services/search.js";
+export type { SearchHit } from "./core/schemas/search.js";
 export type {
   DocumentStore,
   DocumentStoreAddParams,
   DocumentStoreCapabilities,
   LiveSearchItem,
   SourceProvider,
-} from "./ports/types.ts";
+} from "./ports/types.js";
 // Alias so hosts read `MemoryCapabilities` (the name on the `Memory` handle
 // they actually hold) rather than reaching for the port-level type name.
 export type MemoryCapabilities = DocumentStoreCapabilities;
@@ -108,7 +108,7 @@ export {
   SEARCH_LIMIT_MAX,
   LIST_LIMIT_MIN,
   LIST_LIMIT_MAX,
-} from "./limits.ts";
+} from "./limits.js";
 
 export {
   resolveAccessTags,
@@ -117,7 +117,7 @@ export {
   canAccessDocument,
   matchesVisibleTags,
   type ShareSugar,
-} from "./grant-tags.ts";
+} from "./grant-tags.js";
 
 /**
  * Optional host-supplied extractor for `add({ file })`. The engine never

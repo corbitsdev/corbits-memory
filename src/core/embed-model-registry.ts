@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
-import { type EmbedClientConfig, probeEmbedDims } from "./embed-client.ts";
-import { formatCaughtError, log } from "../log.ts";
+import { type EmbedClientConfig, probeEmbedDims } from "./embed-client.js";
+import { formatCaughtError, log } from "../log.js";
 
 // pgvector's hnsw/ivfflat indexes on the `vector` type cap at 2000 dims; an
 // expression index over `halfvec` (half-precision) raises the cap to 4000.

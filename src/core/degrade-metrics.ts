@@ -1,5 +1,5 @@
-import { log } from "../log.ts";
-import type { DegradeFlag } from "./hybrid-search.ts";
+import { log } from "../log.js";
+import type { DegradeFlag } from "./hybrid-search.js";
 
 // There is no metrics facility anywhere in this repo — no statsd,
 // prometheus, or otel dependency, and `@intx/log` exports no counter. This

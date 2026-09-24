@@ -11,7 +11,7 @@
 import { defineTool, type BaseEnv } from "@intx/agent";
 import type { ToolCall, ToolResult } from "@intx/types/runtime";
 
-import { MEMORY_TOOL_DEFINITIONS } from "./tools.ts";
+import { MEMORY_TOOL_DEFINITIONS } from "./tools.js";
 
 /** Where a host mounts `mountWorkflowMemory`. The bundle has no options of
  * its own — the loader constructs it — so the path is a shared constant

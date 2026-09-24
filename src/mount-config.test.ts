@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { loadMemoryConfig } from "./mount-config.ts";
+import { loadMemoryConfig } from "./mount-config.js";
 
 const REQUIRED_ENV = {
   DATABASE_URL: "postgres://localhost:5432/test",

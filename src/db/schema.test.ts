@@ -15,7 +15,7 @@ import {
   rawCapture,
   transformConfig,
   transformRun,
-} from "./schema.ts";
+} from "./schema.js";
 
 const TABLES = [
   memoryDocument,

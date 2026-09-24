@@ -14,7 +14,7 @@ import {
   recencyBoostMultiplier,
   temporalRecencyMultiplier,
   toRankedCandidates,
-} from "./hybrid-search.ts";
+} from "./hybrid-search.js";
 
 describe("toRankedCandidates", () => {
   test("assigns 1-based rank in list order", () => {

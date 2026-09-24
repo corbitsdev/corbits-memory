@@ -2,13 +2,13 @@
  * Imperative distill tick — for hosts that want a function, not a workflow.
  * Inference stays injected: host supplies `distill` (call your model).
  */
-import type { MemoryHttpClient } from "../http-client.ts";
+import type { MemoryHttpClient } from "../http-client.js";
 import {
   buildDistilledClaim,
   shouldProcessFeedEntry,
   type DistilledClaimWrite,
-} from "./claim.ts";
-import { RESIDENT_DISTILLER_AGENT_ID } from "./constants.ts";
+} from "./claim.js";
+import { RESIDENT_DISTILLER_AGENT_ID } from "./constants.js";
 
 export type DistillTickFeedEntry = {
   feedSeq: number;

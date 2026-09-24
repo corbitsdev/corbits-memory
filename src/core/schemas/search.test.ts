@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { type } from "arktype";
-import { SearchHitSchema, SearchResponseSchema } from "./search.ts";
-import type { SearchHit, SearchResponse } from "./search.ts";
+import { SearchHitSchema, SearchResponseSchema } from "./search.js";
+import type { SearchHit, SearchResponse } from "./search.js";
 
 function fullHitFixture(): SearchHit {
   return {

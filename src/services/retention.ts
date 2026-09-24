@@ -4,9 +4,9 @@
  */
 import { and, eq, inArray, isNotNull, lt, or, sql } from "drizzle-orm";
 
-import type { Db } from "../db/client.ts";
-import { memoryChunk, memoryDocument, memoryVersion } from "../db/schema.ts";
-import type { RetentionClass } from "../core/enums.ts";
+import type { Db } from "../db/client.js";
+import { memoryChunk, memoryDocument, memoryVersion } from "../db/schema.js";
+import type { RetentionClass } from "../core/enums.js";
 
 export type RetentionMutationResult = {
   versionId: string;

@@ -8,9 +8,9 @@ import type {
 import type { ConditionRegistry, GrantStore } from "@intx/authz";
 import { type } from "arktype";
 
-import { log } from "../log.ts";
-import type { Memory } from "../memory.ts";
-import { NonBlankId } from "../core/schemas/non-blank-id.ts";
+import { log } from "../log.js";
+import type { Memory } from "../memory.js";
+import { NonBlankId } from "../core/schemas/non-blank-id.js";
 
 /**
  * The host's grant store + condition registry — the same pair it feeds

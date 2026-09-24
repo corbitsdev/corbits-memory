@@ -9,7 +9,7 @@
  * Raw `sql` (not the Drizzle `Db`) so unit tests can mock the query
  * directly, matching the ACL-load pattern in memory.ts's search path.
  */
-import type { RawSql } from "../db/client.ts";
+import type { RawSql } from "../db/client.js";
 
 export type OwnerLookup = {
   /** False when no matching document/version row exists. */

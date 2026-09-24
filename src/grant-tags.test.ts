@@ -7,7 +7,7 @@ import {
   ownerTag,
   resolveAccessTags,
   tenantTag,
-} from "./grant-tags.ts";
+} from "./grant-tags.js";
 
 
 describe("resolveAccessTags", () => {

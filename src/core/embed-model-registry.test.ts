@@ -1,5 +1,5 @@
 import { describe, expect, it, mock } from "bun:test";
-import type { EmbedClientConfig } from "./embed-client.ts";
+import type { EmbedClientConfig } from "./embed-client.js";
 import {
   activateEmbedModel,
   activateEmbedModelByKey,
@@ -16,7 +16,7 @@ import {
   resolveActiveEmbedTable,
   resolveEmbedTableByModelKey,
   VECTOR_INDEX_MAX_DIMS,
-} from "./embed-model-registry.ts";
+} from "./embed-model-registry.js";
 
 function jsonResponse(body: unknown): Response {
   return new Response(JSON.stringify(body), {

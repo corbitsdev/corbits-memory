@@ -4,9 +4,9 @@ import {
   LineageClassSchema,
   ProvenanceModeSchema,
   TemporalClassSchema,
-} from "./document.ts";
-import { MemoryEdgeHintSchema } from "./entity-edge.ts";
-import { AuthoritySourceClassSchema } from "../authority.ts";
+} from "./document.js";
+import { MemoryEdgeHintSchema } from "./entity-edge.js";
+import { AuthoritySourceClassSchema } from "../authority.js";
 
 // A hint that a chunk/document mentions a real-world entity; the ingestion
 // engine resolves this against memory_entity, creating a row if none

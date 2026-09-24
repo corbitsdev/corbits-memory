@@ -1,13 +1,13 @@
-import { DEFAULT_CHUNK_CAPS } from "./chunk/types.ts";
-import { chunkTokenRecursive } from "./chunk/token-recursive.ts";
-import type { Chunker } from "./chunk/types.ts";
-import { contentHash } from "./hash.ts";
+import { DEFAULT_CHUNK_CAPS } from "./chunk/types.js";
+import { chunkTokenRecursive } from "./chunk/token-recursive.js";
+import type { Chunker } from "./chunk/types.js";
+import { contentHash } from "./hash.js";
 import type {
   AdaptedDocument,
   AdaptedDocumentChunk,
   EntityHint,
-} from "./schemas/adapted-document.ts";
-import type { MemoryEdgeHint } from "./schemas/entity-edge.ts";
+} from "./schemas/adapted-document.js";
+import type { MemoryEdgeHint } from "./schemas/entity-edge.js";
 
 /**
  * Thrown when an AdaptedDocument fails adaptAndPlan's own defensive checks

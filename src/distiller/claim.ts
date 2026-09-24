@@ -1,4 +1,4 @@
-import { RESIDENT_DISTILLER_AGENT_ID } from "./constants.ts";
+import { RESIDENT_DISTILLER_AGENT_ID } from "./constants.js";
 
 /**
  * Wire body fragment for a distilled claim write (memory_add / HTTP add).

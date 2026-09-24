@@ -14,7 +14,7 @@ import {
   createFakeDocumentStore,
   createFakeSourceProvider,
   createMemory,
-} from "../index.ts";
+} from "../index.js";
 
 const TENANT = "tenant_fake";
 const PRINCIPAL = "principal_fake";

@@ -1,8 +1,8 @@
 import { describe, expect, it } from "bun:test";
 
-import type { MemoryHttpClient } from "../http-client.ts";
-import { RESIDENT_DISTILLER_AGENT_ID } from "./constants.ts";
-import { runDistillTick } from "./tick.ts";
+import type { MemoryHttpClient } from "../http-client.js";
+import { RESIDENT_DISTILLER_AGENT_ID } from "./constants.js";
+import { runDistillTick } from "./tick.js";
 
 function fakeClient(opts: {
   page: unknown;

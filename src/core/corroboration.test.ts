@@ -4,11 +4,11 @@ import {
   CORROBORATION_STRONG_FLOOR,
   effectiveAuthority,
   meetsStrongEvidenceGate,
-} from "./corroboration.ts";
+} from "./corroboration.js";
 import {
   BOOST_MULTIPLIER_MAX,
   BOOST_MULTIPLIER_MIN,
-} from "./hybrid-search.ts";
+} from "./hybrid-search.js";
 
 describe("corroborationFactor", () => {
   it("is neutral with no edges", () => {

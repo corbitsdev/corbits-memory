@@ -1,14 +1,14 @@
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
-import type { Db, RawSql } from "../db/client.ts";
-import type { EngineConfig } from "../config.ts";
-import { LIVE_GENERATION } from "../core/generation.ts";
+import type { Db, RawSql } from "../db/client.js";
+import type { EngineConfig } from "../config.js";
+import { LIVE_GENERATION } from "../core/generation.js";
 import {
   memoryChunk,
   memoryDocument,
   memoryEdge,
   memoryVersion,
-} from "../db/schema.ts";
-import { createRawSqlClient } from "../core/embed-sql.ts";
+} from "../db/schema.js";
+import { createRawSqlClient } from "../core/embed-sql.js";
 import {
   cosineDistanceExpr,
   computeModelKey,
@@ -16,21 +16,21 @@ import {
   resolveActiveEmbedTable,
   resolveEmbedTableByModelKey,
   type ActiveEmbedTable,
-} from "../core/embed-model-registry.ts";
-import { embedTexts, type EmbedClientConfig } from "../core/embed-client.ts";
+} from "../core/embed-model-registry.js";
+import { embedTexts, type EmbedClientConfig } from "../core/embed-client.js";
 import {
   toEmbedClientConfig,
   toRerankClientConfig,
-} from "../core/engine-client-config.ts";
+} from "../core/engine-client-config.js";
 import {
   rerankDocuments,
   RerankConfigError,
   RerankQueryTooLongError,
   validateRerankConfig,
   type RerankClientConfig,
-} from "../core/rerank-client.ts";
-import { mmrRerank, type MmrItem } from "../core/mmr.ts";
-import { recordDegrade } from "../core/degrade-metrics.ts";
+} from "../core/rerank-client.js";
+import { mmrRerank, type MmrItem } from "../core/mmr.js";
+import { recordDegrade } from "../core/degrade-metrics.js";
 import {
   authorityBoostMultiplier,
   clampOverfetchMultiplier,
@@ -41,20 +41,20 @@ import {
   RECENCY_HALF_LIFE_MS,
   toRankedCandidates,
   type DegradeFlag,
-} from "../core/hybrid-search.ts";
+} from "../core/hybrid-search.js";
 import {
   corroborationFactor,
   effectiveAuthority,
   meetsStrongEvidenceGate,
   type CorroborationCounts,
-} from "../core/corroboration.ts";
-import { formatCaughtError, log } from "../log.ts";
-import { resolveGenerationSearchParams } from "./transform.ts";
+} from "../core/corroboration.js";
+import { formatCaughtError, log } from "../log.js";
+import { resolveGenerationSearchParams } from "./transform.js";
 import type {
   SearchChannel,
   SearchHit,
   SearchResponse,
-} from "../core/schemas/search.ts";
+} from "../core/schemas/search.js";
 
 // The single doorway every retrieval read passes through. Every query below
 // filters `tenant_id` first, unconditionally. Per-document access is **not**

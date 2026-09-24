@@ -11,11 +11,13 @@ import {
   FTS_LANGUAGE_TOKEN,
   parseFtsLanguage,
   verifyFtsLanguage,
-} from "./core/fts-language.ts";
-import { createRawSqlClient } from "./core/embed-sql.ts";
-import { MEMORY_SCHEMA } from "./db/schema.ts";
+} from "./core/fts-language.js";
+import { createRawSqlClient } from "./core/embed-sql.js";
+import { MEMORY_SCHEMA } from "./db/schema.js";
 
-const MIGRATIONS_DIR = join(import.meta.dir, "..", "migrations");
+// dirname (not Bun-only `dir`): the packed dist/ layout keeps
+// <pkg>/migrations next to <pkg>/dist, so this resolves in Node too.
+const MIGRATIONS_DIR = join(import.meta.dirname, "..", "migrations");
 
 export async function runMemoryMigrations(
   databaseUrl: string,

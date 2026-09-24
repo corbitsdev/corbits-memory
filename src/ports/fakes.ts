@@ -6,7 +6,7 @@
  * authorize(grants, …, tag, "search") allows when grants are provided. Without
  * grants, only creator access (safe default for unit tests).
  */
-import { canAccessDocument, matchesVisibleTags } from "../grant-tags.ts";
+import { canAccessDocument, matchesVisibleTags } from "../grant-tags.js";
 
 import type {
   DocumentStore,
@@ -17,7 +17,7 @@ import type {
   DocumentStoreListParams,
   LiveSearchItem,
   SourceProvider,
-} from "./types.ts";
+} from "./types.js";
 
 type StoredDoc = {
   documentId: string;

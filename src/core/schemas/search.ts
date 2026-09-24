@@ -5,7 +5,7 @@ import {
   MemoryVersionStatusSchema,
   ProvenanceModeSchema,
   TemporalClassSchema,
-} from "./document.ts";
+} from "./document.js";
 
 // The retrieval contract locked on day one. A SearchHit always pins a
 // version_id (a citation must be reproducible against the exact version it

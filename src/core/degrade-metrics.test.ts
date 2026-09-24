@@ -6,8 +6,8 @@ import {
   getDegradeMetricsSnapshot,
   recordDegrade,
   resetDegradeMetrics,
-} from "./degrade-metrics.ts";
-import { log } from "../log.ts";
+} from "./degrade-metrics.js";
+import { log } from "../log.js";
 
 function captureLogs() {
   const calls: Array<{ level: "info" | "warn" | "error"; message: string; payload: unknown }> = [];

@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto";
 import { and, desc, eq } from "drizzle-orm";
-import type { Db, RawSql } from "../db/client.ts";
-import type { EngineConfig } from "../config.ts";
-import { newId } from "../core/id.ts";
-import { formatCaughtError, log } from "../log.ts";
-import { stableStringify } from "../core/hash.ts";
-import { LIVE_GENERATION } from "../core/generation.ts";
+import type { Db, RawSql } from "../db/client.js";
+import type { EngineConfig } from "../config.js";
+import { newId } from "../core/id.js";
+import { formatCaughtError, log } from "../log.js";
+import { stableStringify } from "../core/hash.js";
+import { LIVE_GENERATION } from "../core/generation.js";
 import {
   memoryChunk,
   memoryDocument,
@@ -13,33 +13,33 @@ import {
   memoryEntity,
   memoryVersion,
   rawCapture,
-} from "../db/schema.ts";
+} from "../db/schema.js";
 import {
   adaptAndPlan,
   type AdaptAndPlanOptions,
   type CapturePlan,
-} from "../core/adapt-and-plan.ts";
-import { computeAuthority, type AuthoritySignals } from "../core/authority.ts";
+} from "../core/adapt-and-plan.js";
+import { computeAuthority, type AuthoritySignals } from "../core/authority.js";
 import type {
   AdaptedDocument,
   EntityHint,
-} from "../core/schemas/adapted-document.ts";
-import type { MemoryEdgeHint } from "../core/schemas/entity-edge.ts";
-import { createRawSqlClient } from "../core/embed-sql.ts";
+} from "../core/schemas/adapted-document.js";
+import type { MemoryEdgeHint } from "../core/schemas/entity-edge.js";
+import { createRawSqlClient } from "../core/embed-sql.js";
 import {
   activateEmbedModel,
   EMBED_TABLE_NAME_PATTERN,
   ensureEmbedModel,
   type ActiveEmbedTable,
   type EmbedRegistrySqlClient,
-} from "../core/embed-model-registry.ts";
-import type { EmbedClientConfig } from "../core/embed-client.ts";
+} from "../core/embed-model-registry.js";
+import type { EmbedClientConfig } from "../core/embed-client.js";
 import {
   embedChunks,
   type CaptureDegradedReason,
   type EmbeddableChunk,
-} from "../core/embed-worker.ts";
-import { toEmbedClientConfig } from "../core/engine-client-config.ts";
+} from "../core/embed-worker.js";
+import { toEmbedClientConfig } from "../core/engine-client-config.js";
 
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 
