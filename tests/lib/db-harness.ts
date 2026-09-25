@@ -10,6 +10,7 @@ import { Hono } from "hono";
 import postgres from "postgres";
 
 import { createMemory, type Memory } from "../../src/memory.ts";
+import type { MemoryConfig } from "../../src/mount-config.ts";
 import { runMemoryMigrations } from "../../src/migrations.ts";
 import { createMemoryRoutes } from "../../src/routes/mount.ts";
 
@@ -109,23 +110,28 @@ export async function seedPrincipal(
     VALUES (${principalId}, ${tenantId}, 'user', ${principalId}, 'active')`;
 }
 
-/** The engine-backed plane on the test database, lexical-only. */
-export function createTestMemory(db: TestDb, grantStore: GrantStore): Memory {
-  return createMemory({
-    config: {
-      memory: {
-        databaseUrl: db.databaseUrl,
-        dbPoolMax: 4,
-        ftsLanguage: FTS_LANGUAGE,
-        rerank: {
-          baseUrl: undefined,
-          model: undefined,
-          apiKey: undefined,
-          maxDocChars: undefined,
-          timeoutMs: undefined,
-        },
+/** Engine config for the test database: lexical-only, no reranker. */
+export function testMemoryConfig(db: TestDb): MemoryConfig {
+  return {
+    memory: {
+      databaseUrl: db.databaseUrl,
+      dbPoolMax: 4,
+      ftsLanguage: FTS_LANGUAGE,
+      rerank: {
+        baseUrl: undefined,
+        model: undefined,
+        apiKey: undefined,
+        maxDocChars: undefined,
+        timeoutMs: undefined,
       },
     },
+  };
+}
+
+/** The engine-backed memory on the test database. */
+export function createTestMemory(db: TestDb, grantStore: GrantStore): Memory {
+  return createMemory({
+    config: testMemoryConfig(db),
     grantStore,
     conditionRegistry: {},
   });
