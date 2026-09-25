@@ -4,12 +4,17 @@
 ALTER TABLE "memory"."version"
   ADD COLUMN IF NOT EXISTS "retention_class" text NOT NULL DEFAULT 'standard';
 
-ALTER TABLE "memory"."version"
-  DROP CONSTRAINT IF EXISTS "version_retention_class_check";
-
-ALTER TABLE "memory"."version"
-  ADD CONSTRAINT "version_retention_class_check"
-  CHECK ("retention_class" IN ('durable', 'standard', 'ephemeral', 'source_only'));
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'version_retention_class_check' AND conrelid = '"memory"."version"'::regclass
+  ) THEN
+    ALTER TABLE "memory"."version"
+      ADD CONSTRAINT "version_retention_class_check"
+      CHECK ("retention_class" IN ('durable', 'standard', 'ephemeral', 'source_only'));
+  END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS "version_retention_ephemeral_idx"
   ON "memory"."version" ("tenant_id", "retention_class", "valid_until")
