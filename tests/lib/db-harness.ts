@@ -15,9 +15,16 @@ import { createMemoryRoutes } from "../../src/routes/mount.ts";
 
 const FTS_LANGUAGE = "english";
 
-/** Gate for `describe.skipIf`: the suite skips when no server is configured. */
+/**
+ * Gate for `describe.skipIf`: the suite skips when no server is configured,
+ * except in CI, where a missing server fails the run instead.
+ */
 export function testDatabaseUrl(): string | undefined {
-  return process.env["TEST_DATABASE_URL"];
+  const url = process.env["TEST_DATABASE_URL"];
+  if (url === undefined && process.env["CI"] !== undefined) {
+    throw new Error("TEST_DATABASE_URL is required in CI");
+  }
+  return url;
 }
 
 function dbConfigFromUrl(url: URL, database: string): DBConfig {
