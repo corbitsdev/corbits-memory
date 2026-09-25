@@ -61,8 +61,9 @@
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.build.json",
     "prepack": "npm run build",
-    "test": "bun test ./src ./tests",
-    "test:coverage": "bun test --coverage --coverage-reporter=lcov --coverage-reporter=text ./src ./tests"
+    "test": "bun test ./src",
+    "test:e2e": "bun test ./e2e",
+    "test:coverage": "bun test --coverage --coverage-reporter=lcov --coverage-reporter=text ./src ./e2e"
   },
   "dependencies": {
     "arktype": "^2.1.29"

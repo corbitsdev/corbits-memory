@@ -12,7 +12,7 @@ import {
   seedPrincipal,
   testDatabaseUrl,
   type TestDb,
-} from "./lib/db-harness.ts";
+} from "./helpers.ts";
 
 describe.skipIf(testDatabaseUrl() === undefined)("grants, forget and purge", () => {
   let db: TestDb;
