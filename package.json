@@ -81,6 +81,7 @@
     "postgres": "^3.4.9"
   },
   "devDependencies": {
+    "@corbits/memory-0.1.0": "npm:@corbits/memory@0.1.0",
     "@intx/agent": "0.4.0",
     "@intx/authz": "0.4.0",
     "@intx/db": "0.4.0",
