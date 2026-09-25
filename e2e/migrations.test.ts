@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { runMigrations } from "@intx/db";
 
 import { runMemoryMigrations } from "../src/migrations.ts";
-import { createEmptyDb, testDatabaseUrl, type TestDb } from "./lib/db-harness.ts";
+import { createEmptyDb, testDatabaseUrl, type TestDb } from "./helpers.ts";
 
 const options = { schema: "public", ftsLanguage: "english" };
 

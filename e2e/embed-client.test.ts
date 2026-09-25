@@ -6,7 +6,7 @@ import {
   embedTexts,
   probeEmbedDims,
 } from "../src/core/embed-client.ts";
-import { startHttpStub } from "./lib/http-stub.ts";
+import { startHttpStub } from "./helpers.ts";
 
 const stub = startHttpStub();
 afterAll(() => stub.stop());

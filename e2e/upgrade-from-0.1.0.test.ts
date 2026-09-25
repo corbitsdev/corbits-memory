@@ -14,7 +14,7 @@ import {
   testDatabaseUrl,
   testMemoryConfig,
   type TestDb,
-} from "./lib/db-harness.ts";
+} from "./helpers.ts";
 
 const DOCS = [
   { title: "Staging deploys", text: "Staging deploys run from main after every merge." },
