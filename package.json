@@ -64,7 +64,7 @@
     "db:setup": "bun run scripts/db-setup.ts",
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.build.json",
-    "prepack": "bun run build",
+    "prepack": "npm run build",
     "test": "bun test ./src",
     "test:coverage": "bun test --coverage --coverage-reporter=lcov --coverage-reporter=text ./src"
   },
