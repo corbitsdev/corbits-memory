@@ -9,7 +9,7 @@
  * Origin is constrained by `@intx/types` to system|role|creator|invoker —
  * memory-share provenance lives in `conditions.memoryShare` (audit payload).
  * Authz skips grants with non-null conditions unless a registry is provided;
- * use `MEMORY_SHARE_CONDITION_REGISTRY` (merged automatically in resolveGrantConfig).
+ * use `MEMORY_SHARE_CONDITION_REGISTRY` (createMemory merges it automatically).
  */
 import type { ConditionRegistry, GrantRule } from "@intx/authz";
 import { newId } from "../core/id.js";
@@ -36,7 +36,7 @@ export type MemoryShareCondition = {
 
 /**
  * Default registry so share grants with conditions are not fail-closed-skipped.
- * Hosts may override the key; resolveGrantConfig merges host keys on top.
+ * Hosts may override the key; createMemory merges host keys on top.
  */
 export const MEMORY_SHARE_CONDITION_REGISTRY: ConditionRegistry = {
   [MEMORY_SHARE_CONDITION_KEY]: () => true,

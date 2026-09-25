@@ -29,19 +29,11 @@ function grant(principalId: string, action: string): GrantRule {
 
 const noopRequireGrant: RequireGrant = () => (async () => {}) as never;
 
-// Minimal RouteDeps for unit tests — routes here only touch grants/requireGrant.
-function deps(grants: RouteDeps["grants"], requireGrant = noopRequireGrant): RouteDeps {
+// Minimal RouteDeps for unit tests — routes here only touch requireGrant.
+function deps(requireGrant = noopRequireGrant): RouteDeps {
   return {
     memory: {} as RouteDeps["memory"],
-    grants,
     requireGrant,
-  };
-}
-
-function grantsWith(...rules: GrantRule[]): RouteDeps["grants"] {
-  return {
-    grantStore: createInMemoryGrantStore(rules),
-    conditionRegistry: {},
   };
 }
 
@@ -113,7 +105,7 @@ describe("grantGuard", () => {
       called = { resource: String(resource), action };
       return (async () => {}) as never;
     };
-grantGuard(deps(grantsWith(), requireGrant), "add");
+grantGuard(deps(requireGrant), "add");
     expect(called).toEqual({ resource: "memory", action: "add" });
   });
 });
@@ -142,7 +134,7 @@ describe("resolveCaller", () => {
   test("is a no-op passthrough when no callerResolver is configured", async () => {
     const { ctx, sets, jsonCalls } = fakeContext();
     let nextCalled = false;
-    await resolveCaller(deps(grantsWith()))(ctx, async () => {
+    await resolveCaller(deps())(ctx, async () => {
       nextCalled = true;
     });
     expect(nextCalled).toBe(true);
@@ -158,7 +150,7 @@ describe("resolveCaller", () => {
       principalId: "run-principal",
     };
     const routeDeps: RouteDeps = {
-      ...deps(grantsWith()),
+      ...deps(),
       callerResolver: () => resolved,
     };
     let nextCalled = false;
@@ -181,7 +173,7 @@ describe("resolveCaller", () => {
   test("responds 401 and never calls next() when the resolver rejects the request", async () => {
     const { ctx, sets, jsonCalls } = fakeContext();
     const routeDeps: RouteDeps = {
-      ...deps(grantsWith()),
+      ...deps(),
       callerResolver: () => null,
     };
     let nextCalled = false;
@@ -200,7 +192,7 @@ describe("resolveCaller", () => {
   test("supports an async callerResolver", async () => {
     const { ctx, sets } = fakeContext();
     const routeDeps: RouteDeps = {
-      ...deps(grantsWith()),
+      ...deps(),
       callerResolver: async () => ({
         tenantId: "tenant-async",
         principalId: "principal-async",
@@ -225,7 +217,7 @@ describe("resolveCaller", () => {
     async (_label, resolved) => {
       const { ctx, sets, jsonCalls } = fakeContext();
       const routeDeps: RouteDeps = {
-        ...deps(grantsWith()),
+        ...deps(),
         callerResolver: () => resolved as ResolvedCaller,
       };
       let nextCalled = false;

@@ -8,10 +8,8 @@ import {
   type GrantRule,
 } from "@intx/authz";
 
-import {
-  createFakeDocumentStore,
-  createMemory,
-} from "../index.js";
+import { createMemory } from "../memory.js";
+import { createFakeDocumentStore } from "./fakes.js";
 
 const TENANT = "t_mem";
 const PRINCIPAL = "p_mem";

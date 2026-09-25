@@ -19,7 +19,7 @@ CI runs `typecheck` + `test` — both must pass before any push.
 
 ## Layout
 
-- `src/index.ts` — public surface: `createMemory` (optional `app` registers HTTP), `registerMemoryRoutes`
+- `src/index.ts` — public surface: `createMemory`, `createMemoryRoutes`
 
 - `src/mount-config.ts` / `src/config.ts` — mount config + engine config
 - `src/routes/` — Hono routes (`add`, `search`, `list`, `feed`, retention

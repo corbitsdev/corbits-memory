@@ -34,7 +34,7 @@ const FeedResponse = type({
 
 export function mountFeedRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
   app.get(
-    "/api/tenants/:tenantId/memory/feed",
+    "/feed",
 
     describeRoute({
       tags: ["memory"],
