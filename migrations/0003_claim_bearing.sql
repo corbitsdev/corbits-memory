@@ -5,9 +5,14 @@
 ALTER TABLE "memory"."version"
   ADD COLUMN IF NOT EXISTS "provenance" text NOT NULL DEFAULT 'unknown';
 
-ALTER TABLE "memory"."version"
-  DROP CONSTRAINT IF EXISTS "version_provenance_check";
-
-ALTER TABLE "memory"."version"
-  ADD CONSTRAINT "version_provenance_check"
-    CHECK ("provenance" IN ('stated', 'inferred', 'unknown'));
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'version_provenance_check' AND conrelid = '"memory"."version"'::regclass
+  ) THEN
+    ALTER TABLE "memory"."version"
+      ADD CONSTRAINT "version_provenance_check"
+      CHECK ("provenance" IN ('stated', 'inferred', 'unknown'));
+  END IF;
+END $$;

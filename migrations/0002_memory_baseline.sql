@@ -85,8 +85,8 @@ CREATE TABLE IF NOT EXISTS "memory"."chunk" (
 CREATE UNIQUE INDEX IF NOT EXISTS "chunk_version_ordinal_uniq"
   ON "memory"."chunk" ("version_id", "ordinal");
 
--- {{FTS_LANGUAGE}} is substituted by runMemoryMigrations from FTS_LANGUAGE
--- (or opts.ftsLanguage). Must match the language used at query time.
+-- {{FTS_LANGUAGE}} is substituted by runMemoryMigrations from its
+-- ftsLanguage option. Must match the language used at query time.
 ALTER TABLE "memory"."chunk"
   ADD COLUMN IF NOT EXISTS "text_fts" tsvector
   GENERATED ALWAYS AS (to_tsvector('{{FTS_LANGUAGE}}', "text")) STORED;

@@ -44,6 +44,13 @@ bun run typecheck && bun run test
 
 `bun run typecheck` (`tsc --noEmit`) must be clean before any commit.
 
+## Migrations
+
+`runMemoryMigrations` replays every file in `migrations/` on each run, so
+every file must be idempotent. Never change a shipped file's effect on an
+existing database: a changed constraint or a new column goes in a new
+numbered file, because a guarded `ADD CONSTRAINT` keeps the old definition.
+
 ## Branch and PR conventions
 
 - Branch off `main`; open PRs against `main`.
