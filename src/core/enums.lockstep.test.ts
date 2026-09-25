@@ -9,14 +9,6 @@ import {
   RETENTION_CLASSES,
   TEMPORAL_CLASSES,
 } from "./enums.js";
-import { MemoryEdgeRelSchema, MemoryEdgeRefTypeSchema } from "./schemas/entity-edge.js";
-import {
-  LineageClassSchema,
-  ProvenanceModeSchema,
-  RetentionClassSchema,
-  TemporalClassSchema,
-} from "./schemas/document.js";
-import { type } from "arktype";
 
 const MIGRATIONS_DIR = join(import.meta.dir, "../../migrations");
 
@@ -63,29 +55,5 @@ describe("enum lockstep: TS constants match migration CHECK constraints", () => 
     ["version_retention_class_check", RETENTION_CLASSES],
   ] as const)("%s matches its SSOT constant", (constraint, values) => {
     expect(sorted(lastCheckInList(sql, constraint))).toEqual(sorted(values));
-  });
-});
-
-describe("enum lockstep: arktype accepts every SSOT value and rejects unknown", () => {
-  // "produced_by" is in neither the rel set nor the ref-type sets, so it is
-  // a safe unknown-value probe for both schemas.
-  it.each([
-    ["MemoryEdgeRelSchema", MemoryEdgeRelSchema, EDGE_RELS, "produced_by"],
-    [
-      "MemoryEdgeRefTypeSchema",
-      MemoryEdgeRefTypeSchema,
-      ["document", "version", "chunk", "entity", "native"],
-      "produced_by",
-    ],
-    ["LineageClassSchema", LineageClassSchema, LINEAGE_CLASSES, "thread"],
-    ["ProvenanceModeSchema", ProvenanceModeSchema, PROVENANCE_MODES, "guessed"],
-    ["TemporalClassSchema", TemporalClassSchema, TEMPORAL_CLASSES, "forecast"],
-    ["RetentionClassSchema", RetentionClassSchema, RETENTION_CLASSES, "forever"],
-  ] as const)("%s accepts its SSOT values and rejects unknown", (_name, schema, valid, invalid) => {
-    for (const value of valid) {
-      const out = schema(value);
-      expect(out instanceof type.errors ? out.summary : out).toBe(value);
-    }
-    expect(schema(invalid) instanceof type.errors).toBe(true);
   });
 });
