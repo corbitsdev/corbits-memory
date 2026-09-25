@@ -4,8 +4,8 @@ import {
   buildDistilledClaim,
   resolveNextCursor,
   shouldProcessFeedEntry,
-} from "./claim.ts";
-import { RESIDENT_DISTILLER_AGENT_ID } from "./constants.ts";
+} from "./claim.js";
+import { RESIDENT_DISTILLER_AGENT_ID } from "./constants.js";
 
 describe("buildDistilledClaim", () => {
   it("sets inferred/derived identity and copies access tags", () => {

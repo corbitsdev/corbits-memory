@@ -10,7 +10,7 @@
  * - Live timeout + allSettled fan-out are applied by the caller; this module
  *   is pure merge over already-collected channel results
  */
-import type { SearchHitCitation } from "./schemas/search.ts";
+import type { SearchHitCitation } from "./schemas/search.js";
 
 export const LIVE_TIMEOUT_MS = 800;
 

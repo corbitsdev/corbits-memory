@@ -13,23 +13,23 @@
 import type { Hono } from "hono";
 import type { TenantEnv } from "@intx/hub-api";
 
-import type { RouteDeps } from "./deps.ts";
-import { mountAddRoute } from "./add.ts";
-import { mountSearchRoute } from "./search.ts";
-import { mountListRoute } from "./list.ts";
-import { mountFeedRoute } from "./feed.ts";
+import type { RouteDeps } from "./deps.js";
+import { mountAddRoute } from "./add.js";
+import { mountSearchRoute } from "./search.js";
+import { mountListRoute } from "./list.js";
+import { mountFeedRoute } from "./feed.js";
 import {
   mountForgetRoute,
   mountPurgeRoute,
   mountSetRetentionClassRoute,
-} from "./retention.ts";
+} from "./retention.js";
 
 export type {
   CallerResolver,
   GrantConfig,
   ResolvedCaller,
   RouteDeps,
-} from "./deps.ts";
+} from "./deps.js";
 
 /** HTTP JSON routes: add, search, list, feed, forget, purge, retention-class. */
 export function registerMemoryRoutes(

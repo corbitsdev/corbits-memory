@@ -6,11 +6,11 @@ import {
   promoteGeneration,
   runTransform,
   TransformPromoteError,
-} from "./transform.ts";
-import { TransformConfigParamsSchema } from "../core/schemas/transform.ts";
-import { rawCapture, transformConfig, transformRun } from "../db/schema.ts";
-import type { Db, RawSql } from "../db/client.ts";
-import type { EngineConfig } from "../config.ts";
+} from "./transform.js";
+import { TransformConfigParamsSchema } from "../core/schemas/transform.js";
+import { rawCapture, transformConfig, transformRun } from "../db/schema.js";
+import type { Db, RawSql } from "../db/client.js";
+import type { EngineConfig } from "../config.js";
 
 describe("buildRerankClientConfig", () => {
   it("returns undefined when no baseUrl is configured (falls through to engine defaults)", () => {

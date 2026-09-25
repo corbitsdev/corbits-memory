@@ -16,7 +16,7 @@
 export {
   RESIDENT_DISTILLER_AGENT_ID,
   RESIDENT_DISTILLER_WORKFLOW_ID,
-} from "./constants.ts";
+} from "./constants.js";
 
 export {
   buildDistilledClaim,
@@ -25,7 +25,7 @@ export {
   type BuildDistilledClaimArgs,
   type DistilledClaimWrite,
   type FeedEntryLike,
-} from "./claim.ts";
+} from "./claim.js";
 
 export {
   runDistillTick,
@@ -34,10 +34,10 @@ export {
   type DistillTickPage,
   type DistillTickResult,
   type RunDistillTickArgs,
-} from "./tick.ts";
+} from "./tick.js";
 
 export {
   createResidentDistiller,
   type CreateResidentDistillerOpts,
   type ResidentDistiller,
-} from "./workflow.ts";
+} from "./workflow.js";

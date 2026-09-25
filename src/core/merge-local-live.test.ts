@@ -5,7 +5,7 @@ import {
   recencyPrior,
   withTimeout,
   type MergeChannelItem,
-} from "./merge-local-live.ts";
+} from "./merge-local-live.js";
 
 const NOW = Date.parse("2026-03-08T12:00:00.000Z");
 

@@ -11,7 +11,7 @@ import {
   BOOST_MULTIPLIER_MAX,
   BOOST_MULTIPLIER_MIN,
   clampBoostMultiplier,
-} from "./hybrid-search.ts";
+} from "./hybrid-search.js";
 
 /** Independent supports needed for evidence:strong (with authority floor). */
 export const CORROBORATION_STRONG_FLOOR = 2;

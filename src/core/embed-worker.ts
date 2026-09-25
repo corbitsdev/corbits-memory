@@ -1,9 +1,9 @@
-import { embedTexts, type EmbedClientConfig } from "./embed-client.ts";
+import { embedTexts, type EmbedClientConfig } from "./embed-client.js";
 import {
   EMBED_TABLE_NAME_PATTERN,
   type ActiveEmbedTable,
   type EmbedRegistrySqlClient,
-} from "./embed-model-registry.ts";
+} from "./embed-model-registry.js";
 
 export interface EmbeddableChunk {
   id: string;

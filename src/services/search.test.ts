@@ -9,10 +9,10 @@ import {
   snippet,
   toHit,
   type CandidateRow,
-} from "./search.ts";
-import { memoryChunk, memoryEdge } from "../db/schema.ts";
-import type { Db, RawSql } from "../db/client.ts";
-import type { EngineConfig } from "../config.ts";
+} from "./search.js";
+import { memoryChunk, memoryEdge } from "../db/schema.js";
+import type { Db, RawSql } from "../db/client.js";
+import type { EngineConfig } from "../config.js";
 
 function candidate(overrides: Partial<CandidateRow> = {}): CandidateRow {
   return {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { contentHash, stableStringify } from "./hash.ts";
+import { contentHash, stableStringify } from "./hash.js";
 
 describe("stableStringify", () => {
   it("produces identical output regardless of key insertion order", () => {

@@ -18,9 +18,9 @@ import type {
   SearchEvidence,
   SearchHit,
   SearchHitCitation,
-} from "../core/schemas/search.ts";
-import type { DegradeFlag } from "../core/hybrid-search.ts";
-import type { CaptureDegradedReason } from "../core/embed-worker.ts";
+} from "../core/schemas/search.js";
+import type { DegradeFlag } from "../core/hybrid-search.js";
+import type { CaptureDegradedReason } from "../core/embed-worker.js";
 
 /** Input the plane hands the store after content/file/share resolution. */
 export type DocumentStoreAddParams = {

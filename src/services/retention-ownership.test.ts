@@ -1,11 +1,11 @@
 import { describe, expect, it, mock } from "bun:test";
 
-import type { RawSql } from "../db/client.ts";
+import type { RawSql } from "../db/client.js";
 import {
   isOwner,
   resolveDocumentOwner,
   resolveVersionOwner,
-} from "./retention-ownership.ts";
+} from "./retention-ownership.js";
 
 const TENANT = "t1";
 const OTHER_TENANT = "t2";

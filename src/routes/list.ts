@@ -3,20 +3,20 @@ import type { TenantEnv } from "@intx/hub-api";
 import { describeRoute, resolver, validator } from "hono-openapi";
 import { type } from "arktype";
 
-import { formatCaughtError, log } from "../log.ts";
-import { ListQuery, parseListLimitString } from "../http-bodies.ts";
+import { formatCaughtError, log } from "../log.js";
+import { ListQuery, parseListLimitString } from "../http-bodies.js";
 import {
   MemoryError,
   LIST_LIMIT_MAX,
   LIST_LIMIT_MIN,
-} from "../memory.ts";
-import type { RouteDeps } from "./deps.ts";
+} from "../memory.js";
+import type { RouteDeps } from "./deps.js";
 import {
   caller,
   grantGuard,
   requirePrincipal,
   resolveCaller,
-} from "./deps.ts";
+} from "./deps.js";
 
 const ListResponse = type({
   events: type({

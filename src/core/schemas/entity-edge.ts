@@ -3,7 +3,7 @@ import {
   EDGE_RELS,
   EDGE_REF_TYPES_ADAPTER,
   arktypeStringUnion,
-} from "../enums.ts";
+} from "../enums.js";
 
 // A real-world thing (person, org, deal, ...) a document or chunk mentions.
 // Kept lightweight — identity keys only (email, domain, ...), not another

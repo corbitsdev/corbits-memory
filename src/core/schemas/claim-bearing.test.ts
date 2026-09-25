@@ -1,8 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import { type } from "arktype";
-import { AdaptedDocumentSchema } from "./adapted-document.ts";
-import { MemoryEdgeHintSchema } from "./entity-edge.ts";
-import type { AdaptedDocument } from "./adapted-document.ts";
+import { AdaptedDocumentSchema } from "./adapted-document.js";
+import { MemoryEdgeHintSchema } from "./entity-edge.js";
+import type { AdaptedDocument } from "./adapted-document.js";
 
 /**
  * Claim-bearing write shape: a distilled claim is a normal AdaptedDocument

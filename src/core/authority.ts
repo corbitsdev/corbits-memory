@@ -1,5 +1,5 @@
 import { type } from "arktype";
-import { CreatedByKindSchema, type CreatedByKind } from "./schemas/document.ts";
+import { CreatedByKindSchema, type CreatedByKind } from "./schemas/document.js";
 
 // Corroboration-based authority weighting: retrieval ranks by how corroborated
 // a source is, not lexical relevance alone. `source_class` is the coarse bucket

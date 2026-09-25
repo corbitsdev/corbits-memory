@@ -11,7 +11,7 @@ import {
 import {
   createFakeDocumentStore,
   createMemory,
-} from "../index.ts";
+} from "../index.js";
 
 const TENANT = "t_mem";
 const PRINCIPAL = "p_mem";

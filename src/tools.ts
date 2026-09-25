@@ -4,7 +4,7 @@
  * stays free of any agent-SDK dependency, and `sidecar-bundle.ts` binds each
  * name to the run-scoped route that performs it.
  */
-import { LIST_LIMIT_MAX, LIST_LIMIT_MIN, SEARCH_LIMIT_MAX, SEARCH_LIMIT_MIN } from "./limits.ts";
+import { LIST_LIMIT_MAX, LIST_LIMIT_MIN, SEARCH_LIMIT_MAX, SEARCH_LIMIT_MIN } from "./limits.js";
 
 export type MemoryToolDefinition = {
   name: string;

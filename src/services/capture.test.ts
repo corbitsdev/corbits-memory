@@ -1,10 +1,10 @@
 import { describe, expect, it, mock } from "bun:test";
-import { embedInsertedChunksWithConfig, toEmbedClientConfig } from "./capture.ts";
-import type { CaptureInput } from "./capture.ts";
-import type { Db, RawSql } from "../db/client.ts";
-import type { EngineConfig } from "../config.ts";
-import type { EmbedClientConfig } from "../core/embed-client.ts";
-import type { EmbeddableChunk } from "../core/embed-worker.ts";
+import { embedInsertedChunksWithConfig, toEmbedClientConfig } from "./capture.js";
+import type { CaptureInput } from "./capture.js";
+import type { Db, RawSql } from "../db/client.js";
+import type { EngineConfig } from "../config.js";
+import type { EmbedClientConfig } from "../core/embed-client.js";
+import type { EmbeddableChunk } from "../core/embed-worker.js";
 
 // Regression for the capture path silently timing out at embed-client.ts's
 // default (10000ms) even when EMBED_TIMEOUT_MS was set: capture.ts used to
@@ -124,13 +124,13 @@ function unreachableRawSql(): RawSql {
 
 // memory.test.ts uses `mock.module("./services/capture.ts", ...)` around its
 // own describe blocks; Bun's module registry is process-global, so a static
-// `import { captureDocument } from "./capture.ts"` here can end up bound to
+// `import { captureDocument } from "./capture.js"` here can end up bound to
 // that mock's fixture data when the whole suite runs (the same leak
 // services/search.test.ts documents for hybridSearch). A cache-busted
 // dynamic import — the same trick memory.test.ts itself uses for
 // `./memory.ts` — sidesteps this: a fresh module specifier is never the one
 // any mock.module call replaced.
-async function loadRealCapture(): Promise<typeof import("./capture.ts")> {
+async function loadRealCapture(): Promise<typeof import("./capture.js")> {
   return import(`./capture.ts?cl-8615-real=${Date.now()}-${Math.random()}`);
 }
 

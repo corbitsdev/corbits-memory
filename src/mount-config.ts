@@ -1,5 +1,5 @@
-import type { EngineConfig } from "./config.ts";
-import { parseFtsLanguage } from "./core/fts-language.ts";
+import type { EngineConfig } from "./config.js";
+import { parseFtsLanguage } from "./core/fts-language.js";
 
 /**
  * SDK config — what `createMemory` consumes.

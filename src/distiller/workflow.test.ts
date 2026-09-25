@@ -3,9 +3,9 @@ import { describe, expect, it } from "bun:test";
 import {
   RESIDENT_DISTILLER_AGENT_ID,
   RESIDENT_DISTILLER_WORKFLOW_ID,
-} from "./constants.ts";
-import { SIDECAR_BUNDLE_ID } from "../sidecar-bundle.ts";
-import { createResidentDistiller } from "./workflow.ts";
+} from "./constants.js";
+import { SIDECAR_BUNDLE_ID } from "../sidecar-bundle.js";
+import { createResidentDistiller } from "./workflow.js";
 
 describe("createResidentDistiller", () => {
   it("returns a mail-triggered workflow with memory tools on the agent", () => {
@@ -50,7 +50,7 @@ describe("createResidentDistiller", () => {
   });
 
   it("does not carry a cron/schedule field in its public options", () => {
-    const opts: import("./workflow.ts").CreateResidentDistillerOpts = {
+    const opts: import("./workflow.js").CreateResidentDistillerOpts = {
       mailTo: "resident-distiller@tenant.example.com",
       inference: { sources: [{ provider: "openai", model: "gpt-4.1-mini" }] },
     };

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { formatCaughtError } from "./log.ts";
-import { RerankHttpError } from "./core/rerank-client.ts";
+import { formatCaughtError } from "./log.js";
+import { RerankHttpError } from "./core/rerank-client.js";
 
 describe("formatCaughtError", () => {
   it("returns an Error's message, unchanged", () => {

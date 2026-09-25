@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { mmrRerank } from "./mmr.ts";
+import { mmrRerank } from "./mmr.js";
 
 describe("mmrRerank", () => {
   it("keeps the top-scoring item, then prefers a diverse item over a near-duplicate one", () => {

@@ -20,10 +20,10 @@ import {
   parseFeedQuery,
   parseListLimitString,
   SearchRequest,
-} from "./http-bodies.ts";
-import { formatCaughtError, log } from "./log.ts";
-import { MemoryError, type Memory } from "./memory.ts";
-import { tenantTag, type ShareSugar } from "./grant-tags.ts";
+} from "./http-bodies.js";
+import { formatCaughtError, log } from "./log.js";
+import { MemoryError, type Memory } from "./memory.js";
+import { tenantTag, type ShareSugar } from "./grant-tags.js";
 
 /**
  * The tags a verified run already proves: the token is minted for exactly one

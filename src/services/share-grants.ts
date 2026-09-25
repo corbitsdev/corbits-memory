@@ -12,9 +12,9 @@
  * use `MEMORY_SHARE_CONDITION_REGISTRY` (merged automatically in resolveGrantConfig).
  */
 import type { ConditionRegistry, GrantRule } from "@intx/authz";
-import { newId } from "../core/id.ts";
-import type { ShareSugar } from "../grant-tags.ts";
-import type { WritableGrantStore } from "../ports/writable-grant-store.ts";
+import { newId } from "../core/id.js";
+import type { ShareSugar } from "../grant-tags.js";
+import type { WritableGrantStore } from "../ports/writable-grant-store.js";
 
 /** Document-scoped resource tag for peer share grants. */
 export function documentTag(documentId: string): string {

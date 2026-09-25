@@ -1,29 +1,29 @@
 import { type } from "arktype";
 import { and, desc, eq, gte, lte } from "drizzle-orm";
-import type { Db, RawSql } from "../db/client.ts";
-import type { EngineConfig } from "../config.ts";
-import { newId } from "../core/id.ts";
-import { formatCaughtError, log } from "../log.ts";
+import type { Db, RawSql } from "../db/client.js";
+import type { EngineConfig } from "../config.js";
+import { newId } from "../core/id.js";
+import { formatCaughtError, log } from "../log.js";
 import {
   rawCapture,
   transformConfig,
   transformRun,
-} from "../db/schema.ts";
+} from "../db/schema.js";
 import {
   TransformConfigParamsSchema,
   type TransformConfigParams,
   type TransformRerankParams,
   type TransformScope,
-} from "../core/schemas/transform.ts";
-import { AdaptedDocumentSchema } from "../core/schemas/adapted-document.ts";
-import { chunkTokenRecursive } from "../core/chunk/token-recursive.ts";
-import type { Chunker } from "../core/chunk/types.ts";
-import { EmbedClientConfigSchema, type EmbedClientConfig } from "../core/embed-client.ts";
-import type { RerankClientConfig } from "../core/rerank-client.ts";
-import { deriveFromRawCapture, type CaptureInput } from "./capture.ts";
-import { LIVE_GENERATION } from "../core/generation.ts";
-import { activateEmbedModel, activateEmbedModelByKey, clearActiveEmbedModels, resolveActiveEmbedTable } from "../core/embed-model-registry.ts";
-import { createRawSqlClient } from "../core/embed-sql.ts";
+} from "../core/schemas/transform.js";
+import { AdaptedDocumentSchema } from "../core/schemas/adapted-document.js";
+import { chunkTokenRecursive } from "../core/chunk/token-recursive.js";
+import type { Chunker } from "../core/chunk/types.js";
+import { EmbedClientConfigSchema, type EmbedClientConfig } from "../core/embed-client.js";
+import type { RerankClientConfig } from "../core/rerank-client.js";
+import { deriveFromRawCapture, type CaptureInput } from "./capture.js";
+import { LIVE_GENERATION } from "../core/generation.js";
+import { activateEmbedModel, activateEmbedModelByKey, clearActiveEmbedModels, resolveActiveEmbedTable } from "../core/embed-model-registry.js";
+import { createRawSqlClient } from "../core/embed-sql.js";
 
 export class TransformConfigNotFoundError extends Error {
   constructor(configId: string) {

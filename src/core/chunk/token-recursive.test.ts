@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { chunkTokenRecursive } from "./token-recursive.ts";
+import { chunkTokenRecursive } from "./token-recursive.js";
 
 function sentences(count: number): string {
   const parts: string[] = [];

@@ -3,8 +3,8 @@ export type {
   DocumentStoreAddParams,
   LiveSearchItem,
   SourceProvider,
-} from "./types.ts";
+} from "./types.js";
 export {
   createFakeDocumentStore,
   createFakeSourceProvider,
-} from "./fakes.ts";
+} from "./fakes.js";

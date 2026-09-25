@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-import { MEMORY_TOOL_DEFINITIONS } from "./tools.ts";
-import { HUB_CREDENTIAL_HANDLE, memory, SIDECAR_BUNDLE_ID } from "./sidecar-bundle.ts";
+import { MEMORY_TOOL_DEFINITIONS } from "./tools.js";
+import { HUB_CREDENTIAL_HANDLE, memory, SIDECAR_BUNDLE_ID } from "./sidecar-bundle.js";
 
 type Recorded = { url: string; init?: RequestInit };
 

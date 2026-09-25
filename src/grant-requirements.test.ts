@@ -6,7 +6,7 @@ import {
   capabilityIdsForSurface,
   MEMORY_CAPABILITY_IDS,
   MEMORY_GRANT_REQUIREMENTS,
-} from "./grant-requirements.ts";
+} from "./grant-requirements.js";
 
 describe("MEMORY_GRANT_REQUIREMENTS", () => {
   test("covers add, search, forget, and purge on memory resource", () => {

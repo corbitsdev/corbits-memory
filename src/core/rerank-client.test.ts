@@ -11,8 +11,8 @@ import {
   defaultMaxDocCharsForModel,
   rerankDocuments,
   validateRerankConfig,
-} from "./rerank-client.ts";
-import type { RerankClientConfig } from "./rerank-client.ts";
+} from "./rerank-client.js";
+import type { RerankClientConfig } from "./rerank-client.js";
 
 // The default env in .env.example ships RERANK_MODEL=bge-reranker-base with
 // RERANK_MAX_DOC_CHARS unset (-> defaultMaxDocCharsForModel's per-model

@@ -1,14 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { Hono } from "hono";
 
-import { createMemory, type Memory } from "./memory.ts";
-import { createFakeDocumentStore } from "./ports/fakes.ts";
+import { createMemory, type Memory } from "./memory.js";
+import { createFakeDocumentStore } from "./ports/fakes.js";
 import {
   mountWorkflowMemory,
   type AgentTokenAuth,
   type ResolvedWorkflowRunScope,
   type WorkflowMemoryEnv,
-} from "./workflow-mount.ts";
+} from "./workflow-mount.js";
 
 const RUN_SCOPE: ResolvedWorkflowRunScope = {
   tenantId: "acme",

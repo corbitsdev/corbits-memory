@@ -1,12 +1,12 @@
 import { describe, expect, it } from "bun:test";
 import { createInMemoryGrantStore } from "@intx/authz";
 
-import { ownerTag, tenantTag } from "../grant-tags.ts";
+import { ownerTag, tenantTag } from "../grant-tags.js";
 
 import {
   createFakeDocumentStore,
   createFakeSourceProvider,
-} from "./fakes.ts";
+} from "./fakes.js";
 
 const TENANT = "t1";
 const PRINCIPAL = "p1";

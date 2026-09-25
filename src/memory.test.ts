@@ -17,20 +17,20 @@ import {
 import { createInMemoryGrantStore } from "@intx/authz";
 import type { GrantRule } from "@intx/authz";
 
-import { RerankConfigError } from "./core/rerank-client.ts";
-import type { SearchHit } from "./core/schemas/search.ts";
+import { RerankConfigError } from "./core/rerank-client.js";
+import type { SearchHit } from "./core/schemas/search.js";
 import {
   createMemory,
   MemoryError,
   type MemoryAddParams,
   type SearchItem,
   type TextExtractor,
-} from "./memory.ts";
-import type { MemoryConfig } from "./mount-config.ts";
-import * as realDb from "./db/client.ts";
-import * as realSearch from "./services/search.ts";
-import * as realCapture from "./services/capture.ts";
-import * as realRetention from "./services/retention.ts";
+} from "./memory.js";
+import type { MemoryConfig } from "./mount-config.js";
+import * as realDb from "./db/client.js";
+import * as realSearch from "./services/search.js";
+import * as realCapture from "./services/capture.js";
+import * as realRetention from "./services/retention.js";
 
 // Bun's module registry is process-global and `mock.module()` rewrites live
 // bindings in place — including these `realX` namespaces — with no unmock
@@ -42,7 +42,7 @@ const pristineDb = { ...realDb };
 const pristineSearch = { ...realSearch };
 const pristineCapture = { ...realCapture };
 const pristineRetention = { ...realRetention };
-import type { HybridSearchResult } from "./services/search.ts";
+import type { HybridSearchResult } from "./services/search.js";
 
 const PRINCIPAL = "p1";
 const TENANT = "t1";
@@ -266,19 +266,19 @@ describe("createMemory.find — grant-tag post-filter wiring", () => {
   );
 
   beforeAll(() => {
-    mock.module("./db/client.ts", () => ({
+    mock.module("./db/client.js", () => ({
       ...realDb,
       createDb: () => ({ db: {}, sql }),
     }));
-    mock.module("./services/search.ts", () => ({
+    mock.module("./services/search.js", () => ({
       ...realSearch,
       hybridSearch,
     }));
   });
 
   afterAll(() => {
-    mock.module("./db/client.ts", () => pristineDb);
-    mock.module("./services/search.ts", () => pristineSearch);
+    mock.module("./db/client.js", () => pristineDb);
+    mock.module("./services/search.js", () => pristineSearch);
   });
 
   it("keeps creator docs and drops others when grants are absent", async () => {
@@ -528,19 +528,19 @@ describe("add() — documentId, content/file XOR, share", () => {
   });
 
   beforeAll(() => {
-    mock.module("./db/client.ts", () => ({
+    mock.module("./db/client.js", () => ({
       ...realDb,
       createDb: () => ({ db: {}, sql }),
     }));
-    mock.module("./services/capture.ts", () => ({
+    mock.module("./services/capture.js", () => ({
       ...realCapture,
       captureDocument,
     }));
   });
 
   afterAll(() => {
-    mock.module("./db/client.ts", () => pristineDb);
-    mock.module("./services/capture.ts", () => pristineCapture);
+    mock.module("./db/client.js", () => pristineDb);
+    mock.module("./services/capture.js", () => pristineCapture);
   });
 
 async function freshPlane(opts?: {
@@ -818,11 +818,11 @@ describe("retention writes — ownership gate (CL-6288)", () => {
   );
 
   beforeAll(() => {
-    mock.module("./db/client.ts", () => ({
+    mock.module("./db/client.js", () => ({
       ...realDb,
       createDb: () => ({ db: {}, sql }),
     }));
-    mock.module("./services/retention.ts", () => ({
+    mock.module("./services/retention.js", () => ({
       ...realRetention,
       tombstoneDocument,
       hardDeleteDocument,
@@ -831,8 +831,8 @@ describe("retention writes — ownership gate (CL-6288)", () => {
   });
 
   afterAll(() => {
-    mock.module("./db/client.ts", () => pristineDb);
-    mock.module("./services/retention.ts", () => pristineRetention);
+    mock.module("./db/client.js", () => pristineDb);
+    mock.module("./services/retention.js", () => pristineRetention);
   });
 
   async function freshPlane() {

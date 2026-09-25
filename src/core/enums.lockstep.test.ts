@@ -8,14 +8,14 @@ import {
   PROVENANCE_MODES,
   RETENTION_CLASSES,
   TEMPORAL_CLASSES,
-} from "./enums.ts";
-import { MemoryEdgeRelSchema, MemoryEdgeRefTypeSchema } from "./schemas/entity-edge.ts";
+} from "./enums.js";
+import { MemoryEdgeRelSchema, MemoryEdgeRefTypeSchema } from "./schemas/entity-edge.js";
 import {
   LineageClassSchema,
   ProvenanceModeSchema,
   RetentionClassSchema,
   TemporalClassSchema,
-} from "./schemas/document.ts";
+} from "./schemas/document.js";
 import { type } from "arktype";
 
 const MIGRATIONS_DIR = join(import.meta.dir, "../../migrations");

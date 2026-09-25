@@ -1,4 +1,4 @@
-import { runMemoryMigrations } from "../src/migrations.ts";
+import { runMemoryMigrations } from "../src/migrations.js";
 
 const url =
   process.env["DATABASE_URL"];

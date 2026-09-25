@@ -15,21 +15,21 @@ import type { TenantEnv } from "@intx/hub-api";
 import { describeRoute, resolver, validator } from "hono-openapi";
 import { type } from "arktype";
 
-import { formatCaughtError, log } from "../log.ts";
+import { formatCaughtError, log } from "../log.js";
 import {
   DocumentIdParam,
   ForgetRequest,
   SetRetentionClassRequest,
   VersionIdParam,
-} from "../http-bodies.ts";
-import { MemoryError } from "../memory.ts";
-import type { RouteDeps } from "./deps.ts";
+} from "../http-bodies.js";
+import { MemoryError } from "../memory.js";
+import type { RouteDeps } from "./deps.js";
 import {
   caller,
   grantGuard,
   requirePrincipal,
   resolveCaller,
-} from "./deps.ts";
+} from "./deps.js";
 
 function respondRetentionError(err: unknown, action: string) {
   const errMessage = formatCaughtError(err);

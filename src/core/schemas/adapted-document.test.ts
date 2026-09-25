@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { type } from "arktype";
-import { AdaptedDocumentSchema } from "./adapted-document.ts";
-import type { AdaptedDocument } from "./adapted-document.ts";
+import { AdaptedDocumentSchema } from "./adapted-document.js";
+import type { AdaptedDocument } from "./adapted-document.js";
 
 // T2 — a full AdaptedDocument fixture must parse with no errors.
 describe("AdaptedDocumentSchema", () => {

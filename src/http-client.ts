@@ -7,7 +7,7 @@
  * Pass `signal` on each call so a hung hub can be cancelled; this client
  * does not invent a default timeout.
  */
-import type { AddRequest, SearchRequest } from "./http-bodies.ts";
+import type { AddRequest, SearchRequest } from "./http-bodies.js";
 
 export type MemoryHttpConfig = {
   baseUrl: string;

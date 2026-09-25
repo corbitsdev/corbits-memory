@@ -11,7 +11,7 @@ import {
   resolveCaller,
   type ResolvedCaller,
   type RouteDeps,
-} from "./deps.ts";
+} from "./deps.js";
 
 function grant(principalId: string, action: string): GrantRule {
   return {

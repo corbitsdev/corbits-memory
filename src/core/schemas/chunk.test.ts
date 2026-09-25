@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { type } from "arktype";
-import { MemoryChunkSchema } from "./chunk.ts";
+import { MemoryChunkSchema } from "./chunk.js";
 
 describe("MemoryChunkSchema", () => {
   it("round-trips a full fixture", () => {

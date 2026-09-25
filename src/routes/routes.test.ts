@@ -4,10 +4,10 @@ import { createInMemoryGrantStore } from "@intx/authz";
 import type { GrantRule } from "@intx/authz";
 import { createRequireGrant, type TenantEnv } from "@intx/hub-api";
 
-import type { Memory, TimelineEvent } from "../memory.ts";
-import { MemoryError } from "../memory.ts";
-import { registerMemoryRoutes } from "./mount.ts";
-import type { RouteDeps } from "./deps.ts";
+import type { Memory, TimelineEvent } from "../memory.js";
+import { MemoryError } from "../memory.js";
+import { registerMemoryRoutes } from "./mount.js";
+import type { RouteDeps } from "./deps.js";
 
 function grant(principalId: string, action: string): GrantRule {
   return {

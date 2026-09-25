@@ -19,18 +19,18 @@ import {
   resolveGrantConfig,
   type Memory,
   type MemoryOptions,
-} from "./memory.ts";
+} from "./memory.js";
 import {
   registerMemoryRoutes,
   type CallerResolver,
   type RouteDeps,
-} from "./routes/mount.ts";
+} from "./routes/mount.js";
 
 // Config
-export type { MemoryConfig } from "./mount-config.ts";
-export { loadMemoryConfig } from "./mount-config.ts";
-export type { EngineConfig } from "./config.ts";
-export { RerankConfigError } from "./core/rerank-client.ts";
+export type { MemoryConfig } from "./mount-config.js";
+export { loadMemoryConfig } from "./mount-config.js";
+export type { EngineConfig } from "./config.js";
+export { RerankConfigError } from "./core/rerank-client.js";
 
 // Memory plane — types from memory.ts; createMemory is defined below so it
 // can optionally register HTTP routes when `app` is passed.
@@ -54,7 +54,7 @@ export type {
   SearchResult,
   TextExtractor,
   TimelineEvent,
-} from "./memory.ts";
+} from "./memory.js";
 export {
   MemoryError,
   resolveGrantConfig,
@@ -62,7 +62,7 @@ export {
   SEARCH_LIMIT_MAX,
   LIST_LIMIT_MIN,
   LIST_LIMIT_MAX,
-} from "./memory.ts";
+} from "./memory.js";
 
 // Installer discovery — grant *requirements* (not live grants)
 export {
@@ -72,7 +72,7 @@ export {
   type MemoryGrantRequirement,
   type MemoryGrantInstallHint,
   type MemoryGrantSurface,
-} from "./grant-requirements.ts";
+} from "./grant-requirements.js";
 
 // Ports — pluggable storage and live sources
 export type {
@@ -87,18 +87,18 @@ export type {
   DocumentStoreListParams,
   LiveSearchItem,
   SourceProvider,
-} from "./ports/types.ts";
+} from "./ports/types.js";
 
 export {
   createFakeDocumentStore,
   createFakeSourceProvider,
-} from "./ports/fakes.ts";
+} from "./ports/fakes.js";
 
-export type { WritableGrantStore } from "./ports/writable-grant-store.ts";
+export type { WritableGrantStore } from "./ports/writable-grant-store.js";
 export {
   createInMemoryWritableGrantStore,
   isWritableGrantStore,
-} from "./ports/writable-grant-store.ts";
+} from "./ports/writable-grant-store.js";
 
 // Share materialization (CL-5873)
 export {
@@ -112,7 +112,7 @@ export {
   type MaterializeShareGrantsInput,
   type MemoryShareCondition,
   type ShareWidenReceipt,
-} from "./services/share-grants.ts";
+} from "./services/share-grants.js";
 
 
 // Transform / replay surface (CL-5872)
@@ -128,7 +128,7 @@ export {
   type GenerationSearchParams,
   type TransformConfigRow,
   type TransformRunRow,
-} from "./services/transform.ts";
+} from "./services/transform.js";
 
 // Capture feed (CL-5868)
 export {
@@ -139,7 +139,7 @@ export {
   type FeedArgs,
   type FeedEntry,
   type FeedResult,
-} from "./services/feed.ts";
+} from "./services/feed.js";
 
 // Retention / forgetting (CL-5871)
 export {
@@ -149,7 +149,7 @@ export {
   sweepEphemeral,
   tombstoneDocument,
   type RetentionMutationResult,
-} from "./services/retention.ts";
+} from "./services/retention.js";
 
 // Resident distiller (CL-5869) — also `@corbits/memory/distiller`
 export {
@@ -170,7 +170,7 @@ export {
   type FeedEntryLike,
   type ResidentDistiller,
   type RunDistillTickArgs,
-} from "./distiller/index.ts";
+} from "./distiller/index.js";
 
 // Corroboration / living relevancy (CL-5867)
 export {
@@ -181,7 +181,7 @@ export {
   meetsStrongEvidenceGate,
   type CorroborationCounts,
   type StrongEvidenceSignals,
-} from "./core/corroboration.ts";
+} from "./core/corroboration.js";
 
 // Embed model registry (ensure vs activate)
 export {
@@ -191,20 +191,20 @@ export {
   ensureEmbedModel,
   resolveActiveEmbedTable,
   resolveEmbedTableByModelKey,
-} from "./core/embed-model-registry.ts";
+} from "./core/embed-model-registry.js";
 
 
 // Run-scoped routes for deployed agents (bearer + run address, no session).
 // The tools that call them ship at `@corbits/memory/sidecar-bundle`.
-export { mountWorkflowMemory } from "./workflow-mount.ts";
+export { mountWorkflowMemory } from "./workflow-mount.js";
 export type {
   AgentTokenAuth,
   AgentTokenIdentity,
   MountWorkflowMemoryOpts,
   ResolvedWorkflowRunScope,
   WorkflowMemoryEnv,
-} from "./workflow-mount.ts";
-export { MEMORY_TOOL_DEFINITIONS, type MemoryToolDefinition } from "./tools.ts";
+} from "./workflow-mount.js";
+export { MEMORY_TOOL_DEFINITIONS, type MemoryToolDefinition } from "./tools.js";
 
 // Host-side HTTP client for the tenant routes (the imperative distill tick).
 export {
@@ -213,10 +213,10 @@ export {
   type MemoryHttpClient,
   type MemoryHttpConfig,
   type MemorySearchBody,
-} from "./http-client.ts";
+} from "./http-client.js";
 
 // Migrations
-export { runMemoryMigrations } from "./migrations.ts";
+export { runMemoryMigrations } from "./migrations.js";
 
 // Degrade metrics — no metrics dependency exists in this package (see
 // core/degrade-metrics.ts); a host with its own metrics backend polls this
@@ -227,13 +227,13 @@ export {
   configureDegradeMetrics,
   type DegradeMetricsSnapshot,
   type DegradeMetricsConfig,
-} from "./core/degrade-metrics.ts";
+} from "./core/degrade-metrics.js";
 export {
   DEFAULT_FTS_LANGUAGE,
   type FtsVerifySqlClient,
   parseFtsLanguage,
   verifyFtsLanguage,
-} from "./core/fts-language.ts";
+} from "./core/fts-language.js";
 
 // Granular HTTP composition (most hosts use createMemory({ app, … }) instead)
 export {
@@ -241,7 +241,7 @@ export {
   type CallerResolver,
   type GrantConfig,
   type ResolvedCaller,
-} from "./routes/mount.ts";
+} from "./routes/mount.js";
 
 export type CreateMemoryOptions = MemoryOptions & {
   /**

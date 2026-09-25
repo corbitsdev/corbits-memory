@@ -1,4 +1,4 @@
-import { DEFAULT_CHUNK_CAPS, type ChunkCaps, type TokenChunk } from "./types.ts";
+import { DEFAULT_CHUNK_CAPS, type ChunkCaps, type TokenChunk } from "./types.js";
 
 // Separator ladder tried in order before falling back to a hard character
 // cut. Word/whitespace-based token counting

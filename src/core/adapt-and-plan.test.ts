@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { adaptAndPlan, InvalidAdaptedDocumentError } from "./adapt-and-plan.ts";
-import type { AdaptedDocument } from "./schemas/adapted-document.ts";
+import { adaptAndPlan, InvalidAdaptedDocumentError } from "./adapt-and-plan.js";
+import type { AdaptedDocument } from "./schemas/adapted-document.js";
 
 function validAdaptedDocument(
   overrides: Partial<AdaptedDocument> = {},

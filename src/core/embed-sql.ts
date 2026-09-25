@@ -1,5 +1,5 @@
 import type postgres from "postgres";
-import type { EmbedRegistrySqlClient } from "./embed-model-registry.ts";
+import type { EmbedRegistrySqlClient } from "./embed-model-registry.js";
 
 // Generic bridge from the engine's postgres-js handle to the minimal
 // `{ query(sql, params) }` seam several core modules take instead of a

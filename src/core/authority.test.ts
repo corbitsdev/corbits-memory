@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { computeAuthority, type AuthoritySignals } from "./authority.ts";
+import { computeAuthority, type AuthoritySignals } from "./authority.js";
 
 function signals(overrides: Partial<AuthoritySignals> = {}): AuthoritySignals {
   return {

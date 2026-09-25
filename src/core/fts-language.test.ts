@@ -7,7 +7,7 @@ import {
   FTS_LANGUAGE_TOKEN,
   parseFtsLanguage,
   verifyFtsLanguage,
-} from "./fts-language.ts";
+} from "./fts-language.js";
 
 describe("parseFtsLanguage", () => {
   it("defaults when unset or empty", () => {
@@ -46,7 +46,7 @@ describe("runMemoryMigrations language boundary", () => {
   it("falls back to the FTS_LANGUAGE env var when no option is passed", async () => {
     // Pin the boundary contract without a live database: the runner must
     // resolve exactly like the config loader, from the same env var.
-    const { runMemoryMigrations } = await import("../migrations.ts");
+    const { runMemoryMigrations } = await import("../migrations.js");
     process.env["FTS_LANGUAGE"] = "not a valid name";
     try {
       await expect(runMemoryMigrations("postgres://unused")).rejects.toThrow(

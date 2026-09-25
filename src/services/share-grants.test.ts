@@ -8,9 +8,9 @@ import {
   MEMORY_SHARE_CONDITION_REGISTRY,
   shareWidenReceipt,
   splitAudienceWiden,
-} from "./share-grants.ts";
-import { createInMemoryWritableGrantStore } from "../ports/writable-grant-store.ts";
-import { canAccessDocument } from "../grant-tags.ts";
+} from "./share-grants.js";
+import { createInMemoryWritableGrantStore } from "../ports/writable-grant-store.js";
+import { canAccessDocument } from "../grant-tags.js";
 
 describe("documentTag", () => {
   it("scopes resource to the document id", () => {

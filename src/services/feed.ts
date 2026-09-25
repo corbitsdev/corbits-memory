@@ -4,12 +4,12 @@
  */
 import { and, asc, eq, gt, isNull, ne, or, sql } from "drizzle-orm";
 
-import type { Db } from "../db/client.ts";
+import type { Db } from "../db/client.js";
 import {
   memoryDocument,
   memoryVersion,
-} from "../db/schema.ts";
-import { LIVE_GENERATION } from "../core/generation.ts";
+} from "../db/schema.js";
+import { LIVE_GENERATION } from "../core/generation.js";
 
 export const FEED_LIMIT_MIN = 1;
 export const FEED_LIMIT_MAX = 100;
