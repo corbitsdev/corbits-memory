@@ -8,15 +8,16 @@ Thanks for considering a contribution to Corbits Memory.
 git clone https://github.com/corbitsdev/corbits-memory.git
 cd corbits-memory
 docker compose up -d   # pgvector Postgres on localhost:5434
-cp .env.example .env    # edit as needed — see README.md's quickstart
+cp .env.example .env    # edit as needed — see README.md's Reference
 bun install
-bun run db:setup         # applies migrations/*.sql, idempotent
-bun run dev               # bun --watch src/server.ts
+bun run db:setup        # applies migrations/*.sql, idempotent
+bun run build           # compiles src/ to dist/, which the package publishes
 ```
 
-Requires Bun 1.2+. See `README.md` for the full quickstart including a
-zero-cost local embedding endpoint (Ollama), and `IMPLEMENTATION.md` for how
-the pieces fit together.
+Requires Bun 1.2+. `compose.yml` also runs a local Ollama for embeddings
+(`docker compose exec ollama ollama pull nomic-embed-text`). Unit tests use
+the in-repo `createFakeDocumentStore`/`createFakeSourceProvider` and need no
+Postgres. See `IMPLEMENTATION.md` for how the pieces fit together.
 
 ## Running the tests
 
@@ -48,7 +49,7 @@ numbered file, because a guarded `ADD CONSTRAINT` keeps the old definition.
 - Branch off `main`; open PRs against `main`.
 - Keep PRs scoped to one logical change — a mix of an unrelated refactor and a
   feature makes review slower, not faster.
-- Describe *why* the change is needed in the PR description, not just what
+- Describe _why_ the change is needed in the PR description, not just what
   changed; link any relevant issue.
 - Make sure `bun run typecheck && bun run test` pass before requesting review.
 

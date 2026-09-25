@@ -8,9 +8,9 @@
  *   mailTo: "resident-distiller@tenant.example.com",
  *   inference: { sources: [{ provider: "openai", model: "gpt-4.1-mini" }] },
  * });
- * // deploy `workflow` and `agent` with host workflow-deploy; the host binds
- * // the `hub` credential handle the sidecar bundle resolves at run time, and
- * // ticks the workflow by mailing `mailTo`.
+ * // deploy `workflow` and `agent` with the host's workflow-deploy, binding
+ * // the `hub` credential the memory tools call the hub with; each mail to
+ * // `mailTo` runs one distill pass.
  * ```
  */
 import {
