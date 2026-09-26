@@ -24,6 +24,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   embed model registry, degrade metrics, FTS helpers), the test fakes, and
   `resolveGrantConfig` are no longer exported. The distiller stays at
   `@corbits/memory/distiller` and migrations at `@corbits/memory/migrations`.
+- `runMemoryMigrations(config, { schema, ftsLanguage })` takes the same
+  `DBConfig` as Interchange `runMigrations` instead of a database URL.
+  `schema` names the host schema holding Interchange's `tenant` and
+  `principal` tables (the value passed to `runMigrations`, e.g. `"public"`);
+  memory's tables stay in the `memory` schema. `ftsLanguage` is required, and
+  the runner no longer reads `FTS_LANGUAGE` from the environment or accepts a `log` option.
+  Every migration file is idempotent and replayed on each run. The
+  `memory._migrations` ledger is dropped.
 
 ### Added
 

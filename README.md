@@ -65,20 +65,15 @@ Mount `installMemory` below the middleware that sets `principal`/`tenant`
 does). Identity comes from `c.get("principal")` — request bodies never
 carry tenant or principal. Missing principal → 401, missing grant → 403.
 
-Apply migrations before serving traffic:
+Apply migrations before serving traffic, with the same `DBConfig` and
+`schema` your hub passes to Interchange `runMigrations`. Memory's tables land
+in their own `memory` schema, with foreign keys into that schema's `tenant`
+and `principal` tables:
 
 ```ts
 import { runMemoryMigrations } from "@corbits/memory/migrations";
 
-export async function migrateMemory(databaseUrl: string): Promise<void> {
-  await runMemoryMigrations(databaseUrl);
-}
-
-const databaseUrl = process.env.DATABASE_URL;
-if (databaseUrl === undefined) {
-  throw new Error("DATABASE_URL is required to run memory migrations");
-}
-await migrateMemory(databaseUrl);
+await runMemoryMigrations(dbConfig, { schema: "public", ftsLanguage: "english" });
 ```
 
 `loadMemoryConfig()` reads `DATABASE_URL` (required — tables live in a

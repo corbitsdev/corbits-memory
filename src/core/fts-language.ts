@@ -34,9 +34,14 @@ const APPLIED_REGCONFIG_RE = new RegExp(
  */
 export function parseFtsLanguage(raw: string | undefined): string {
   if (raw === undefined || raw === "") return DEFAULT_FTS_LANGUAGE;
+  return assertFtsLanguage(raw);
+}
+
+/** Validate a language with no default: an empty string is rejected. */
+export function assertFtsLanguage(raw: string): string {
   if (!FTS_LANGUAGE_PATTERN.test(raw)) {
     throw new Error(
-      `FTS_LANGUAGE "${raw}" is not a valid text search config name (expected ${FTS_LANGUAGE_PATTERN})`,
+      `FTS language "${raw}" is not a valid text search config name (expected ${FTS_LANGUAGE_PATTERN})`,
     );
   }
   return raw;
@@ -142,7 +147,7 @@ export async function verifyFtsLanguage(
   if (schema !== undefined) {
     throw new Error(
       `memory.chunk.text_fts was built with the schema-qualified text search config "${schema}.${applied}", ` +
-        `but FTS_LANGUAGE only supports unqualified pg_catalog configs. ` +
+        `but only unqualified pg_catalog configs are supported. ` +
         `Either drop the schema qualification (move/alias the config into pg_catalog), or rebuild the column ` +
         `under an unqualified config name:\n\n${rebuildColumnRecipe(ftsLanguage)}`,
     );
@@ -152,7 +157,7 @@ export async function verifyFtsLanguage(
       `FTS language mismatch: memory.chunk.text_fts was built with "${applied}" but the configuration says "${ftsLanguage}". ` +
         `Search would silently stem queries differently than the index.\n\n` +
         `To rebuild the column under the new language:\n\n${rebuildColumnRecipe(ftsLanguage)}\n\n` +
-        `Or, fix FTS_LANGUAGE back to "${applied}" instead.`,
+        `Or, set the FTS language (FTS_LANGUAGE / ftsLanguage) back to "${applied}" instead.`,
     );
   }
 }

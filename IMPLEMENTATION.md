@@ -20,7 +20,7 @@ src/
   http-client.ts          # host-side HTTP client for tenant routes (imperative distill tick)
 
   log.ts                  # getLogger(["memory"]) from @intx/log
-  migrations.ts           # runMemoryMigrations(url)
+  migrations.ts           # runMemoryMigrations(dbConfig, { schema, ftsLanguage })
   ports/                  # DocumentStore / SourceProvider + fakes
   routes/                 # the mounted tenant routes
     mount.ts              # createMemoryRoutes (HTTP sub-app)
@@ -49,7 +49,7 @@ src/
 #   @corbits/supermemory-memory-adapter  → github.com/corbitsdev/corbits-supermemory-memory-adapter
 #   @corbits/linear-tools                → github.com/corbitsdev/corbits-linear-tools
 migrations/               # pgvector schema, applied in filename order by scripts/db-setup.ts
-scripts/db-setup.ts       # idempotent migration runner, tracked in `_migrations`
+scripts/db-setup.ts       # runs the idempotent migrations against DATABASE_URL
 compose.yml               # pgvector + Ollama + reranker for local dev
 ```
 
@@ -150,8 +150,8 @@ egress control front the endpoints with an allowlisting proxy.
 ## Data model (`src/db/schema.ts` + `migrations/*.sql`)
 
 All tables are Drizzle-defined in `db/schema.ts`, DDL'd in `migrations/`
-(applied by `scripts/db-setup.ts`, tracked in a `_migrations` ledger table so
-re-running is a no-op). No memory table has a foreign key into any
+(applied by `runMemoryMigrations`; every file is idempotent and replayed on
+each run, so there is no ledger). No memory table has a foreign key into any
 control-plane table — `tenant_id`/`principal_id`/source refs are plain `text`.
 
 ### `memory_document`
@@ -206,8 +206,8 @@ fresh full insert of its own chunks.
 
 **Changing `FTS_LANGUAGE` on an already-migrated database** (the mismatch
 `verifyFtsLanguage` throws on) requires rebuilding the generated column —
-`runMemoryMigrations` only applies new files and will not retroactively
-alter an existing one. One-time recipe (verified against a live
+`runMemoryMigrations` adds the column only if it is missing and will not
+retroactively alter an existing one. One-time recipe (verified against a live
 `postgres:16` instance):
 
 ```sql
