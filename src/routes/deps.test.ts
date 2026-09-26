@@ -1,6 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { createInMemoryGrantStore } from "@intx/authz";
-import type { GrantRule } from "@intx/authz";
 import type { Context } from "hono";
 import type { RequireGrant, TenantEnv } from "@intx/hub-api";
 
@@ -12,20 +10,6 @@ import {
   type ResolvedCaller,
   type RouteDeps,
 } from "./deps.js";
-
-function grant(principalId: string, action: string): GrantRule {
-  return {
-    id: `g-${action}`,
-    resource: "memory",
-    action,
-    effect: "allow",
-    origin: "role",
-    conditions: null,
-    expiresAt: null,
-    roleId: null,
-    principalId,
-  };
-}
 
 const noopRequireGrant: RequireGrant = () => (async () => {}) as never;
 
@@ -105,7 +89,7 @@ describe("grantGuard", () => {
       called = { resource: String(resource), action };
       return (async () => {}) as never;
     };
-grantGuard(deps(requireGrant), "add");
+    grantGuard(deps(requireGrant), "add");
     expect(called).toEqual({ resource: "memory", action: "add" });
   });
 });
@@ -210,7 +194,10 @@ describe("resolveCaller", () => {
     // guard for it at this boundary.
     ["whitespace-only", { tenantId: " ", principalId: "\t\n" }],
     // Cast past the type system the way a buggy host's JS resolver would.
-    ["missing-principalId", { tenantId: "tenant-run" } as unknown as ResolvedCaller],
+    [
+      "missing-principalId",
+      { tenantId: "tenant-run" } as unknown as ResolvedCaller,
+    ],
     ["non-object", "tenant-run" as unknown as ResolvedCaller],
   ] as const)(
     "rejects a %s resolved caller with 500, never seating it",

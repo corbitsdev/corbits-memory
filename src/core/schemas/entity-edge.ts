@@ -21,14 +21,16 @@ export type MemoryEntity = typeof MemoryEntitySchema.infer;
 // to an entity row at the capture write boundary; it is never stored on
 // memory.edge.
 export const MemoryEdgeRefTypeSchema = type(
-  arktypeStringUnion(EDGE_REF_TYPES_ADAPTER) as
-    "'document'|'version'|'chunk'|'entity'|'native'",
+  arktypeStringUnion(
+    EDGE_REF_TYPES_ADAPTER,
+  ) as "'document'|'version'|'chunk'|'entity'|'native'",
 );
 export type MemoryEdgeRefType = typeof MemoryEdgeRefTypeSchema.infer;
 
 export const MemoryEdgeRelSchema = type(
-  arktypeStringUnion(EDGE_RELS) as
-    "'mentions'|'about'|'authored_by'|'involves'|'part_of'|'derived_from'|'supports'|'contradicts'|'supersedes'",
+  arktypeStringUnion(
+    EDGE_RELS,
+  ) as "'mentions'|'about'|'authored_by'|'involves'|'part_of'|'derived_from'|'supports'|'contradicts'|'supersedes'",
 );
 export type MemoryEdgeRel = typeof MemoryEdgeRelSchema.infer;
 

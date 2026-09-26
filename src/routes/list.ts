@@ -5,18 +5,9 @@ import { type } from "arktype";
 
 import { formatCaughtError, log } from "../log.js";
 import { ListQuery, parseListLimitString } from "../http-bodies.js";
-import {
-  MemoryError,
-  LIST_LIMIT_MAX,
-  LIST_LIMIT_MIN,
-} from "../memory.js";
+import { MemoryError, LIST_LIMIT_MAX, LIST_LIMIT_MIN } from "../memory.js";
 import type { RouteDeps } from "./deps.js";
-import {
-  caller,
-  grantGuard,
-  requirePrincipal,
-  resolveCaller,
-} from "./deps.js";
+import { caller, grantGuard, requirePrincipal, resolveCaller } from "./deps.js";
 
 const ListResponse = type({
   events: type({

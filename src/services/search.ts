@@ -27,7 +27,6 @@ import {
   RerankConfigError,
   RerankQueryTooLongError,
   validateRerankConfig,
-  type RerankClientConfig,
 } from "../core/rerank-client.js";
 import { mmrRerank, type MmrItem } from "../core/mmr.js";
 import { recordDegrade } from "../core/degrade-metrics.js";
@@ -238,7 +237,9 @@ export function toHit(
     hit.provenance = row.provenance as NonNullable<SearchHit["provenance"]>;
   }
   if (row.sourceClass !== undefined) {
-    hit.source_class = row.sourceClass as NonNullable<SearchHit["source_class"]>;
+    hit.source_class = row.sourceClass as NonNullable<
+      SearchHit["source_class"]
+    >;
   }
   if (row.derivedFrom !== undefined) {
     hit.derived_from = row.derivedFrom;
@@ -564,14 +565,8 @@ export async function fetchLexicalCandidates(
       sourceClass: memoryVersion.sourceClass,
     })
     .from(memoryChunk)
-    .innerJoin(
-      memoryVersion,
-      eq(memoryChunk.versionId, memoryVersion.id),
-    )
-    .innerJoin(
-      memoryDocument,
-      eq(memoryChunk.documentId, memoryDocument.id),
-    )
+    .innerJoin(memoryVersion, eq(memoryChunk.versionId, memoryVersion.id))
+    .innerJoin(memoryDocument, eq(memoryChunk.documentId, memoryDocument.id))
     .where(and(...conditions))
     .orderBy(desc(rankExpr), desc(memoryVersion.occurredAt))
     .limit(overfetchLimit);
@@ -607,7 +602,9 @@ const iterativeScanSupport = new WeakMap<RawSql, boolean>();
  * the GUC hard max. Non-finite input falls back to the default.
  */
 export function hnswEfSearch(overfetchLimit: number): number {
-  const limit = Number.isFinite(overfetchLimit) ? Math.floor(overfetchLimit) : 40;
+  const limit = Number.isFinite(overfetchLimit)
+    ? Math.floor(overfetchLimit)
+    : 40;
   return Math.max(40, Math.min(1000, limit));
 }
 
@@ -1018,8 +1015,10 @@ export async function hybridSearch(
     includeDeprecated,
   });
 
-  const embedClientConfig = resolvedTuning?.embed ?? toEmbedClientConfig(config.embed);
-  const rerankConfig = resolvedTuning?.rerank ?? toRerankClientConfig(config.rerank);
+  const embedClientConfig =
+    resolvedTuning?.embed ?? toEmbedClientConfig(config.embed);
+  const rerankConfig =
+    resolvedTuning?.rerank ?? toRerankClientConfig(config.rerank);
 
   let denseRows: CandidateRow[] = [];
   let degraded: DegradeFlag[] | undefined;

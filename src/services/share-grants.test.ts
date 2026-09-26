@@ -29,9 +29,9 @@ describe("buildShareGrants", () => {
     });
     expect(grants).toHaveLength(2);
     expect(grants.every((g) => g.resource === "memory.doc:kdoc_1")).toBe(true);
-    expect(grants.every((g) => g.action === "search" && g.effect === "allow")).toBe(
-      true,
-    );
+    expect(
+      grants.every((g) => g.action === "search" && g.effect === "allow"),
+    ).toBe(true);
     expect(grants.map((g) => g.principalId).sort()).toEqual(["bob", "carol"]);
     expect(grants[0]?.conditions?.memoryShare).toEqual({
       sharedBy: "alice",

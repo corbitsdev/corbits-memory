@@ -22,7 +22,9 @@ export function cosineDistanceExpr(
   dims: number,
 ): string {
   if (!Number.isInteger(dims) || dims <= 0) {
-    throw new Error(`cosineDistanceExpr: dims must be a positive integer, got ${dims}`);
+    throw new Error(
+      `cosineDistanceExpr: dims must be a positive integer, got ${dims}`,
+    );
   }
   if (dims <= VECTOR_INDEX_MAX_DIMS) {
     return `${column} <=> ${vectorParam}::vector`;
@@ -75,8 +77,7 @@ export const EMBED_TABLE_BARE_PATTERN = /^embedding_[a-f0-9]{16}$/;
  * Fully schema-qualified embedding table name for raw SQL interpolation.
  * Tables live under the memory schema: "memory"."embedding_<key>".
  */
-export const EMBED_TABLE_NAME_PATTERN =
-  /^"memory"\."embedding_[a-f0-9]{16}"$/;
+export const EMBED_TABLE_NAME_PATTERN = /^"memory"\."embedding_[a-f0-9]{16}"$/;
 
 // This is the only place in this module that ever interpolates a computed
 // identifier into raw SQL (see activateEmbedModel below) — a future change
@@ -101,7 +102,10 @@ export function embeddingTableName(modelKey: string): string {
 // against this shape. The engine's `RawSql` (postgres-js) handle's
 // `sql.unsafe(query, params)` method satisfies this interface structurally.
 export interface EmbedRegistrySqlClient {
-  query: (sql: string, params: readonly unknown[]) => Promise<Array<Record<string, unknown>>>;
+  query: (
+    sql: string,
+    params: readonly unknown[],
+  ) => Promise<Array<Record<string, unknown>>>;
 }
 
 export interface ActivateEmbedModelResult {
@@ -339,7 +343,9 @@ export async function resolveEmbedTableByModelKey(
   modelKey: string,
 ): Promise<ActiveEmbedTable | null> {
   if (!/^[a-f0-9]{16}$/.test(modelKey)) {
-    throw new Error(`resolveEmbedTableByModelKey: invalid modelKey "${modelKey}"`);
+    throw new Error(
+      `resolveEmbedTableByModelKey: invalid modelKey "${modelKey}"`,
+    );
   }
   const rows = await client.query(
     `SELECT model_key, model_id, dims FROM "memory"."embed_model"

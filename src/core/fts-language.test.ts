@@ -32,7 +32,13 @@ describe("parseFtsLanguage", () => {
 describe("the baseline migration language token", () => {
   it("is present in the generated-column DDL, ready for substitution", async () => {
     const ddl = await readFile(
-      join(import.meta.dir, "..", "..", "migrations", "0002_memory_baseline.sql"),
+      join(
+        import.meta.dir,
+        "..",
+        "..",
+        "migrations",
+        "0002_memory_baseline.sql",
+      ),
       "utf8",
     );
     expect(ddl).toContain(`to_tsvector('${FTS_LANGUAGE_TOKEN}', "text")`);
@@ -74,7 +80,9 @@ describe("verifyFtsLanguage", () => {
     return {
       query: (sqlText: string) => {
         if (sqlText.includes("pg_ts_config")) {
-          return Promise.resolve(opts.known === false ? [] : [{ "?column?": 1 }]);
+          return Promise.resolve(
+            opts.known === false ? [] : [{ "?column?": 1 }],
+          );
         }
         return Promise.resolve(opts.expr == null ? [] : [{ expr: opts.expr }]);
       },
@@ -89,7 +97,10 @@ describe("verifyFtsLanguage", () => {
 
   it("throws when the configured language is not an installed config", async () => {
     await expect(
-      verifyFtsLanguage(fakeClient({ known: false, expr: ENGLISH_EXPR }), "klingon"),
+      verifyFtsLanguage(
+        fakeClient({ known: false, expr: ENGLISH_EXPR }),
+        "klingon",
+      ),
     ).rejects.toThrow("not an installed");
   });
 
@@ -123,7 +134,9 @@ describe("createFtsVerification", () => {
         query: (sqlText: string) => {
           calls += 1;
           return Promise.resolve(
-            sqlText.includes("pg_ts_config") ? [{ ok: 1 }] : [{ expr: ENGLISH_EXPR }],
+            sqlText.includes("pg_ts_config")
+              ? [{ ok: 1 }]
+              : [{ expr: ENGLISH_EXPR }],
           );
         },
       },
@@ -145,7 +158,9 @@ describe("createFtsVerification", () => {
             return Promise.reject(new Error("connection refused"));
           }
           return Promise.resolve(
-            sqlText.includes("pg_ts_config") ? [{ ok: 1 }] : [{ expr: ENGLISH_EXPR }],
+            sqlText.includes("pg_ts_config")
+              ? [{ ok: 1 }]
+              : [{ expr: ENGLISH_EXPR }],
           );
         },
       },
@@ -160,7 +175,9 @@ describe("createFtsVerification", () => {
       {
         query: (sqlText: string) =>
           Promise.resolve(
-            sqlText.includes("pg_ts_config") ? [{ ok: 1 }] : [{ expr: ENGLISH_EXPR }],
+            sqlText.includes("pg_ts_config")
+              ? [{ ok: 1 }]
+              : [{ expr: ENGLISH_EXPR }],
           ),
       },
       "german",
@@ -182,7 +199,9 @@ describe("createFtsVerification concurrency", () => {
         query: async (sqlText: string) => {
           calls += 1;
           await gate;
-          return sqlText.includes("pg_ts_config") ? [{ ok: 1 }] : [{ expr: ENGLISH_EXPR }];
+          return sqlText.includes("pg_ts_config")
+            ? [{ ok: 1 }]
+            : [{ expr: ENGLISH_EXPR }];
         },
       },
       "english",
@@ -204,7 +223,9 @@ describe("createFtsVerification concurrency", () => {
             return Promise.reject(new Error("connection refused"));
           }
           return Promise.resolve(
-            sqlText.includes("pg_ts_config") ? [{ ok: 1 }] : [{ expr: ENGLISH_EXPR }],
+            sqlText.includes("pg_ts_config")
+              ? [{ ok: 1 }]
+              : [{ expr: ENGLISH_EXPR }],
           );
         },
       },

@@ -24,18 +24,16 @@ import {
 } from "../http-bodies.js";
 import { MemoryError } from "../memory.js";
 import type { RouteDeps } from "./deps.js";
-import {
-  caller,
-  grantGuard,
-  requirePrincipal,
-  resolveCaller,
-} from "./deps.js";
+import { caller, grantGuard, requirePrincipal, resolveCaller } from "./deps.js";
 
 function respondRetentionError(err: unknown, action: string) {
   const errMessage = formatCaughtError(err);
   log.error(`memory ${action} failed: ${errMessage}`, { error: errMessage });
   if (err instanceof MemoryError) {
-    return { body: { error: err.message }, status: err.status as 403 | 404 | 501 };
+    return {
+      body: { error: err.message },
+      status: err.status as 403 | 404 | 501,
+    };
   }
   return { body: { error: `${action} failed` }, status: 502 as const };
 }
@@ -63,7 +61,8 @@ export function mountForgetRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
 
     describeRoute({
       tags: ["memory"],
-      summary: "Tombstone a document — stops appearing in search, chunk text is redacted (not archived), version rows stay for audit",
+      summary:
+        "Tombstone a document — stops appearing in search, chunk text is redacted (not archived), version rows stay for audit",
       responses: {
         200: {
           description: "Tombstoned",
@@ -88,7 +87,10 @@ export function mountForgetRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
       const { reason } = c.req.valid("json");
       const { scopeId, subjectId } = caller(c);
       if (!deps.memory.tombstoneDocument) {
-        return c.json({ error: "retention APIs require the engine DocumentStore" }, 501);
+        return c.json(
+          { error: "retention APIs require the engine DocumentStore" },
+          501,
+        );
       }
       try {
         const result = await deps.memory.tombstoneDocument({
@@ -112,7 +114,8 @@ export function mountPurgeRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
 
     describeRoute({
       tags: ["memory"],
-      summary: "Hard-delete a document — irreversible; refused while a durable version is untombstoned",
+      summary:
+        "Hard-delete a document — irreversible; refused while a durable version is untombstoned",
       responses: {
         200: {
           description: "Deletion result (deleted may be false with a reason)",
@@ -135,7 +138,10 @@ export function mountPurgeRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
       const { documentId } = c.req.valid("param");
       const { scopeId, subjectId } = caller(c);
       if (!deps.memory.hardDeleteDocument) {
-        return c.json({ error: "retention APIs require the engine DocumentStore" }, 501);
+        return c.json(
+          { error: "retention APIs require the engine DocumentStore" },
+          501,
+        );
       }
       try {
         const result = await deps.memory.hardDeleteDocument({
@@ -165,7 +171,8 @@ export function mountSetRetentionClassRoute(
 
     describeRoute({
       tags: ["memory"],
-      summary: "Set a version's retention class (durable/standard/ephemeral/source_only)",
+      summary:
+        "Set a version's retention class (durable/standard/ephemeral/source_only)",
       responses: {
         200: {
           description: "Updated",
@@ -193,7 +200,10 @@ export function mountSetRetentionClassRoute(
       const { retention_class } = c.req.valid("json");
       const { scopeId, subjectId } = caller(c);
       if (!deps.memory.setRetentionClass) {
-        return c.json({ error: "retention APIs require the engine DocumentStore" }, 501);
+        return c.json(
+          { error: "retention APIs require the engine DocumentStore" },
+          501,
+        );
       }
       try {
         const result = await deps.memory.setRetentionClass({

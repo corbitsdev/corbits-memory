@@ -67,9 +67,7 @@ export const MEMORY_CAPABILITY_IDS = MEMORY_GRANT_REQUIREMENTS.map(
  * must not inherit a routes-only capability (like `forget`/`purge`) just
  * because it appears somewhere in the full requirement list.
  */
-export function capabilityIdsForSurface(
-  surface: MemoryGrantSurface,
-): string[] {
+export function capabilityIdsForSurface(surface: MemoryGrantSurface): string[] {
   return MEMORY_GRANT_REQUIREMENTS.filter((r) =>
     r.surfaces.includes(surface),
   ).map((r) => `${r.resource}:${r.action}`);

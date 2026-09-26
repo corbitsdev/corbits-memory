@@ -58,8 +58,6 @@ export function toRerankClientConfig(
     ...(rerank.maxDocChars !== undefined
       ? { maxDocChars: rerank.maxDocChars }
       : {}),
-    ...(rerank.timeoutMs !== undefined
-      ? { timeoutMs: rerank.timeoutMs }
-      : {}),
+    ...(rerank.timeoutMs !== undefined ? { timeoutMs: rerank.timeoutMs } : {}),
   };
 }

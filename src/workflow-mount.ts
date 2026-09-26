@@ -62,7 +62,10 @@ export type AgentTokenAuth = {
   ) => Promise<AgentTokenIdentity | undefined> | AgentTokenIdentity | undefined;
   resolveRun: (
     runAddress: string,
-  ) => Promise<ResolvedWorkflowRunScope | null> | ResolvedWorkflowRunScope | null;
+  ) =>
+    | Promise<ResolvedWorkflowRunScope | null>
+    | ResolvedWorkflowRunScope
+    | null;
 };
 
 export type WorkflowMemoryEnv = {
@@ -85,14 +88,22 @@ export function mountWorkflowMemory(
 ): Hono<WorkflowMemoryEnv> {
   const { memory, agentToken } = opts;
 
-  const authenticate: MiddlewareHandler<WorkflowMemoryEnv> = async (c, next) => {
+  const authenticate: MiddlewareHandler<WorkflowMemoryEnv> = async (
+    c,
+    next,
+  ) => {
     const identity = await agentToken.verify(c);
     const address = c.req.header("x-workflow-run-address") ?? "";
-    const scope = identity === undefined ? null : await agentToken.resolveRun(address);
+    const scope =
+      identity === undefined ? null : await agentToken.resolveRun(address);
     // Same 401 whether the bearer was unrecognized, the address named no run,
     // or the run belongs to another tenant: a bearer learns nothing from the
     // difference.
-    if (identity === undefined || scope === null || scope.tenantId !== identity.tenantId) {
+    if (
+      identity === undefined ||
+      scope === null ||
+      scope.tenantId !== identity.tenantId
+    ) {
       return c.json(
         { error: "Missing or unrecognized bearer token / run address" },
         401,
@@ -104,7 +115,11 @@ export function mountWorkflowMemory(
   };
   app.use("*", authenticate);
 
-  function failure(c: Parameters<MiddlewareHandler<WorkflowMemoryEnv>>[0], verb: string, err: unknown) {
+  function failure(
+    c: Parameters<MiddlewareHandler<WorkflowMemoryEnv>>[0],
+    verb: string,
+    err: unknown,
+  ) {
     if (err instanceof MemoryError) {
       return c.json({ error: err.message }, err.status as 400 | 501);
     }
@@ -121,7 +136,8 @@ export function mountWorkflowMemory(
       return c.json({ error: "Invalid JSON body" }, 400);
     }
     const body = AddRequest(raw);
-    if (body instanceof type.errors) return c.json({ error: body.summary }, 400);
+    if (body instanceof type.errors)
+      return c.json({ error: body.summary }, 400);
 
     const scope = c.get("workflowRunScope");
     try {
@@ -129,7 +145,9 @@ export function mountWorkflowMemory(
         content: { title: body.title, text: body.text },
         tenantId: scope.tenantId,
         principalId: scope.principalId,
-        ...(body.access_tags !== undefined ? { accessTags: body.access_tags } : {}),
+        ...(body.access_tags !== undefined
+          ? { accessTags: body.access_tags }
+          : {}),
         // A workbench is the team: a run's memories are shared with it by
         // default, and an explicit share only ever adds to that.
         share: { ...((body.share ?? {}) as ShareSugar), tenant: true },
@@ -137,12 +155,24 @@ export function mountWorkflowMemory(
         ...(body.generator_agent_id !== undefined
           ? { generatorAgentId: body.generator_agent_id }
           : {}),
-        ...(body.provenance !== undefined ? { provenance: body.provenance } : {}),
-        ...(body.lineage_class !== undefined ? { lineageClass: body.lineage_class } : {}),
-        ...(body.temporal_class !== undefined ? { temporalClass: body.temporal_class } : {}),
-        ...(body.derived_from !== undefined ? { derivedFrom: body.derived_from } : {}),
-        ...(body.valid_from !== undefined ? { validFrom: body.valid_from } : {}),
-        ...(body.valid_until !== undefined ? { validUntil: body.valid_until } : {}),
+        ...(body.provenance !== undefined
+          ? { provenance: body.provenance }
+          : {}),
+        ...(body.lineage_class !== undefined
+          ? { lineageClass: body.lineage_class }
+          : {}),
+        ...(body.temporal_class !== undefined
+          ? { temporalClass: body.temporal_class }
+          : {}),
+        ...(body.derived_from !== undefined
+          ? { derivedFrom: body.derived_from }
+          : {}),
+        ...(body.valid_from !== undefined
+          ? { validFrom: body.valid_from }
+          : {}),
+        ...(body.valid_until !== undefined
+          ? { validUntil: body.valid_until }
+          : {}),
       });
       return c.json({ data: result });
     } catch (err) {
@@ -158,7 +188,8 @@ export function mountWorkflowMemory(
       return c.json({ error: "Invalid JSON body" }, 400);
     }
     const body = SearchRequest(raw);
-    if (body instanceof type.errors) return c.json({ error: body.summary }, 400);
+    if (body instanceof type.errors)
+      return c.json({ error: body.summary }, 400);
 
     const scope = c.get("workflowRunScope");
     try {
@@ -169,7 +200,9 @@ export function mountWorkflowMemory(
         visibleTags: teamTags(scope),
         ...(body.limit !== undefined ? { limit: body.limit } : {}),
         ...(body.kinds !== undefined ? { kinds: body.kinds } : {}),
-        ...(body.entity_ids !== undefined ? { entityIds: body.entity_ids } : {}),
+        ...(body.entity_ids !== undefined
+          ? { entityIds: body.entity_ids }
+          : {}),
         ...(body.sources !== undefined ? { sources: body.sources } : {}),
         ...(body.includeEvidence !== undefined
           ? { includeEvidence: body.includeEvidence }
@@ -204,7 +237,10 @@ export function mountWorkflowMemory(
 
   app.get("/feed", async (c) => {
     if (memory.feed === undefined) {
-      return c.json({ error: "feed is not available on this memory plane" }, 501);
+      return c.json(
+        { error: "feed is not available on this memory plane" },
+        501,
+      );
     }
     const after = c.req.query("after");
     const limit = c.req.query("limit");
@@ -212,7 +248,9 @@ export function mountWorkflowMemory(
     const parsed = parseFeedQuery({
       ...(after !== undefined ? { after } : {}),
       ...(limit !== undefined ? { limit } : {}),
-      ...(excludeGenerator !== undefined ? { exclude_generator: excludeGenerator } : {}),
+      ...(excludeGenerator !== undefined
+        ? { exclude_generator: excludeGenerator }
+        : {}),
     });
     if (!parsed.ok) return c.json({ error: parsed.error }, 400);
 
