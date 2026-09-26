@@ -1,5 +1,12 @@
 import { describe, expect, it, mock } from "bun:test";
-import { embedInsertedChunksWithConfig, toEmbedClientConfig } from "./capture.js";
+import {
+  captureDocument,
+  createBackgroundEmbedScheduler,
+  embedInsertedChunksWithConfig,
+  findPendingChunks,
+  runBackgroundEmbedPass,
+  toEmbedClientConfig,
+} from "./capture.js";
 import type { CaptureInput } from "./capture.js";
 import type { Db, RawSql } from "../db/client.js";
 import type { EngineConfig } from "../config.js";
@@ -122,21 +129,8 @@ function unreachableRawSql(): RawSql {
   } as unknown as RawSql;
 }
 
-// memory.test.ts uses `mock.module("./services/capture.ts", ...)` around its
-// own describe blocks; Bun's module registry is process-global, so a static
-// `import { captureDocument } from "./capture.js"` here can end up bound to
-// that mock's fixture data when the whole suite runs (the same leak
-// services/search.test.ts documents for hybridSearch). A cache-busted
-// dynamic import — the same trick memory.test.ts itself uses for
-// `./memory.ts` — sidesteps this: a fresh module specifier is never the one
-// any mock.module call replaced.
-async function loadRealCapture(): Promise<typeof import("./capture.js")> {
-  return import(`./capture.ts?cl-8615-real=${Date.now()}-${Math.random()}`);
-}
-
 describe("captureDocument defers embedding to the background (CL-8615)", () => {
   it("returns captured with zero fetch calls when the embedder hangs, scheduling the embed pass instead", async () => {
-    const { captureDocument } = await loadRealCapture();
     const hangingFetch = mock(
       () => new Promise<Response>(() => {}),
     ) as unknown as typeof fetch;
@@ -204,7 +198,6 @@ describe("captureDocument defers embedding to the background (CL-8615)", () => {
 
 describe("runBackgroundEmbedPass retries then sweeps pending (CL-8615)", () => {
   it("retries after a refused embed call with the 1s delay, then embeds fresh chunks and sweeps one pending chunk", async () => {
-    const { runBackgroundEmbedPass } = await loadRealCapture();
     let fetchCalls = 0;
     const flakyFetch = (async (_url: unknown, init?: { body?: unknown }) => {
       fetchCalls++;
@@ -265,7 +258,6 @@ describe("runBackgroundEmbedPass retries then sweeps pending (CL-8615)", () => {
 
 describe("background embed pass honors the configured embed timeout (CL-8615)", () => {
   it("threads EngineConfig.embed.timeoutMs through to every fetch init signal", async () => {
-    const { runBackgroundEmbedPass } = await loadRealCapture();
     const timeoutMs = 45000;
     const seenSignals: unknown[] = [];
     const timeoutArgs: number[] = [];
@@ -314,7 +306,6 @@ describe("background embed pass honors the configured embed timeout (CL-8615)", 
 
 describe("findPendingChunks skips tombstoned and non-live versions", () => {
   it("joins memory.version and binds live generation so a forget-then-add cannot sweep [redacted] text", async () => {
-    const { findPendingChunks } = await loadRealCapture();
     const queries: Array<{ sql: string; params: readonly unknown[] }> = [];
     const client = {
       query: (sql: string, params: readonly unknown[]) => {
@@ -342,7 +333,6 @@ describe("findPendingChunks skips tombstoned and non-live versions", () => {
 
 describe("background embed scheduler serializes overlapping adds", () => {
   it("overlapping enqueues for one tenant share one in-flight pass and never overlap run()", async () => {
-    const { createBackgroundEmbedScheduler } = await loadRealCapture();
     const scheduler = createBackgroundEmbedScheduler();
     let current = 0;
     const batches: string[][] = [];
@@ -391,7 +381,6 @@ describe("background embed scheduler serializes overlapping adds", () => {
   });
 
   it("passes for two tenants still never run concurrently", async () => {
-    const { createBackgroundEmbedScheduler } = await loadRealCapture();
     const scheduler = createBackgroundEmbedScheduler();
     let releaseFirst!: () => void;
     const held = new Promise<void>((resolve) => {
