@@ -116,7 +116,7 @@ function openaiEmbeddingBody(initBody: unknown): unknown {
   }
   return {
     data: Array.from({ length: count }, () => ({
-      embedding: new Array(BACKGROUND_TEST_DIMS).fill(0.1),
+      embedding: Array.from({ length: BACKGROUND_TEST_DIMS }, () => 0.1),
     })),
   };
 }

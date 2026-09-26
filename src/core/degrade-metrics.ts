@@ -214,7 +214,7 @@ function newTenantState(): TenantState {
     totalSearches: 0,
     degradeCounts: emptyDegradeCounts(),
     since: new Date(),
-    windowBuffer: new Array(config.windowSize).fill(undefined),
+    windowBuffer: Array.from({ length: config.windowSize }, () => undefined),
     windowCursor: 0,
     windowFilled: 0,
     windowFlagCounts: zeroFlagCounts(),
@@ -239,7 +239,7 @@ let tenants = new Map<string, TenantState>();
 // trade-off.
 function resizeAllTenantWindows(windowSize: number): void {
   for (const state of tenants.values()) {
-    state.windowBuffer = new Array(windowSize).fill(undefined);
+    state.windowBuffer = Array.from({ length: windowSize }, () => undefined);
     state.windowCursor = 0;
     state.windowFilled = 0;
     state.windowFlagCounts = zeroFlagCounts();

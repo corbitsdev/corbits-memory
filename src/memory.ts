@@ -1,5 +1,3 @@
-import { authorize } from "@intx/authz";
-
 import {
   canAccessDocument,
   matchesVisibleTags,

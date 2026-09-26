@@ -101,6 +101,6 @@ describe("embedTexts", () => {
 });
 
 test("probeEmbedDims returns the served vector length", async () => {
-  stub.reply = () => Response.json({ data: [{ embedding: new Array(768).fill(0) }] });
+  stub.reply = () => Response.json({ data: [{ embedding: Array.from({ length: 768 }, () => 0) }] });
   expect(await probeEmbedDims(openai)).toBe(768);
 });

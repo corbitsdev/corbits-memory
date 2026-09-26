@@ -1,6 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { createInMemoryGrantStore } from "@intx/authz";
-import type { GrantRule } from "@intx/authz";
 import type { Context } from "hono";
 import type { RequireGrant, TenantEnv } from "@intx/hub-api";
 
@@ -12,20 +10,6 @@ import {
   type ResolvedCaller,
   type RouteDeps,
 } from "./deps.js";
-
-function grant(principalId: string, action: string): GrantRule {
-  return {
-    id: `g-${action}`,
-    resource: "memory",
-    action,
-    effect: "allow",
-    origin: "role",
-    conditions: null,
-    expiresAt: null,
-    roleId: null,
-    principalId,
-  };
-}
 
 const noopRequireGrant: RequireGrant = () => (async () => {}) as never;
 
