@@ -3,8 +3,8 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { runMigrations } from "@intx/db";
 
-import { runMemoryMigrations } from "../src/migrations.ts";
-import { createEmptyDb, testDatabaseUrl, type TestDb } from "./helpers.ts";
+import { runMemoryMigrations } from "../src/migrations.js";
+import { createEmptyDb, testDatabaseUrl, type TestDb } from "./helpers.js";
 
 const options = { schema: "public", ftsLanguage: "english" };
 

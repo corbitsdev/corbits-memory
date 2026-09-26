@@ -3,11 +3,11 @@ import { createInMemoryGrantStore, type GrantStore } from "@intx/authz";
 import { createRequireGrant, type TenantEnv } from "@intx/hub-api";
 import { Hono } from "hono";
 
-import type { Memory } from "../src/memory.ts";
+import type { Memory } from "../src/memory.js";
 import {
   createMemoryRoutes,
   type CallerResolver,
-} from "../src/routes/mount.ts";
+} from "../src/routes/mount.js";
 import {
   allow,
   createTestDb,
@@ -15,7 +15,7 @@ import {
   seedPrincipal,
   testDatabaseUrl,
   type TestDb,
-} from "./helpers.ts";
+} from "./helpers.js";
 
 // A machine caller (e.g. a workflow run) never passes the host's session
 // middleware; the host's callerResolver names its tenant and principal.

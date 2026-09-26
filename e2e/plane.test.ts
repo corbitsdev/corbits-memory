@@ -1,13 +1,13 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { createInMemoryGrantStore } from "@intx/authz";
 
-import { RerankConfigError } from "../src/core/rerank-client.ts";
+import { RerankConfigError } from "../src/core/rerank-client.js";
 import {
   createMemory,
   MemoryError,
   type Memory,
   type MemoryAddParams,
-} from "../src/memory.ts";
+} from "../src/memory.js";
 import {
   createTestDb,
   createTestMemory,
@@ -15,7 +15,7 @@ import {
   testDatabaseUrl,
   testMemoryConfig,
   type TestDb,
-} from "./helpers.ts";
+} from "./helpers.js";
 
 async function rejection(run: Promise<unknown>): Promise<MemoryError> {
   const err = await run.then(
