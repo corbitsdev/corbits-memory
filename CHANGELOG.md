@@ -14,6 +14,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `MEMORY_GRANT_REQUIREMENTS` is read from `package.json`
   `interchange.grantRequirements`, now the only declaration.
   `MEMORY_CAPABILITY_IDS` is typed `string[]`.
+- `createMemoryRoutes({ memory, requireGrant, callerResolver? })` returns the
+  memory routes as a `Hono<TenantEnv>` sub-app with paths relative to its
+  mount point; hosts mount it at `/api/tenants/:tenantId/memory`. It replaces
+  `createMemory({ app })` and `registerMemoryRoutes`, and `RouteDeps` no
+  longer carries `grants`. `createMemory` only builds the plane.
+- The package root exports only the public API. Internal services and
+  helpers (transform, retention, feed, share materialization, corroboration,
+  embed model registry, degrade metrics, FTS helpers), the test fakes, and
+  `resolveGrantConfig` are no longer exported. The distiller stays at
+  `@corbits/memory/distiller` and migrations at `@corbits/memory/migrations`.
 
 ### Added
 
@@ -29,7 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in-process `Memory`. New `memory:forget` / `memory:purge` grant requirements
   (`source: "creator"`) and `capabilityIdsForSurface()` so distiller/tools
   installs no longer pick up routes-only capabilities by accident.
-- `RouteDeps.callerResolver` / `createMemory({ callerResolver })` — an
+- `RouteDeps.callerResolver` — an
   optional host-supplied resolver from a request to a `{ tenantId,
   principalId }` scope, for a caller that never goes through the host's
   tenant-session middleware (e.g. a workflow-run child authenticating with

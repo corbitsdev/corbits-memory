@@ -15,9 +15,10 @@ The store was detachable from a larger backend, then mountable:
 - Document access is Interchange grant tags on the row (`accessTags` + creator),
   not a private ACL engine inside this package.
 
-It ships as `createMemory({ app, … })`: the host passes its Hono app and grant
-store; the library registers routes, reads identity from request context, and
-talks to its DocumentStore. No second server.
+It ships as `createMemory(…)` plus `createMemoryRoutes(deps)`: the host builds
+the plane, mounts the returned Hono sub-app, and passes its `requireGrant`; the
+routes read identity from request context and talk to the DocumentStore. No
+second server.
 
 ## Product path
 
@@ -53,8 +54,8 @@ helpers are optional multi-writer / backfill — not the primary path.
   puts `principal` + `tenant` on context; routes read identity from there
   (`tenantId = principal.tenantId`, `principalId = principal.id`). A host
   with a non-browser caller (e.g. a workflow-run child with its own sidecar
-  bearer token) may instead pass `callerResolver` (`RouteDeps` /
-  `createMemory`) — the host still does 100% of the authenticating, it just
+  bearer token) may instead pass `callerResolver` to `createMemoryRoutes`
+  — the host still does 100% of the authenticating, it just
   hands the resolved `{ tenantId, principalId }` in through the seam instead
   of setting context itself. Either way the resolved identity, never
   anything from the request body, is what `grantGuard` authorizes.
@@ -96,7 +97,7 @@ exposes the same three verbs.
 
 ## Mounted surface
 
-`createMemory({ app })` registers:
+`createMemoryRoutes(deps)`, mounted at `/api/tenants/:tenantId/memory`, serves:
 
 - `POST /api/tenants/:tenantId/memory/add` — ingest (raw + derive on the default store).
 - `POST /api/tenants/:tenantId/memory/search` — hybrid retrieval (FTS + dense → RRF → rerank →

@@ -39,7 +39,7 @@ const SearchResponse = type({
 
 export function mountSearchRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
   app.post(
-    "/api/tenants/:tenantId/memory/search",
+    "/search",
 
     describeRoute({
       tags: ["memory"],
