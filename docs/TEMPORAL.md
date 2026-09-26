@@ -5,24 +5,24 @@ in capture (write), hybrid-search (rank), and search/timeline (query filters).
 
 ## Four times (two stored, two derived)
 
-| Concept | Column / source | Meaning |
-| --- | --- | --- |
-| **Effective time** | `occurred_at` (required) | When the content *refers to*: event moment, state effective time, or when a deadline was established. Not dual-meaning — one meaning applied across classes. |
-| **Ingestion / assertion** | `ingested_at` | When the memory plane learned the content (capture or distill write). There is no separate `asserted_at`. |
-| **Validity start** | `valid_from` (nullable) | Optional window start for state/deadline claims. |
-| **Validity end** | `valid_until` (nullable) | Optional window end. Required in practice for useful `deadline` ranking. |
+| Concept                   | Column / source          | Meaning                                                                                                                                                      |
+| ------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Effective time**        | `occurred_at` (required) | When the content _refers to_: event moment, state effective time, or when a deadline was established. Not dual-meaning — one meaning applied across classes. |
+| **Ingestion / assertion** | `ingested_at`            | When the memory plane learned the content (capture or distill write). There is no separate `asserted_at`.                                                    |
+| **Validity start**        | `valid_from` (nullable)  | Optional window start for state/deadline claims.                                                                                                             |
+| **Validity end**          | `valid_until` (nullable) | Optional window end. Required in practice for useful `deadline` ranking.                                                                                     |
 
 ## `temporal_class`
 
 SSOT: `TEMPORAL_CLASSES` in `src/core/enums.ts`. Stored on **version** (not
 document) so successive versions can change class.
 
-| Class | Recency prior | Notes |
-| --- | --- | --- |
-| `event` | Exponential decay from `occurred_at` (30-day half-life default) | Default for raw captures; preserves pre-model ranking. |
-| `deadline` | Neutral far out; urgency ramp in a 7-day lookahead before `valid_until`; floor (0.7) after expiry | Still history-retrievable after expiry — not deleted. |
-| `state` | Constant 1.0 while `status='active'` | Default for `provenance='inferred'` (distilled claims). Supersede via capture status, not recency. |
-| `lesson` | Constant 1.0 | Always explicit; never a default. |
+| Class      | Recency prior                                                                                     | Notes                                                                                              |
+| ---------- | ------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `event`    | Exponential decay from `occurred_at` (30-day half-life default)                                   | Default for raw captures; preserves pre-model ranking.                                             |
+| `deadline` | Neutral far out; urgency ramp in a 7-day lookahead before `valid_until`; floor (0.7) after expiry | Still history-retrievable after expiry — not deleted.                                              |
+| `state`    | Constant 1.0 while `status='active'`                                                              | Default for `provenance='inferred'` (distilled claims). Supersede via capture status, not recency. |
+| `lesson`   | Constant 1.0                                                                                      | Always explicit; never a default.                                                                  |
 
 Defaults at write:
 

@@ -9,7 +9,6 @@ import {
   tenantTag,
 } from "./grant-tags.js";
 
-
 describe("resolveAccessTags", () => {
   test("always includes owner tag", () => {
     expect(resolveAccessTags({ principalId: "u1", tenantId: "t1" })).toEqual([

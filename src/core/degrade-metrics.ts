@@ -28,7 +28,6 @@ const DEGRADE_FLAG_SET = {
   lexical_only: true,
 } satisfies Record<DegradeFlag, true>;
 
-
 // Deriving the list from a `satisfies Record<DegradeFlag, true>` object
 // means adding a flag in hybrid-search.ts without adding it here is a
 // compile error (missing property), not a silent gap that only a test
@@ -296,7 +295,10 @@ function pushToWindow(state: TenantState, flags: readonly DegradeFlag[]): void {
   const evicted = state.windowBuffer[state.windowCursor];
   if (evicted) {
     for (const flag of evicted) {
-      state.windowFlagCounts[flag] = Math.max(0, state.windowFlagCounts[flag] - 1);
+      state.windowFlagCounts[flag] = Math.max(
+        0,
+        state.windowFlagCounts[flag] - 1,
+      );
     }
   } else {
     state.windowFilled = Math.min(state.windowFilled + 1, config.windowSize);
@@ -332,7 +334,10 @@ export interface DegradeMetricsSnapshot {
   escalated: Record<DegradeFlag, boolean>;
 }
 
-function toSnapshot(tenantId: string, state: TenantState): DegradeMetricsSnapshot {
+function toSnapshot(
+  tenantId: string,
+  state: TenantState,
+): DegradeMetricsSnapshot {
   const windowedDegradeRate = {} as Record<DegradeFlag, number>;
   for (const flag of ALL_DEGRADE_FLAGS) {
     windowedDegradeRate[flag] = windowedRate(state, flag);
@@ -422,7 +427,9 @@ export function recordDegrade(
 }
 
 /** Read-only snapshot for a host to expose on its own metrics/health endpoint. */
-export function getDegradeMetricsSnapshot(tenantId: string): DegradeMetricsSnapshot {
+export function getDegradeMetricsSnapshot(
+  tenantId: string,
+): DegradeMetricsSnapshot {
   const state = tenants.get(tenantId) ?? newTenantState();
   return toSnapshot(tenantId, state);
 }

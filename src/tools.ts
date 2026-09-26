@@ -4,7 +4,12 @@
  * stays free of any agent-SDK dependency, and `sidecar-bundle.ts` binds each
  * name to the run-scoped route that performs it.
  */
-import { LIST_LIMIT_MAX, LIST_LIMIT_MIN, SEARCH_LIMIT_MAX, SEARCH_LIMIT_MIN } from "./limits.js";
+import {
+  LIST_LIMIT_MAX,
+  LIST_LIMIT_MIN,
+  SEARCH_LIMIT_MAX,
+  SEARCH_LIMIT_MIN,
+} from "./limits.js";
 
 export type MemoryToolDefinition = {
   name: string;
@@ -48,7 +53,8 @@ export const MEMORY_TOOL_DEFINITIONS: readonly MemoryToolDefinition[] = [
         provenance: {
           type: "string",
           enum: ["stated", "inferred", "unknown"],
-          description: "How content was obtained (inferred for distilled claims)",
+          description:
+            "How content was obtained (inferred for distilled claims)",
         },
         lineage_class: {
           type: "string",
@@ -65,8 +71,14 @@ export const MEMORY_TOOL_DEFINITIONS: readonly MemoryToolDefinition[] = [
           items: { type: "string" },
           description: "Source version ids this claim is derived from",
         },
-        valid_from: { type: "string", description: "Optional validity start (ISO)" },
-        valid_until: { type: "string", description: "Optional validity end (ISO)" },
+        valid_from: {
+          type: "string",
+          description: "Optional validity start (ISO)",
+        },
+        valid_until: {
+          type: "string",
+          description: "Optional validity end (ISO)",
+        },
         share: {
           type: "object",
           properties: {
@@ -114,7 +126,8 @@ export const MEMORY_TOOL_DEFINITIONS: readonly MemoryToolDefinition[] = [
         sources: {
           type: "array",
           items: { type: "string" },
-          description: 'Optional channel filter (e.g. "local" and/or live source ids)',
+          description:
+            'Optional channel filter (e.g. "local" and/or live source ids)',
         },
         includeEvidence: {
           type: "boolean",
@@ -131,7 +144,8 @@ export const MEMORY_TOOL_DEFINITIONS: readonly MemoryToolDefinition[] = [
   },
   {
     name: "memory_list",
-    description: "List recent documents in your workbench's memory, including your teammates'.",
+    description:
+      "List recent documents in your workbench's memory, including your teammates'.",
     inputSchema: {
       type: "object",
       properties: {
@@ -168,7 +182,8 @@ export const MEMORY_TOOL_DEFINITIONS: readonly MemoryToolDefinition[] = [
         },
         exclude_generator: {
           type: "string",
-          description: "Skip versions written by this generator_agent_id (loop-safety)",
+          description:
+            "Skip versions written by this generator_agent_id (loop-safety)",
         },
       },
       additionalProperties: false,

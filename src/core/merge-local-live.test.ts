@@ -214,9 +214,7 @@ describe("mergeLocalLiveV1", () => {
         local({ externalRef: "1", score: 3 }),
         local({ externalRef: "2", score: 2 }),
       ],
-      live: [
-        live({ externalRef: "3", score: 1, title: "third" }),
-      ],
+      live: [live({ externalRef: "3", score: 1, title: "third" })],
       limit: 2,
       nowMs: NOW,
     });

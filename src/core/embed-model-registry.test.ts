@@ -27,7 +27,11 @@ function jsonResponse(body: unknown): Response {
 
 function fixtureFetch(dims: number): typeof fetch {
   return mock(() =>
-    Promise.resolve(jsonResponse({ data: [{ embedding: Array.from({ length: dims }, () => 0.1) }] })),
+    Promise.resolve(
+      jsonResponse({
+        data: [{ embedding: Array.from({ length: dims }, () => 0.1) }],
+      }),
+    ),
   ) as unknown as typeof fetch;
 }
 
@@ -37,7 +41,10 @@ const baseConfig: EmbedClientConfig = {
   apiStyle: "openai",
 };
 
-function createMockClient(): { client: EmbedRegistrySqlClient; queries: Array<{ sql: string; params: readonly unknown[] }> } {
+function createMockClient(): {
+  client: EmbedRegistrySqlClient;
+  queries: Array<{ sql: string; params: readonly unknown[] }>;
+} {
   const queries: Array<{ sql: string; params: readonly unknown[] }> = [];
   const client: EmbedRegistrySqlClient = {
     query: (sql, params) => {
@@ -83,21 +90,21 @@ describe("discoverModelDims", () => {
   });
 
   it("refuses a too-small probe result (T6)", async () => {
-    await expect(discoverModelDims(baseConfig, fixtureFetch(32))).rejects.toThrow(
-      DimsOutOfBoundsError,
-    );
+    await expect(
+      discoverModelDims(baseConfig, fixtureFetch(32)),
+    ).rejects.toThrow(DimsOutOfBoundsError);
   });
 
   it("refuses a too-large probe result (T6)", async () => {
-    await expect(discoverModelDims(baseConfig, fixtureFetch(5000))).rejects.toThrow(
-      DimsOutOfBoundsError,
-    );
+    await expect(
+      discoverModelDims(baseConfig, fixtureFetch(5000)),
+    ).rejects.toThrow(DimsOutOfBoundsError);
   });
 
   it("accepts the halfvec cap exactly and rejects one past it", async () => {
-    expect(await discoverModelDims(baseConfig, fixtureFetch(HALFVEC_INDEX_MAX_DIMS))).toBe(
-      HALFVEC_INDEX_MAX_DIMS,
-    );
+    expect(
+      await discoverModelDims(baseConfig, fixtureFetch(HALFVEC_INDEX_MAX_DIMS)),
+    ).toBe(HALFVEC_INDEX_MAX_DIMS);
     await expect(
       discoverModelDims(baseConfig, fixtureFetch(HALFVEC_INDEX_MAX_DIMS + 1)),
     ).rejects.toThrow(DimsOutOfBoundsError);
@@ -112,7 +119,9 @@ describe("cosineDistanceExpr", () => {
   });
 
   it("emits the halfvec expression past the vector index cap", () => {
-    expect(cosineDistanceExpr("e.embedding", "$3", VECTOR_INDEX_MAX_DIMS + 1)).toBe(
+    expect(
+      cosineDistanceExpr("e.embedding", "$3", VECTOR_INDEX_MAX_DIMS + 1),
+    ).toBe(
       `(e.embedding::halfvec(${VECTOR_INDEX_MAX_DIMS + 1})) <=> $3::halfvec(${VECTOR_INDEX_MAX_DIMS + 1})`,
     );
   });
@@ -144,7 +153,9 @@ describe("activateEmbedModel", () => {
     expect(insertQuery?.params).toContain("tenant-1");
     expect(insertQuery?.params).toContain(768);
 
-    const createTableQuery = queries.find((q) => q.sql.includes("CREATE TABLE IF NOT EXISTS"));
+    const createTableQuery = queries.find((q) =>
+      q.sql.includes("CREATE TABLE IF NOT EXISTS"),
+    );
     expect(createTableQuery?.sql).toContain(result.tableName);
     expect(createTableQuery?.sql).toContain("vector(768)");
     const bare = result.tableName.replace(/^"memory"\."|"$/g, "");
@@ -153,7 +164,9 @@ describe("activateEmbedModel", () => {
       'FOREIGN KEY (chunk_id) REFERENCES "memory"."chunk" (id) ON DELETE CASCADE',
     );
 
-    const tenantIndexQuery = queries.find((q) => q.sql.includes("_tenant_chunk_idx"));
+    const tenantIndexQuery = queries.find((q) =>
+      q.sql.includes("_tenant_chunk_idx"),
+    );
     expect(tenantIndexQuery?.sql).toBe(
       `CREATE INDEX IF NOT EXISTS ${bare}_tenant_chunk_idx ON ${result.tableName} (tenant_id, chunk_id)`,
     );
@@ -167,7 +180,9 @@ describe("activateEmbedModel", () => {
     await activateEmbedModel(client, "tenant-1", baseConfig, fixtureFetch(768));
     await activateEmbedModel(client, "tenant-1", baseConfig, fixtureFetch(768));
 
-    const tenantIndexQueries = queries.filter((q) => q.sql.includes("_tenant_chunk_idx"));
+    const tenantIndexQueries = queries.filter((q) =>
+      q.sql.includes("_tenant_chunk_idx"),
+    );
     expect(tenantIndexQueries).toHaveLength(2);
   });
 
@@ -191,13 +206,25 @@ describe("activateEmbedModel", () => {
 
   it("is idempotent — calling twice with identical config computes the same table name (T5)", async () => {
     const { client, queries } = createMockClient();
-    const first = await activateEmbedModel(client, "tenant-1", baseConfig, fixtureFetch(768));
-    const second = await activateEmbedModel(client, "tenant-1", baseConfig, fixtureFetch(768));
+    const first = await activateEmbedModel(
+      client,
+      "tenant-1",
+      baseConfig,
+      fixtureFetch(768),
+    );
+    const second = await activateEmbedModel(
+      client,
+      "tenant-1",
+      baseConfig,
+      fixtureFetch(768),
+    );
 
     expect(first.tableName).toBe(second.tableName);
     expect(first.modelKey).toBe(second.modelKey);
 
-    const createTableQueries = queries.filter((q) => q.sql.includes("CREATE TABLE IF NOT EXISTS"));
+    const createTableQueries = queries.filter((q) =>
+      q.sql.includes("CREATE TABLE IF NOT EXISTS"),
+    );
     expect(createTableQueries).toHaveLength(2);
     expect(createTableQueries[0]?.sql).toBe(createTableQueries[1]?.sql);
   });
@@ -205,7 +232,12 @@ describe("activateEmbedModel", () => {
   it("creates a halfvec expression hnsw index past the vector cap, matching the query expression", async () => {
     const dims = 3072;
     const { client, queries } = createMockClient();
-    const result = await activateEmbedModel(client, "tenant-1", baseConfig, fixtureFetch(dims));
+    const result = await activateEmbedModel(
+      client,
+      "tenant-1",
+      baseConfig,
+      fixtureFetch(dims),
+    );
 
     expect(result.dims).toBe(dims);
     const indexQuery = queries.find((q) => q.sql.includes("USING hnsw"));
@@ -269,7 +301,9 @@ describe("resolveActiveEmbedTable", () => {
     const modelKey = computeModelKey(baseConfig.baseUrl, baseConfig.modelId);
     const client: EmbedRegistrySqlClient = {
       query: () =>
-        Promise.resolve([{ model_key: modelKey, model_id: baseConfig.modelId, dims: 768 }]),
+        Promise.resolve([
+          { model_key: modelKey, model_id: baseConfig.modelId, dims: 768 },
+        ]),
     };
     const result = await resolveActiveEmbedTable(client, "tenant-1");
     expect(result).toEqual({
@@ -293,15 +327,22 @@ describe("ensureEmbedModel", () => {
     expect(insertQuery?.sql).not.toContain("'active'");
 
     // No UPDATE ... SET status='active' issued by ensure.
-    expect(
-      queries.some((q) => q.sql.includes("SET status = 'active'")),
-    ).toBe(false);
+    expect(queries.some((q) => q.sql.includes("SET status = 'active'"))).toBe(
+      false,
+    );
   });
 
   it("still creates the per-model table + indexes (table usable on replay)", async () => {
     const { client, queries } = createMockClient();
-    const result = await ensureEmbedModel(client, "tenant-1", baseConfig, fixtureFetch(768));
-    const createTableQuery = queries.find((q) => q.sql.includes("CREATE TABLE IF NOT EXISTS"));
+    const result = await ensureEmbedModel(
+      client,
+      "tenant-1",
+      baseConfig,
+      fixtureFetch(768),
+    );
+    const createTableQuery = queries.find((q) =>
+      q.sql.includes("CREATE TABLE IF NOT EXISTS"),
+    );
     expect(createTableQuery?.sql).toContain(result.tableName);
     expect(queries.some((q) => q.sql.includes("USING hnsw"))).toBe(true);
   });
@@ -326,10 +367,14 @@ describe("activateEmbedModel (split)", () => {
     await activateEmbedModel(client, "tenant-1", baseConfig, fixtureFetch(768));
     // activate always issues the exclusive active UPDATE after ensure work
     expect(
-      queries.slice(ensureQueries).some((q) => q.sql.includes("SET status = 'active'")),
+      queries
+        .slice(ensureQueries)
+        .some((q) => q.sql.includes("SET status = 'active'")),
     ).toBe(true);
     expect(
-      queries.slice(ensureQueries).some((q) => q.sql.includes("SET status = 'ready'")),
+      queries
+        .slice(ensureQueries)
+        .some((q) => q.sql.includes("SET status = 'ready'")),
     ).toBe(true);
   });
 });
@@ -361,8 +406,12 @@ describe("activateEmbedModelByKey", () => {
     expect(result.modelKey).toBe(modelKey);
     expect(result.dims).toBe(768);
     expect(queries[0]?.sql).toContain("SELECT model_key");
-    expect(queries.some((q) => q.sql.includes("SET status = 'ready'"))).toBe(true);
-    expect(queries.some((q) => q.sql.includes("SET status = 'active'"))).toBe(true);
+    expect(queries.some((q) => q.sql.includes("SET status = 'ready'"))).toBe(
+      true,
+    );
+    expect(queries.some((q) => q.sql.includes("SET status = 'active'"))).toBe(
+      true,
+    );
   });
 
   it("throws when the registry row is missing", async () => {
@@ -385,7 +434,9 @@ describe("activateEmbedModelByKey", () => {
 describe("resolveEmbedTableByModelKey", () => {
   it("returns null when no row for this model_key", async () => {
     const client: EmbedRegistrySqlClient = { query: () => Promise.resolve([]) };
-    expect(await resolveEmbedTableByModelKey(client, "tenant-1", "abcdef0123456789")).toBeNull();
+    expect(
+      await resolveEmbedTableByModelKey(client, "tenant-1", "abcdef0123456789"),
+    ).toBeNull();
   });
 
   it("returns the table info regardless of status (ready or active)", async () => {
@@ -394,13 +445,19 @@ describe("resolveEmbedTableByModelKey", () => {
       query: () =>
         Promise.resolve([{ model_key: modelKey, model_id: "m", dims: 512 }]),
     };
-    const result = await resolveEmbedTableByModelKey(client, "tenant-1", modelKey);
+    const result = await resolveEmbedTableByModelKey(
+      client,
+      "tenant-1",
+      modelKey,
+    );
     expect(result?.dims).toBe(512);
     expect(result?.tableName).toBe(`"memory"."embedding_${modelKey}"`);
   });
 
   it("rejects an invalid model_key format", async () => {
     const client: EmbedRegistrySqlClient = { query: () => Promise.resolve([]) };
-    expect(() => resolveEmbedTableByModelKey(client, "tenant-1", "not-a-key")).toThrow();
+    expect(() =>
+      resolveEmbedTableByModelKey(client, "tenant-1", "not-a-key"),
+    ).toThrow();
   });
 });

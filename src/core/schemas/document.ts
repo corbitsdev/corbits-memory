@@ -26,14 +26,14 @@ export const ProvenanceModeSchema = type(
 export type ProvenanceMode = typeof ProvenanceModeSchema.infer;
 
 export const TemporalClassSchema = type(
-  arktypeStringUnion(TEMPORAL_CLASSES) as
-    "'event'|'deadline'|'state'|'lesson'",
+  arktypeStringUnion(TEMPORAL_CLASSES) as "'event'|'deadline'|'state'|'lesson'",
 );
 export type TemporalClass = typeof TemporalClassSchema.infer;
 
 export const RetentionClassSchema = type(
-  arktypeStringUnion(RETENTION_CLASSES) as
-    "'durable'|'standard'|'ephemeral'|'source_only'",
+  arktypeStringUnion(
+    RETENTION_CLASSES,
+  ) as "'durable'|'standard'|'ephemeral'|'source_only'",
 );
 export type RetentionClass = typeof RetentionClassSchema.infer;
 

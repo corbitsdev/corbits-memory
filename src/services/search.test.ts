@@ -39,20 +39,27 @@ function candidate(overrides: Partial<CandidateRow> = {}): CandidateRow {
 
 describe("authorityWeightedScore", () => {
   it("scales relevance linearly, from unchanged at 0 to +50% at 1", () => {
-    const cases: Array<[relevance: number, authority: number, expected: number]> = [
+    const cases: Array<
+      [relevance: number, authority: number, expected: number]
+    > = [
       [1, 1, 1.5],
       [0.4, 0, 0.4],
       [1, 0.5, 1.25],
     ];
     for (const [relevance, authority, expected] of cases) {
-      expect(authorityWeightedScore(relevance, authority)).toBeCloseTo(expected, 10);
+      expect(authorityWeightedScore(relevance, authority)).toBeCloseTo(
+        expected,
+        10,
+      );
     }
   });
 });
 
 describe("snippet", () => {
   it("trims, truncates with an ellipsis, and honors maxLen", () => {
-    const cases: Array<[input: string, maxLen: number | undefined, expected: string]> = [
+    const cases: Array<
+      [input: string, maxLen: number | undefined, expected: string]
+    > = [
       ["hello world", undefined, "hello world"],
       ["  hello world  ", undefined, "hello world"],
       ["a".repeat(300), undefined, `${"a".repeat(240)}…`],
@@ -67,9 +74,24 @@ describe("snippet", () => {
 describe("dedupeCandidatesPerDocument", () => {
   it("keeps only the highest authority-weighted-scoring chunk per document", () => {
     const rows = [
-      candidate({ chunkId: "c1", documentId: "doc_a", rank: 0.5, authority: 0.2 }),
-      candidate({ chunkId: "c2", documentId: "doc_a", rank: 0.9, authority: 0.1 }),
-      candidate({ chunkId: "c3", documentId: "doc_b", rank: 0.3, authority: 0.9 }),
+      candidate({
+        chunkId: "c1",
+        documentId: "doc_a",
+        rank: 0.5,
+        authority: 0.2,
+      }),
+      candidate({
+        chunkId: "c2",
+        documentId: "doc_a",
+        rank: 0.9,
+        authority: 0.1,
+      }),
+      candidate({
+        chunkId: "c3",
+        documentId: "doc_b",
+        rank: 0.3,
+        authority: 0.9,
+      }),
     ];
     const deduped = dedupeCandidatesPerDocument(rows);
     expect(deduped.map((r) => r.chunkId).sort()).toEqual(["c2", "c3"]);
@@ -77,8 +99,18 @@ describe("dedupeCandidatesPerDocument", () => {
 
   it("sorts the deduped result by authority-weighted score descending", () => {
     const rows = [
-      candidate({ chunkId: "low", documentId: "doc_low", rank: 0.1, authority: 0 }),
-      candidate({ chunkId: "high", documentId: "doc_high", rank: 0.8, authority: 1 }),
+      candidate({
+        chunkId: "low",
+        documentId: "doc_low",
+        rank: 0.1,
+        authority: 0,
+      }),
+      candidate({
+        chunkId: "high",
+        documentId: "doc_high",
+        rank: 0.8,
+        authority: 1,
+      }),
     ];
     const deduped = dedupeCandidatesPerDocument(rows);
     expect(deduped[0]?.chunkId).toBe("high");
@@ -109,8 +141,18 @@ describe("dedupeCandidatesPerDocument", () => {
 
   it("ranks by raw fused score alone when applyAuthorityPrior is false, never double-applying authority", () => {
     const rows = [
-      candidate({ chunkId: "low-rank-high-authority", documentId: "doc_a", rank: 0.4, authority: 1 }),
-      candidate({ chunkId: "high-rank-low-authority", documentId: "doc_b", rank: 0.6, authority: 0 }),
+      candidate({
+        chunkId: "low-rank-high-authority",
+        documentId: "doc_a",
+        rank: 0.4,
+        authority: 1,
+      }),
+      candidate({
+        chunkId: "high-rank-low-authority",
+        documentId: "doc_b",
+        rank: 0.6,
+        authority: 0,
+      }),
     ];
     const deduped = dedupeCandidatesPerDocument(rows, false);
     expect(deduped[0]?.chunkId).toBe("high-rank-low-authority");
@@ -128,7 +170,12 @@ describe("deriveHybridEvidence", () => {
       top?: Top;
       expected: "strong" | "weak" | "none";
     }> = [
-      { rows: [], count: 0, top: { rerankScore: 0.9, authority: 0.9 }, expected: "none" },
+      {
+        rows: [],
+        count: 0,
+        top: { rerankScore: 0.9, authority: 0.9 },
+        expected: "none",
+      },
       {
         rows: [candidate({ rank: 0.01, authority: 0.9 })],
         count: 1,
@@ -250,15 +297,15 @@ describe("fetchDenseCandidates hnsw tuning", () => {
       unsafe: (sqlText: string) => {
         statements.push(sqlText);
         return Promise.resolve(
-          sqlText.includes('FROM "memory"."embed_model"')
-            ? [MODEL_ROW]
-            : [],
+          sqlText.includes('FROM "memory"."embed_model"') ? [MODEL_ROW] : [],
         );
       },
       begin: (cb: (t: FakeTx) => Promise<unknown>) => cb(tx),
     };
     return {
-      rawSql: rawSql as unknown as Parameters<typeof fetchDenseCandidates>[0]["sql"],
+      rawSql: rawSql as unknown as Parameters<
+        typeof fetchDenseCandidates
+      >[0]["sql"],
       statements,
       savepointAttempts: () => savepointAttempts,
     };
@@ -267,7 +314,11 @@ describe("fetchDenseCandidates hnsw tuning", () => {
   function args(sql: Parameters<typeof fetchDenseCandidates>[0]["sql"]) {
     return {
       sql,
-      embedClientConfig: { baseUrl: "https://embed.example.com", modelId: "m", apiStyle: "openai" as const },
+      embedClientConfig: {
+        baseUrl: "https://embed.example.com",
+        modelId: "m",
+        apiStyle: "openai" as const,
+      },
       fetchImpl: openaiEmbedFetch(),
       tenantId: "tenant-1",
       principalId: null,
@@ -280,7 +331,9 @@ describe("fetchDenseCandidates hnsw tuning", () => {
     const fake = fakeRawSql();
     await fetchDenseCandidates(args(fake.rawSql));
     expect(fake.statements).toContain("SET LOCAL hnsw.ef_search = 250");
-    expect(fake.statements).toContain("SET LOCAL hnsw.iterative_scan = 'relaxed_order'");
+    expect(fake.statements).toContain(
+      "SET LOCAL hnsw.iterative_scan = 'relaxed_order'",
+    );
     expect(fake.savepointAttempts()).toBe(1);
 
     // Support is cached per pool: the second call sets the GUC directly
@@ -293,23 +346,32 @@ describe("fetchDenseCandidates hnsw tuning", () => {
   });
 
   it("degrades to ef_search alone on pgvector < 0.8 and stops probing", async () => {
-    const unknownGuc = Object.assign(new Error("unrecognized configuration parameter"), {
-      code: "42704",
-    });
+    const unknownGuc = Object.assign(
+      new Error("unrecognized configuration parameter"),
+      {
+        code: "42704",
+      },
+    );
     const fake = fakeRawSql(unknownGuc);
 
     const rows = await fetchDenseCandidates(args(fake.rawSql));
     expect(rows).toEqual([]);
     expect(fake.statements).toContain("SET LOCAL hnsw.ef_search = 250");
-    expect(fake.statements.filter((s) => s.includes("iterative_scan"))).toHaveLength(0);
+    expect(
+      fake.statements.filter((s) => s.includes("iterative_scan")),
+    ).toHaveLength(0);
 
     await fetchDenseCandidates(args(fake.rawSql));
     expect(fake.savepointAttempts()).toBe(1);
   });
 
   it("rethrows a non-42704 savepoint failure", async () => {
-    const fake = fakeRawSql(Object.assign(new Error("connection reset"), { code: "08006" }));
-    await expect(fetchDenseCandidates(args(fake.rawSql))).rejects.toThrow("connection reset");
+    const fake = fakeRawSql(
+      Object.assign(new Error("connection reset"), { code: "08006" }),
+    );
+    await expect(fetchDenseCandidates(args(fake.rawSql))).rejects.toThrow(
+      "connection reset",
+    );
   });
 });
 
@@ -426,15 +488,15 @@ describe("fetchDenseCandidates kind/entity filtering", () => {
         statements.push(sqlText);
         return Promise.resolve(
           // CL-5233 qualified the table — only the fully-qualified form matches.
-          sqlText.includes('FROM "memory"."embed_model"')
-            ? [MODEL_ROW]
-            : [],
+          sqlText.includes('FROM "memory"."embed_model"') ? [MODEL_ROW] : [],
         );
       },
       begin: (cb: (t: FakeTx) => Promise<unknown>) => cb(tx),
     };
     return {
-      rawSql: rawSql as unknown as Parameters<typeof fetchDenseCandidates>[0]["sql"],
+      rawSql: rawSql as unknown as Parameters<
+        typeof fetchDenseCandidates
+      >[0]["sql"],
       statements,
     };
   }
@@ -610,9 +672,12 @@ describe("hybridSearch — embed unconfigured (CL-6287)", () => {
         orderBy: () => builder,
         limit: () => builder,
         // oxlint-disable-next-line unicorn/no-thenable -- fakes drizzle's thenable query builder
-        then: (onFulfilled: (v: unknown[]) => unknown, onRejected?: (e: unknown) => unknown) =>
-          rows().then(onFulfilled, onRejected),
-        catch: (onRejected: (e: unknown) => unknown) => rows().catch(onRejected),
+        then: (
+          onFulfilled: (v: unknown[]) => unknown,
+          onRejected?: (e: unknown) => unknown,
+        ) => rows().then(onFulfilled, onRejected),
+        catch: (onRejected: (e: unknown) => unknown) =>
+          rows().catch(onRejected),
       };
       return builder;
     }
@@ -626,10 +691,14 @@ describe("hybridSearch — embed unconfigured (CL-6287)", () => {
   function untouchableRawSql(): RawSql {
     return {
       unsafe: () => {
-        throw new Error("rawSql.unsafe must not be called when embed is unconfigured");
+        throw new Error(
+          "rawSql.unsafe must not be called when embed is unconfigured",
+        );
       },
       begin: () => {
-        throw new Error("rawSql.begin must not be called when embed is unconfigured");
+        throw new Error(
+          "rawSql.begin must not be called when embed is unconfigured",
+        );
       },
     } as unknown as RawSql;
   }
@@ -658,7 +727,9 @@ describe("hybridSearch — embed unconfigured (CL-6287)", () => {
         db: fakeDb([candidate()]),
         sql: untouchableRawSql(),
         config: unconfiguredEmbedConfig(),
-        fetchImpl: mock(() => Promise.reject(new Error("unreachable"))) as unknown as typeof fetch,
+        fetchImpl: mock(() =>
+          Promise.reject(new Error("unreachable")),
+        ) as unknown as typeof fetch,
       },
       { query: "hello", tenantId: "tenant-1", principalId: null },
     );
@@ -676,7 +747,9 @@ describe("hybridSearch — embed unconfigured (CL-6287)", () => {
       rank: 0.8,
     });
     const fetchImpl = mock(() =>
-      Promise.reject(new Error("fetch must not be called when embed is unconfigured")),
+      Promise.reject(
+        new Error("fetch must not be called when embed is unconfigured"),
+      ),
     );
 
     const result = await hybridSearch(

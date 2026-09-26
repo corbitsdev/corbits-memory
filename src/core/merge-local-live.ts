@@ -14,9 +14,7 @@ import type { SearchHitCitation } from "./schemas/search.js";
 
 export const LIVE_TIMEOUT_MS = 800;
 
-export type MergeDegradeFlag =
-  | "live_timeout"
-  | "live_error";
+export type MergeDegradeFlag = "live_timeout" | "live_error";
 
 export type MergeChannelItem = {
   channel: "local" | "live";
@@ -185,9 +183,11 @@ export function withTimeout<T>(
 ): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => {
-      reject(Object.assign(new Error(`${label} timed out after ${ms}ms`), {
-        code: "live_timeout" as const,
-      }));
+      reject(
+        Object.assign(new Error(`${label} timed out after ${ms}ms`), {
+          code: "live_timeout" as const,
+        }),
+      );
     }, ms);
     promise.then(
       (v) => {

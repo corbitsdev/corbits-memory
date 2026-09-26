@@ -92,7 +92,10 @@ function rebuildColumnRecipe(language: string): string {
 }
 
 export interface FtsVerifySqlClient {
-  query: (sql: string, params: readonly unknown[]) => Promise<Array<Record<string, unknown>>>;
+  query: (
+    sql: string,
+    params: readonly unknown[],
+  ) => Promise<Array<Record<string, unknown>>>;
 }
 
 /**
@@ -127,7 +130,7 @@ export async function verifyFtsLanguage(
   const expr = rows[0]?.["expr"];
   if (typeof expr !== "string") {
     throw new Error(
-      'memory.chunk.text_fts has no generation expression — schema not migrated?',
+      "memory.chunk.text_fts has no generation expression — schema not migrated?",
     );
   }
   // Only unqualified `pg_catalog` configs are supported: FTS_LANGUAGE_PATTERN

@@ -4,11 +4,7 @@ import type { Db, RawSql } from "../db/client.js";
 import type { EngineConfig } from "../config.js";
 import { newId } from "../core/id.js";
 import { formatCaughtError, log } from "../log.js";
-import {
-  rawCapture,
-  transformConfig,
-  transformRun,
-} from "../db/schema.js";
+import { rawCapture, transformConfig, transformRun } from "../db/schema.js";
 import {
   TransformConfigParamsSchema,
   type TransformConfigParams,
@@ -18,11 +14,19 @@ import {
 import { AdaptedDocumentSchema } from "../core/schemas/adapted-document.js";
 import { chunkTokenRecursive } from "../core/chunk/token-recursive.js";
 import type { Chunker } from "../core/chunk/types.js";
-import { EmbedClientConfigSchema, type EmbedClientConfig } from "../core/embed-client.js";
+import {
+  EmbedClientConfigSchema,
+  type EmbedClientConfig,
+} from "../core/embed-client.js";
 import type { RerankClientConfig } from "../core/rerank-client.js";
 import { deriveFromRawCapture, type CaptureInput } from "./capture.js";
 import { LIVE_GENERATION } from "../core/generation.js";
-import { activateEmbedModel, activateEmbedModelByKey, clearActiveEmbedModels, resolveActiveEmbedTable } from "../core/embed-model-registry.js";
+import {
+  activateEmbedModel,
+  activateEmbedModelByKey,
+  clearActiveEmbedModels,
+  resolveActiveEmbedTable,
+} from "../core/embed-model-registry.js";
 import { createRawSqlClient } from "../core/embed-sql.js";
 
 export class TransformConfigNotFoundError extends Error {
@@ -185,8 +189,12 @@ async function loadTransformRun(
 function buildChunker(params: TransformConfigParams["chunk"]): Chunker {
   return (text) =>
     chunkTokenRecursive(text, {
-      ...(params.maxTokens !== undefined ? { maxTokens: params.maxTokens } : {}),
-      ...(params.minTokens !== undefined ? { minTokens: params.minTokens } : {}),
+      ...(params.maxTokens !== undefined
+        ? { maxTokens: params.maxTokens }
+        : {}),
+      ...(params.minTokens !== undefined
+        ? { minTokens: params.minTokens }
+        : {}),
       ...(params.overlapTokens !== undefined
         ? { overlapTokens: params.overlapTokens }
         : {}),
@@ -418,7 +426,11 @@ export async function runTransform(
   let totalRows = 0;
 
   try {
-    const rawRows = await selectRawCaptureRows(deps.db, configRow.tenantId, scope);
+    const rawRows = await selectRawCaptureRows(
+      deps.db,
+      configRow.tenantId,
+      scope,
+    );
     totalRows = rawRows.length;
     const chunker = buildChunker(configRow.params.chunk);
     // A replay re-derives (and re-embeds) a corpus; it makes no sense
@@ -429,7 +441,10 @@ export async function runTransform(
         "transform run requires an embed endpoint (EMBED_BASE_URL/EMBED_MODEL) — none is configured on this engine",
       );
     }
-    const embed = buildEmbedClientConfig(configRow.params.embed, deps.config.embed);
+    const embed = buildEmbedClientConfig(
+      configRow.params.embed,
+      deps.config.embed,
+    );
 
     for (const row of rawRows) {
       try {
@@ -523,7 +538,9 @@ export async function promoteGeneration(
   input: { tenantId: string; generation: string },
 ): Promise<TransformRunRow> {
   if (input.generation === LIVE_GENERATION) {
-    throw new TransformPromoteError("cannot promote the live generation onto itself");
+    throw new TransformPromoteError(
+      "cannot promote the live generation onto itself",
+    );
   }
 
   const runRows = await deps.db
@@ -566,7 +583,10 @@ export async function promoteGeneration(
       "cannot promote generation: no embed endpoint is configured on this engine",
     );
   }
-  const embed = buildEmbedClientConfig(configRow.params.embed, deps.config.embed);
+  const embed = buildEmbedClientConfig(
+    configRow.params.embed,
+    deps.config.embed,
+  );
   const archiveGen = `archive_${run.id}_${Date.now()}`;
   const readClient = createRawSqlClient(deps.sql);
 

@@ -4,7 +4,6 @@ A library, not a service. `src/` is the whole product: a memory **add / search /
 list** SDK that **mounts onto a host Interchange app**. There is no server,
 port, or process entrypoint here, and there never should be.
 
-
 ## Commands
 
 ```bash
@@ -61,6 +60,7 @@ CI runs `typecheck` + `test` — both must pass before any push.
    the host's own grant store / `callerResolver` closure, resolved down to
    `{ tenantId, principalId }` before it ever reaches this package — not in a
    wider `ResolvedCaller`.
+
 2. **One Postgres**: `DATABASE_URL`, the engine's own vector plane, under the
    `memory` schema — never the host's control-plane DB. No foreign keys into
    control-plane tables; cross-refs (`tenant_id`, `principal_id`) are plain

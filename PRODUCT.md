@@ -15,11 +15,11 @@ package: they carry `@corbits/memory/sidecar-bundle` and hit the parallel
 add  →  ingest elements  →  process (optional)
 ```
 
-| Stage | Meaning | Where |
-| --- | --- | --- |
-| **add** | Something arrives (agent tool, host job, webhook body) | Caller → `memory.add` / `POST …/memory/add` |
-| **ingest elements** | Normalize → raw capture → chunks / edges → embed → search-ready | Default `DocumentStore` capture path (sync on `add`) |
-| **process** | Optional brain work: classify, claims, links, forget | Host workflow / injected inference — same run as ingest when possible |
+| Stage               | Meaning                                                         | Where                                                                 |
+| ------------------- | --------------------------------------------------------------- | --------------------------------------------------------------------- |
+| **add**             | Something arrives (agent tool, host job, webhook body)          | Caller → `memory.add` / `POST …/memory/add`                           |
+| **ingest elements** | Normalize → raw capture → chunks / edges → embed → search-ready | Default `DocumentStore` capture path (sync on `add`)                  |
+| **process**         | Optional brain work: classify, claims, links, forget            | Host workflow / injected inference — same run as ingest when possible |
 
 Preferred host shape: **one ingest workflow** receives the event, calls `add`
 (ingest elements), then runs process steps in the same body (or a child step).
@@ -34,24 +34,24 @@ or polish when other code also `add`s outside the ingest workflow. See
 **`src/` is the `@corbits/memory` SDK.** Interchange is the hub — the SDK
 never creates one; it mounts onto yours.
 
-| Surface | Role |
-| --- | --- |
-| `createMemory({ … })` | Build the plane |
-| `createMemoryRoutes({ memory, requireGrant })` | Hono sub-app the host mounts at `/api/tenants/:tenantId/memory` |
-| `mountWorkflowMemory(app, { memory, agentToken })` | Parallel run-scoped `/api/workflow-memory/*` for deployed agents |
-| `loadMemoryConfig()` | Config from env |
-| `runMemoryMigrations(dbConfig, { schema, ftsLanguage })` | Apply pgvector schema |
-| `@corbits/memory/sidecar-bundle` | Deployed-agent factory — no client code, no base URL, no token |
-| `@corbits/memory/distiller` | Optional process helpers: `runDistillTick`, `createResidentDistiller` |
+| Surface                                                  | Role                                                                  |
+| -------------------------------------------------------- | --------------------------------------------------------------------- |
+| `createMemory({ … })`                                    | Build the plane                                                       |
+| `createMemoryRoutes({ memory, requireGrant })`           | Hono sub-app the host mounts at `/api/tenants/:tenantId/memory`       |
+| `mountWorkflowMemory(app, { memory, agentToken })`       | Parallel run-scoped `/api/workflow-memory/*` for deployed agents      |
+| `loadMemoryConfig()`                                     | Config from env                                                       |
+| `runMemoryMigrations(dbConfig, { schema, ftsLanguage })` | Apply pgvector schema                                                 |
+| `@corbits/memory/sidecar-bundle`                         | Deployed-agent factory — no client code, no base URL, no token        |
+| `@corbits/memory/distiller`                              | Optional process helpers: `runDistillTick`, `createResidentDistiller` |
 
 ### Verbs
 
-| Method | HTTP | Grant | Meaning |
-| --- | --- | --- | --- |
-| `add` | `POST /api/tenants/:tenantId/memory/add` | `memory:add` | Ingest: capture + derive (chunk/embed on default store) |
+| Method   | HTTP                                        | Grant           | Meaning                                                                             |
+| -------- | ------------------------------------------- | --------------- | ----------------------------------------------------------------------------------- |
+| `add`    | `POST /api/tenants/:tenantId/memory/add`    | `memory:add`    | Ingest: capture + derive (chunk/embed on default store)                             |
 | `search` | `POST /api/tenants/:tenantId/memory/search` | `memory:search` | Hybrid retrieval (+ optional live sources); hits may include additive `attribution` |
-| `list` | `GET /api/tenants/:tenantId/memory/list` | `memory:search` | Recent documents for the principal |
-| `feed` | `GET /api/tenants/:tenantId/memory/feed` | `memory:search` | Cursor pull of new live versions (optional multi-writer / backfill) |
+| `list`   | `GET /api/tenants/:tenantId/memory/list`    | `memory:search` | Recent documents for the principal                                                  |
+| `feed`   | `GET /api/tenants/:tenantId/memory/feed`    | `memory:search` | Cursor pull of new live versions (optional multi-writer / backfill)                 |
 
 Engine-only plane helpers (no HTTP yet): transform/replay, retention
 (`deprecateVersion` / `tombstoneDocument` / … — see `docs/RETENTION.md`),
@@ -107,10 +107,10 @@ Deployed agent (sidecar-bundle)
 
 ### Ports
 
-| Port | Purpose |
-| --- | --- |
-| `DocumentStore` | Sole durable backend for add/search/list (default: pgvector). Inject fakes or a host/adapter store to skip Postgres. |
-| `SourceProvider` | Optional live search merge (fail-soft). Not a store replacement. |
+| Port             | Purpose                                                                                                              |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `DocumentStore`  | Sole durable backend for add/search/list (default: pgvector). Inject fakes or a host/adapter store to skip Postgres. |
+| `SourceProvider` | Optional live search merge (fail-soft). Not a store replacement.                                                     |
 
 Optional sibling packages (not in this tree): Mem0 / Supermemory document
 stores, Linear tools. Core never imports vendor SDKs.

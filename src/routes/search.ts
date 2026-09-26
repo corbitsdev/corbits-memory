@@ -7,12 +7,7 @@ import { formatCaughtError, log } from "../log.js";
 import { SearchRequest } from "../http-bodies.js";
 import { MemoryError } from "../memory.js";
 import type { RouteDeps } from "./deps.js";
-import {
-  caller,
-  grantGuard,
-  requirePrincipal,
-  resolveCaller,
-} from "./deps.js";
+import { caller, grantGuard, requirePrincipal, resolveCaller } from "./deps.js";
 
 // `kinds`/`entity_ids` scope every retrieval channel — see the
 // `kinds`/`entityIds` doc comments on MemorySearchParams (memory.ts)
@@ -89,9 +84,7 @@ export function mountSearchRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
           ...(kinds !== undefined ? { kinds } : {}),
           ...(entity_ids !== undefined ? { entityIds: entity_ids } : {}),
           ...(sources !== undefined ? { sources } : {}),
-          ...(includeDeprecated !== undefined
-            ? { includeDeprecated }
-            : {}),
+          ...(includeDeprecated !== undefined ? { includeDeprecated } : {}),
         });
         return c.json(result);
       } catch (err) {

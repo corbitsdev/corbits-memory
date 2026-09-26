@@ -48,7 +48,9 @@ function fakeMemory(seen: Record<string, unknown>[]): Memory {
   } as unknown as Memory;
 }
 
-function agentTokenAuth(overrides: Partial<AgentTokenAuth> = {}): AgentTokenAuth {
+function agentTokenAuth(
+  overrides: Partial<AgentTokenAuth> = {},
+): AgentTokenAuth {
   return {
     verify: (ctx) => {
       const c = ctx as { req: { header(name: string): string | undefined } };
@@ -61,7 +63,10 @@ function agentTokenAuth(overrides: Partial<AgentTokenAuth> = {}): AgentTokenAuth
   };
 }
 
-function host(seen: Record<string, unknown>[], agentToken: AgentTokenAuth = agentTokenAuth()) {
+function host(
+  seen: Record<string, unknown>[],
+  agentToken: AgentTokenAuth = agentTokenAuth(),
+) {
   return mountWorkflowMemory(new Hono<WorkflowMemoryEnv>(), {
     memory: fakeMemory(seen),
     agentToken,
@@ -73,7 +78,11 @@ describe("agent-token authentication", () => {
     const seen: Record<string, unknown>[] = [];
     const res = await host(seen).request("/list", { headers: agentHeaders });
     expect(res.status).toBe(200);
-    expect(seen[0]).toMatchObject({ verb: "list", tenantId: "acme", principalId: "agent-1" });
+    expect(seen[0]).toMatchObject({
+      verb: "list",
+      tenantId: "acme",
+      principalId: "agent-1",
+    });
   });
 
   test("no bearer at all is refused", async () => {
@@ -89,7 +98,9 @@ describe("agent-token authentication", () => {
     const seen: Record<string, unknown>[] = [];
     const app = host(
       seen,
-      agentTokenAuth({ verify: () => ({ tenantId: "other", definitionId: "def-1" }) }),
+      agentTokenAuth({
+        verify: () => ({ tenantId: "other", definitionId: "def-1" }),
+      }),
     );
     const res = await app.request("/list", { headers: agentHeaders });
     expect(res.status).toBe(401);
@@ -99,7 +110,10 @@ describe("agent-token authentication", () => {
   test("an address that names no run is refused", async () => {
     const seen: Record<string, unknown>[] = [];
     const res = await host(seen).request("/list", {
-      headers: { ...agentHeaders, "x-workflow-run-address": "run-9@acme.example.com" },
+      headers: {
+        ...agentHeaders,
+        "x-workflow-run-address": "run-9@acme.example.com",
+      },
     });
     expect(res.status).toBe(401);
     expect(seen).toHaveLength(0);
@@ -131,7 +145,12 @@ describe("the routes the memory tools call", () => {
       body: JSON.stringify({ query: "q", limit: 3, entity_ids: ["e1"] }),
     });
     expect(res.status).toBe(200);
-    expect(seen[0]).toMatchObject({ verb: "search", query: "q", limit: 3, entityIds: ["e1"] });
+    expect(seen[0]).toMatchObject({
+      verb: "search",
+      query: "q",
+      limit: 3,
+      entityIds: ["e1"],
+    });
   });
 
   test("feed forwards the cursor and generator exclusion", async () => {

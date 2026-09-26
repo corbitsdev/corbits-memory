@@ -36,7 +36,9 @@ const docs = [
 ];
 
 function teiTexts(): string[] {
-  return stub.requests.map((r) => (r.body as { texts: string[] }).texts[0] ?? "");
+  return stub.requests.map(
+    (r) => (r.body as { texts: string[] }).texts[0] ?? "",
+  );
 }
 
 describe("rerankDocuments", () => {
@@ -54,7 +56,9 @@ describe("rerankDocuments", () => {
         ]);
       }
       if (req.path === "/v2/rerank") {
-        return Response.json({ results: [{ index: 0, relevance_score: 0.75 }] });
+        return Response.json({
+          results: [{ index: 0, relevance_score: 0.75 }],
+        });
       }
       return Response.json({
         data: [
@@ -76,27 +80,38 @@ describe("rerankDocuments", () => {
       }),
     ).toEqual([{ id: "chunk-a", score: 0.75 }]);
     expect(
-      await rerankDocuments("my query", docs, { baseUrl: stub.url, apiStyle: "voyage" }),
+      await rerankDocuments("my query", docs, {
+        baseUrl: stub.url,
+        apiStyle: "voyage",
+      }),
     ).toEqual([
       { id: "chunk-b", score: 0.6 },
       { id: "chunk-a", score: 0.4 },
     ]);
 
     const texts = ["alpha content", "beta content"];
-    expect(stub.requests.map((r) => [r.path, r.authorization, r.body])).toEqual([
-      ["/rerank", null, { query: "my query", texts }],
+    expect(stub.requests.map((r) => [r.path, r.authorization, r.body])).toEqual(
       [
-        "/v2/rerank",
-        "Bearer secret-key",
-        { model: DEFAULT_RERANK_MODEL, query: "my query", documents: texts },
+        ["/rerank", null, { query: "my query", texts }],
+        [
+          "/v2/rerank",
+          "Bearer secret-key",
+          { model: DEFAULT_RERANK_MODEL, query: "my query", documents: texts },
+        ],
+        [
+          "/v1/rerank",
+          null,
+          { model: DEFAULT_RERANK_MODEL, query: "my query", documents: texts },
+        ],
       ],
-      ["/v1/rerank", null, { model: DEFAULT_RERANK_MODEL, query: "my query", documents: texts }],
-    ]);
+    );
   });
 
   test("rejects a non-2xx reply with RerankHttpError", async () => {
     stub.reply = () => Response.json({ error: "boom" }, { status: 500 });
-    await expect(rerankDocuments("q", docs, tei)).rejects.toBeInstanceOf(RerankHttpError);
+    await expect(rerankDocuments("q", docs, tei)).rejects.toBeInstanceOf(
+      RerankHttpError,
+    );
   });
 
   test("rejects a reply slower than timeoutMs with RerankTimeoutError", async () => {
@@ -105,23 +120,70 @@ describe("rerankDocuments", () => {
       return Response.json([]);
     };
     await expect(
-      rerankDocuments("q", docs, { baseUrl: stub.url, apiStyle: "tei", timeoutMs: 20 }),
+      rerankDocuments("q", docs, {
+        baseUrl: stub.url,
+        apiStyle: "tei",
+        timeoutMs: 20,
+      }),
     ).rejects.toBeInstanceOf(RerankTimeoutError);
   });
 
   const baseBudget = defaultMaxDocCharsForModel("bge-reranker-base");
   test.each([
-    ["the default model's own budget", "", DEFAULT_MAX_DOC_CHARS + 500, tei, DEFAULT_MAX_DOC_CHARS],
-    ["an explicit bge-reranker-base budget", "", baseBudget + 500, teiBaseModel, baseBudget],
-    ["a configured maxDocChars, less a one-character query", "q", 1_200, teiBudget(1_000), 999],
-    ["an at-budget document, untouched", "", DEFAULT_MAX_DOC_CHARS, tei, DEFAULT_MAX_DOC_CHARS],
-    ["a configured maxDocChars, less a long query", "q".repeat(150), 1_200, teiBudget(1_000), 850],
-    ["exactly the minimum document budget", "q".repeat(800), 500, teiBudget(1_000), 200],
-  ] as const)("truncates to %s", async (_label, query, docChars, config, expected) => {
-    stub.reply = () => Response.json([{ index: 0, score: 0.5 }]);
-    await rerankDocuments(query, [{ id: "c", text: "x".repeat(docChars) }], config);
-    expect(teiTexts()[0]?.length).toBe(expected);
-  });
+    [
+      "the default model's own budget",
+      "",
+      DEFAULT_MAX_DOC_CHARS + 500,
+      tei,
+      DEFAULT_MAX_DOC_CHARS,
+    ],
+    [
+      "an explicit bge-reranker-base budget",
+      "",
+      baseBudget + 500,
+      teiBaseModel,
+      baseBudget,
+    ],
+    [
+      "a configured maxDocChars, less a one-character query",
+      "q",
+      1_200,
+      teiBudget(1_000),
+      999,
+    ],
+    [
+      "an at-budget document, untouched",
+      "",
+      DEFAULT_MAX_DOC_CHARS,
+      tei,
+      DEFAULT_MAX_DOC_CHARS,
+    ],
+    [
+      "a configured maxDocChars, less a long query",
+      "q".repeat(150),
+      1_200,
+      teiBudget(1_000),
+      850,
+    ],
+    [
+      "exactly the minimum document budget",
+      "q".repeat(800),
+      500,
+      teiBudget(1_000),
+      200,
+    ],
+  ] as const)(
+    "truncates to %s",
+    async (_label, query, docChars, config, expected) => {
+      stub.reply = () => Response.json([{ index: 0, score: 0.5 }]);
+      await rerankDocuments(
+        query,
+        [{ id: "c", text: "x".repeat(docChars) }],
+        config,
+      );
+      expect(teiTexts()[0]?.length).toBe(expected);
+    },
+  );
 
   test("refuses without a request when the query leaves too little document budget", async () => {
     const one = [{ id: "c", text: "x".repeat(500) }];
@@ -195,7 +257,9 @@ describe("validateRerankConfig", () => {
       validateRerankConfig({
         baseUrl: "https://tei.example.com",
         apiStyle: "tei",
-        maxDocChars: (KNOWN_TEI_RERANK_MODEL_TOKEN_LIMITS[DEFAULT_RERANK_MODEL] ?? 0) * 100,
+        maxDocChars:
+          (KNOWN_TEI_RERANK_MODEL_TOKEN_LIMITS[DEFAULT_RERANK_MODEL] ?? 0) *
+          100,
       }),
     ).toThrow(RerankConfigError);
   });

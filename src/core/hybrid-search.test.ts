@@ -210,7 +210,9 @@ describe("temporalRecencyMultiplier", () => {
     const old = new Date("2020-01-01T00:00:00.000Z");
     const far = new Date(now.getTime() + DEADLINE_LOOKAHEAD_MS * 2);
     type Args = Parameters<typeof temporalRecencyMultiplier>[0];
-    const cases: Array<Pick<Args, "temporalClass" | "occurredAt" | "validUntil">> = [
+    const cases: Array<
+      Pick<Args, "temporalClass" | "occurredAt" | "validUntil">
+    > = [
       { temporalClass: "state", occurredAt: old, validUntil: null },
       { temporalClass: "lesson", occurredAt: old, validUntil: null },
       { temporalClass: "deadline", occurredAt: now, validUntil: far },

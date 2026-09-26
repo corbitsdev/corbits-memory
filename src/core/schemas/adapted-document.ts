@@ -70,7 +70,9 @@ export const AdaptedDocumentSchema = type({
   "attributes?": "Record<string, string | number | boolean | null>",
   entityHints: EntityHintSchema.array(),
   "edges?": MemoryEdgeHintSchema.array(),
-  chunks: AdaptedDocumentChunkSchema.array().atMostLength(MAX_CHUNKS_PER_DOCUMENT),
+  chunks: AdaptedDocumentChunkSchema.array().atMostLength(
+    MAX_CHUNKS_PER_DOCUMENT,
+  ),
   "rawPointer?": RawPointerSchema,
   "actor?": ActorAttributionSchema,
   // The raw authority signals a caller can observe. All three are optional: a

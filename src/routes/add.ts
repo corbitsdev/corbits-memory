@@ -9,12 +9,7 @@ import { AddRequest } from "../http-bodies.js";
 
 import { MemoryError } from "../memory.js";
 import type { RouteDeps } from "./deps.js";
-import {
-  caller,
-  grantGuard,
-  requirePrincipal,
-  resolveCaller,
-} from "./deps.js";
+import { caller, grantGuard, requirePrincipal, resolveCaller } from "./deps.js";
 
 const AddResponse = type({
   documentId: "string",
@@ -103,10 +98,7 @@ export function mountAddRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
         });
       } catch (err) {
         if (err instanceof MemoryError) {
-          return c.json(
-            { error: err.message },
-            err.status as 400 | 501,
-          );
+          return c.json({ error: err.message }, err.status as 400 | 501);
         }
         const errMessage = formatCaughtError(err);
         log.error(`memory add failed: ${errMessage}`, { error: errMessage });

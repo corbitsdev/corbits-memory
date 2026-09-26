@@ -169,7 +169,8 @@ function resolveRerankModel(config: Pick<RerankClientConfig, "model">): string {
 
 function tokenLimitForModel(model: string): number {
   return (
-    KNOWN_TEI_RERANK_MODEL_TOKEN_LIMITS[model] ?? CONSERVATIVE_FALLBACK_TOKEN_LIMIT
+    KNOWN_TEI_RERANK_MODEL_TOKEN_LIMITS[model] ??
+    CONSERVATIVE_FALLBACK_TOKEN_LIMIT
   );
 }
 
@@ -191,9 +192,8 @@ export function defaultMaxDocCharsForModel(model: string): number {
 // The default budget for the engine's own default TEI model
 // (`DEFAULT_RERANK_MODEL`, bge-reranker-v2-m3) — exported for callers and
 // tests that want "the real default" without re-deriving it.
-export const DEFAULT_MAX_DOC_CHARS = defaultMaxDocCharsForModel(
-  DEFAULT_RERANK_MODEL,
-);
+export const DEFAULT_MAX_DOC_CHARS =
+  defaultMaxDocCharsForModel(DEFAULT_RERANK_MODEL);
 
 export class RerankConfigError extends Error {
   constructor(message: string) {
@@ -257,7 +257,10 @@ function truncateForRerank(text: string, budget: number): string {
 // resolves (see `RerankQueryTooLongError`). Returns null when the query
 // alone leaves less than MIN_DOC_CHARS for the document; callers must treat
 // null as "skip reranking for this request", not "use MIN_DOC_CHARS anyway".
-function resolveDocBudget(maxDocChars: number, queryChars: number): number | null {
+function resolveDocBudget(
+  maxDocChars: number,
+  queryChars: number,
+): number | null {
   const budget = maxDocChars - queryChars;
   return budget < MIN_DOC_CHARS ? null : budget;
 }
