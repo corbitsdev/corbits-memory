@@ -199,6 +199,7 @@ describe("runTransform / promoteGeneration — embed-absent guards (CL-6287)", (
           updates.push(v);
           return builder;
         },
+        // oxlint-disable-next-line unicorn/no-thenable -- fakes drizzle's thenable query builder
         then: (
           onFulfilled: (v: unknown[]) => unknown,
           onRejected?: (e: unknown) => unknown,

@@ -7,7 +7,7 @@
  *
  * See docs/AUTHZ-DOCUMENT-ACCESS.md.
  */
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import type { ConditionRegistry, GrantStore } from "@intx/authz";
 import { canAccessDocument, matchesVisibleTags } from "../grant-tags.js";
 import { LIVE_GENERATION } from "../core/generation.js";

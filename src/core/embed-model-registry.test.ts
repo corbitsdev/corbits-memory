@@ -27,7 +27,7 @@ function jsonResponse(body: unknown): Response {
 
 function fixtureFetch(dims: number): typeof fetch {
   return mock(() =>
-    Promise.resolve(jsonResponse({ data: [{ embedding: new Array(dims).fill(0.1) }] })),
+    Promise.resolve(jsonResponse({ data: [{ embedding: Array.from({ length: dims }, () => 0.1) }] })),
   ) as unknown as typeof fetch;
 }
 

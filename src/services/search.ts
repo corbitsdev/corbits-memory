@@ -27,7 +27,6 @@ import {
   RerankConfigError,
   RerankQueryTooLongError,
   validateRerankConfig,
-  type RerankClientConfig,
 } from "../core/rerank-client.js";
 import { mmrRerank, type MmrItem } from "../core/mmr.js";
 import { recordDegrade } from "../core/degrade-metrics.js";

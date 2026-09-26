@@ -609,6 +609,7 @@ describe("hybridSearch — embed unconfigured (CL-6287)", () => {
         where: () => builder,
         orderBy: () => builder,
         limit: () => builder,
+        // oxlint-disable-next-line unicorn/no-thenable -- fakes drizzle's thenable query builder
         then: (onFulfilled: (v: unknown[]) => unknown, onRejected?: (e: unknown) => unknown) =>
           rows().then(onFulfilled, onRejected),
         catch: (onRejected: (e: unknown) => unknown) => rows().catch(onRejected),
