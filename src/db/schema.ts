@@ -134,9 +134,7 @@ export const memoryChunk = memorySchema.table(
     role: text("role"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
-  (t) => [
-    uniqueIndex("chunk_version_ordinal_uniq").on(t.versionId, t.ordinal),
-  ],
+  (t) => [uniqueIndex("chunk_version_ordinal_uniq").on(t.versionId, t.ordinal)],
 );
 
 export const memoryEntity = memorySchema.table(

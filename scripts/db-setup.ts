@@ -12,7 +12,10 @@ await runMemoryMigrations(
     user: decodeURIComponent(url.username),
     password: decodeURIComponent(url.password),
     database: url.pathname.slice(1),
-    ssl: sslmode === "require" || sslmode === "verify-ca" || sslmode === "verify-full",
+    ssl:
+      sslmode === "require" ||
+      sslmode === "verify-ca" ||
+      sslmode === "verify-full",
   },
   { schema: "public", ftsLanguage: memory.ftsLanguage },
 );

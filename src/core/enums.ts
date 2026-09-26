@@ -30,10 +30,7 @@ export const EDGE_REF_TYPES_DB = [
 export type EdgeRefTypeDb = (typeof EDGE_REF_TYPES_DB)[number];
 
 /** Adapter-facing edge endpoint kinds, including planning-time `native`. */
-export const EDGE_REF_TYPES_ADAPTER = [
-  ...EDGE_REF_TYPES_DB,
-  "native",
-] as const;
+export const EDGE_REF_TYPES_ADAPTER = [...EDGE_REF_TYPES_DB, "native"] as const;
 export type EdgeRefTypeAdapter = (typeof EDGE_REF_TYPES_ADAPTER)[number];
 
 /**
@@ -75,8 +72,6 @@ export const RETENTION_CLASSES = [
 export type RetentionClass = (typeof RETENTION_CLASSES)[number];
 
 /** Build an arktype union string from a const string array. */
-export function arktypeStringUnion(
-  values: readonly string[],
-): string {
+export function arktypeStringUnion(values: readonly string[]): string {
   return values.map((v) => `'${v}'`).join("|");
 }

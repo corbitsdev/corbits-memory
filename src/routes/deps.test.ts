@@ -89,7 +89,7 @@ describe("grantGuard", () => {
       called = { resource: String(resource), action };
       return (async () => {}) as never;
     };
-grantGuard(deps(requireGrant), "add");
+    grantGuard(deps(requireGrant), "add");
     expect(called).toEqual({ resource: "memory", action: "add" });
   });
 });
@@ -194,7 +194,10 @@ describe("resolveCaller", () => {
     // guard for it at this boundary.
     ["whitespace-only", { tenantId: " ", principalId: "\t\n" }],
     // Cast past the type system the way a buggy host's JS resolver would.
-    ["missing-principalId", { tenantId: "tenant-run" } as unknown as ResolvedCaller],
+    [
+      "missing-principalId",
+      { tenantId: "tenant-run" } as unknown as ResolvedCaller,
+    ],
     ["non-object", "tenant-run" as unknown as ResolvedCaller],
   ] as const)(
     "rejects a %s resolved caller with 500, never seating it",

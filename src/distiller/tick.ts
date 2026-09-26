@@ -88,7 +88,8 @@ function parseFeedPage(raw: unknown): DistillTickPage {
       status: String(row["status"] ?? "active"),
       createdByKind: String(row["createdByKind"] ?? "system"),
       generatorAgentId:
-        row["generatorAgentId"] === null || row["generatorAgentId"] === undefined
+        row["generatorAgentId"] === null ||
+        row["generatorAgentId"] === undefined
           ? null
           : String(row["generatorAgentId"]),
       provenance: String(row["provenance"] ?? "unknown"),
@@ -113,8 +114,7 @@ function parseFeedPage(raw: unknown): DistillTickPage {
 export async function runDistillTick(
   args: RunDistillTickArgs,
 ): Promise<DistillTickResult> {
-  const generatorAgentId =
-    args.generatorAgentId ?? RESIDENT_DISTILLER_AGENT_ID;
+  const generatorAgentId = args.generatorAgentId ?? RESIDENT_DISTILLER_AGENT_ID;
   const after = args.after ?? 0;
 
   const raw = await args.client.feed(

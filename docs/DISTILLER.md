@@ -27,10 +27,10 @@ inference; tools only need `memory_add` / `memory_search` (and grants).
 
 Helpers still useful in-process:
 
-| Export | Use |
-| --- | --- |
-| `buildDistilledClaim` | Wire body with `generator_agent_id`, `provenance=inferred`, `derived_from` |
-| `RESIDENT_DISTILLER_AGENT_ID` | Stable generator id if you write claims |
+| Export                        | Use                                                                        |
+| ----------------------------- | -------------------------------------------------------------------------- |
+| `buildDistilledClaim`         | Wire body with `generator_agent_id`, `provenance=inferred`, `derived_from` |
+| `RESIDENT_DISTILLER_AGENT_ID` | Stable generator id if you write claims                                    |
 
 ## Optional: multi-writer / backfill (`runDistillTick`)
 
@@ -89,14 +89,14 @@ on a schedule, e.g. from `@corbits/cron`. This package owns no clock.
 
 ## Substrate (plane)
 
-| Piece | Where |
-| --- | --- |
-| Ingest on add | capture path — raw + chunks + embed |
-| Capture feed (cursor) | `memory.feed` — [FEED.md](./FEED.md) (backfill / multi-writer) |
-| Claim identity on add | `generator_agent_id`, `provenance`, `lineage_class`, `derived_from` |
-| Wire attribution on search | `SearchItem.attribution` |
-| Retention / forgetting | [RETENTION.md](./RETENTION.md) |
-| Tools | `@corbits/memory/sidecar-bundle` |
+| Piece                      | Where                                                               |
+| -------------------------- | ------------------------------------------------------------------- |
+| Ingest on add              | capture path — raw + chunks + embed                                 |
+| Capture feed (cursor)      | `memory.feed` — [FEED.md](./FEED.md) (backfill / multi-writer)      |
+| Claim identity on add      | `generator_agent_id`, `provenance`, `lineage_class`, `derived_from` |
+| Wire attribution on search | `SearchItem.attribution`                                            |
+| Retention / forgetting     | [RETENTION.md](./RETENTION.md)                                      |
+| Tools                      | `@corbits/memory/sidecar-bundle`                                    |
 
 ## Grant manifest (process principal)
 

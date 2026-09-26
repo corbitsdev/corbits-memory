@@ -7,12 +7,7 @@ import { formatCaughtError, log } from "../log.js";
 import { FeedQuery, parseFeedQuery } from "../http-bodies.js";
 import { MemoryError } from "../memory.js";
 import type { RouteDeps } from "./deps.js";
-import {
-  caller,
-  grantGuard,
-  requirePrincipal,
-  resolveCaller,
-} from "./deps.js";
+import { caller, grantGuard, requirePrincipal, resolveCaller } from "./deps.js";
 
 const FeedResponse = type({
   entries: type({
@@ -75,10 +70,7 @@ export function mountFeedRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
         return c.json(result);
       } catch (err) {
         if (err instanceof MemoryError) {
-          return c.json(
-            { error: err.message },
-            err.status as 400 | 501,
-          );
+          return c.json({ error: err.message }, err.status as 400 | 501);
         }
         const errMessage = formatCaughtError(err);
         log.error(`memory feed failed: ${errMessage}`, {

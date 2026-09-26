@@ -62,16 +62,16 @@ helpers are optional multi-writer / backfill — not the primary path.
 - **Grants delegate to the host.** Pass `grantStore` + `conditionRegistry`;
   routes use `createRequireGrant("memory", action)`.
 - **Two authorization mechanisms, not one — know which is source of truth
-  for what.** (1) Grant tags decide *capability* (may this principal call
-  `add`/`search`/`forget`/`purge` at all — `requireGrant`) and *visibility*
+  for what.** (1) Grant tags decide _capability_ (may this principal call
+  `add`/`search`/`forget`/`purge` at all — `requireGrant`) and _visibility_
   (which documents a principal may see — `accessTags` + `canAccessDocument`
   in `grant-tags.ts`, where a share grant legitimately widens who can find a
   document). (2) A separate, imperative **ownership** check — the creator
   lookup in `services/retention-ownership.ts`, called from `memory.ts` —
-  decides who may *forget or purge* a specific document, and is the sole
+  decides who may _forget or purge_ a specific document, and is the sole
   source of truth for "whose document is this": it is never derived from
   grant tags and a share grant never satisfies it. `MemoryGrantRequirement.
-  installHint` (`grant-requirements.ts`) looks adjacent to this but is not:
+installHint` (`grant-requirements.ts`) looks adjacent to this but is not:
   it is advisory metadata for install tooling sizing a capability grant,
   read by nothing at request time. Do not extend mechanism (1) expecting it
   to cover ownership — extend `retention-ownership.ts` instead.

@@ -1,4 +1,8 @@
-import { DEFAULT_CHUNK_CAPS, type ChunkCaps, type TokenChunk } from "./types.js";
+import {
+  DEFAULT_CHUNK_CAPS,
+  type ChunkCaps,
+  type TokenChunk,
+} from "./types.js";
 
 // Separator ladder tried in order before falling back to a hard character
 // cut. Word/whitespace-based token counting
@@ -130,7 +134,10 @@ export function chunkTokenRecursive(
   const overlapChars = resolved.overlapTokens * CHARS_PER_TOKEN;
 
   const leaves = splitRecursive(text, 0, maxChars, 0);
-  const merged = mergeRemnant(mergeLeaves(leaves, maxChars, overlapChars), minChars);
+  const merged = mergeRemnant(
+    mergeLeaves(leaves, maxChars, overlapChars),
+    minChars,
+  );
 
   return merged.map((group, ordinal) => {
     const chunkText = group.map((leaf) => leaf.text).join("");

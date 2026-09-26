@@ -909,15 +909,23 @@ async function attemptBackgroundEmbedPass(args: {
   );
   if (degraded.length > 0) return { degraded };
   try {
-    await reembedPendingChunks(args.sql, args.tenantId, args.embedClientConfig, {
-      fetchImpl: args.fetchImpl,
-      limit: args.pendingLimit,
-    });
+    await reembedPendingChunks(
+      args.sql,
+      args.tenantId,
+      args.embedClientConfig,
+      {
+        fetchImpl: args.fetchImpl,
+        limit: args.pendingLimit,
+      },
+    );
   } catch (err) {
-    log.warn(`capture: background pending sweep failed: ${formatCaughtError(err)}`, {
-      tenantId: args.tenantId,
-      error: formatCaughtError(err),
-    });
+    log.warn(
+      `capture: background pending sweep failed: ${formatCaughtError(err)}`,
+      {
+        tenantId: args.tenantId,
+        error: formatCaughtError(err),
+      },
+    );
   }
   return { degraded };
 }
@@ -965,7 +973,9 @@ export async function runBackgroundEmbedPass(
     }
     const delay =
       BACKGROUND_EMBED_RETRY_DELAYS_MS[attempt - 1] ??
-      BACKGROUND_EMBED_RETRY_DELAYS_MS[BACKGROUND_EMBED_RETRY_DELAYS_MS.length - 1]!;
+      BACKGROUND_EMBED_RETRY_DELAYS_MS[
+        BACKGROUND_EMBED_RETRY_DELAYS_MS.length - 1
+      ]!;
     await resolved.sleep(delay);
   }
 }
@@ -1026,12 +1036,18 @@ export async function captureDocument(
       tenantId: input.tenantId,
       chunks: backgroundChunks,
       run: (chunks) =>
-        runBackgroundEmbedPass(deps.sql, input.tenantId, chunks, embedClientConfig, {
-          fetchImpl: resolved.fetchImpl,
-          sleep: resolved.sleep,
-          maxAttempts: resolved.maxAttempts,
-          pendingLimit: resolved.pendingLimit,
-        }),
+        runBackgroundEmbedPass(
+          deps.sql,
+          input.tenantId,
+          chunks,
+          embedClientConfig,
+          {
+            fetchImpl: resolved.fetchImpl,
+            sleep: resolved.sleep,
+            maxAttempts: resolved.maxAttempts,
+            pendingLimit: resolved.pendingLimit,
+          },
+        ),
     }),
   );
 
@@ -1053,7 +1069,10 @@ export async function deriveFromRawCapture(
   input: CaptureInput,
   rawCaptureId: string,
   generation: string,
-  derivation: { chunker?: AdaptAndPlanOptions["chunker"]; embed: EmbedClientConfig },
+  derivation: {
+    chunker?: AdaptAndPlanOptions["chunker"];
+    embed: EmbedClientConfig;
+  },
 ): Promise<CaptureResult> {
   const plan = adaptAndPlan(
     input.document,

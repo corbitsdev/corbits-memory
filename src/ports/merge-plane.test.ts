@@ -10,11 +10,7 @@ import type { LiveSearchItem } from "./types.js";
 const TENANT = "t_merge";
 const PRINCIPAL = "p_merge";
 
-function liveHit(
-  ref: string,
-  title: string,
-  score: number,
-): LiveSearchItem {
+function liveHit(ref: string, title: string, score: number): LiveSearchItem {
   return {
     adapter: "linear",
     externalRef: ref,
@@ -36,9 +32,7 @@ describe("plane merge (MergeLocalLiveV1)", () => {
     const plane = createMemory({
       documentStore: store,
       sources: [
-        createFakeSourceProvider("linear", [
-          liveHit("CL-1", "live only", 0.9),
-        ]),
+        createFakeSourceProvider("linear", [liveHit("CL-1", "live only", 0.9)]),
       ],
     });
 
@@ -54,7 +48,7 @@ describe("plane merge (MergeLocalLiveV1)", () => {
       query: "ports",
       includeEvidence: true,
     });
-    // Local fake matches "ports"; live catalog matches "ports" in title? 
+    // Local fake matches "ports"; live catalog matches "ports" in title?
     // "live only" does not — add a ports live hit
     expect(result.items.some((i) => i.title === "local note")).toBe(true);
     await plane.close();
@@ -104,9 +98,9 @@ describe("plane merge (MergeLocalLiveV1)", () => {
       query: "ports foundation",
       sources: ["local"],
     });
-    expect(result.items.every((i) => i.documentId.startsWith("fake_doc_"))).toBe(
-      true,
-    );
+    expect(
+      result.items.every((i) => i.documentId.startsWith("fake_doc_")),
+    ).toBe(true);
     expect(result.items.some((i) => i.documentId === "CL-42")).toBe(false);
     await plane.close();
   });
@@ -200,8 +194,7 @@ describe("plane merge (MergeLocalLiveV1)", () => {
     // Fake store citation.external_ref is externalRef ?? documentId.
     // Live also uses CL-7 with adapter fake → prefer local.
     const hit = result.items.find(
-      (i) =>
-        i.snippet.includes("local") || i.title.includes("local"),
+      (i) => i.snippet.includes("local") || i.title.includes("local"),
     );
     expect(hit).toBeDefined();
     expect(hit?.snippet).toContain("local");

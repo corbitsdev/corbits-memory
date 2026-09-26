@@ -133,11 +133,11 @@ export async function filterTimelineRows(
 export async function listTimelineEvents(
   params: ListTimelineParams,
 ): Promise<TimelineEvent[]> {
-  const limit = Math.min(
-    Math.max(params.limit ?? DEFAULT_LIMIT, 1),
-    MAX_LIMIT,
+  const limit = Math.min(Math.max(params.limit ?? DEFAULT_LIMIT, 1), MAX_LIMIT);
+  const fetchLimit = Math.min(
+    limit * TIMELINE_OVERFETCH,
+    MAX_LIMIT * TIMELINE_OVERFETCH,
   );
-  const fetchLimit = Math.min(limit * TIMELINE_OVERFETCH, MAX_LIMIT * TIMELINE_OVERFETCH);
   const generation = params.generation ?? LIVE_GENERATION;
 
   const rows = await params.db

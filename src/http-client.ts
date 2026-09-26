@@ -103,10 +103,9 @@ export function createMemoryHttpClient(
     try {
       return JSON.parse(text) as unknown;
     } catch (cause) {
-      throw new Error(
-        `memory HTTP ${res.status}: invalid JSON response`,
-        { cause },
-      );
+      throw new Error(`memory HTTP ${res.status}: invalid JSON response`, {
+        cause,
+      });
     }
   }
 
@@ -154,4 +153,3 @@ export function createMemoryHttpClient(
     },
   };
 }
-

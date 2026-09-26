@@ -60,10 +60,14 @@ describe("embedInsertedChunksWithConfig — degraded reason array (CL-6287)", ()
   function untouchableRawSql(): RawSql {
     return {
       unsafe: () => {
-        throw new Error("rawSql.unsafe must not be called when embed is unconfigured");
+        throw new Error(
+          "rawSql.unsafe must not be called when embed is unconfigured",
+        );
       },
       begin: () => {
-        throw new Error("rawSql.begin must not be called when embed is unconfigured");
+        throw new Error(
+          "rawSql.begin must not be called when embed is unconfigured",
+        );
       },
     } as unknown as RawSql;
   }
@@ -124,7 +128,9 @@ function openaiEmbeddingBody(initBody: unknown): unknown {
 function unreachableRawSql(): RawSql {
   return {
     unsafe: () => {
-      throw new Error("rawSql.unsafe must not be called on the synchronous capture path");
+      throw new Error(
+        "rawSql.unsafe must not be called on the synchronous capture path",
+      );
     },
   } as unknown as RawSql;
 }
@@ -181,7 +187,10 @@ describe("captureDocument defers embedding to the background (CL-8615)", () => {
         },
       }),
       new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("captureDocument awaited the embedder")), 1000),
+        setTimeout(
+          () => reject(new Error("captureDocument awaited the embedder")),
+          1000,
+        ),
       ),
     ]);
 
@@ -202,7 +211,9 @@ describe("runBackgroundEmbedPass retries then sweeps pending (CL-8615)", () => {
     const flakyFetch = (async (_url: unknown, init?: { body?: unknown }) => {
       fetchCalls++;
       if (fetchCalls === 1) {
-        throw new Error("connect ECONNREFUSED 127.0.0.1:11434 (busy local ollama)");
+        throw new Error(
+          "connect ECONNREFUSED 127.0.0.1:11434 (busy local ollama)",
+        );
       }
       return jsonResponse(openaiEmbeddingBody(init?.body));
     }) as unknown as typeof fetch;
@@ -215,7 +226,9 @@ describe("runBackgroundEmbedPass retries then sweeps pending (CL-8615)", () => {
         if (text.includes("LEFT JOIN")) {
           pendingSelectCalls++;
           if (pendingSelectCalls === 1) {
-            return Promise.resolve([{ id: "chunk_pending", text: "pending text" }]);
+            return Promise.resolve([
+              { id: "chunk_pending", text: "pending text" },
+            ]);
           }
           return Promise.resolve([]);
         }
@@ -261,7 +274,10 @@ describe("background embed pass honors the configured embed timeout (CL-8615)", 
     const timeoutMs = 45000;
     const seenSignals: unknown[] = [];
     const timeoutArgs: number[] = [];
-    const observingFetch = (async (_url: unknown, init?: { body?: unknown; signal?: unknown }) => {
+    const observingFetch = (async (
+      _url: unknown,
+      init?: { body?: unknown; signal?: unknown },
+    ) => {
       seenSignals.push(init?.signal);
       return jsonResponse(openaiEmbeddingBody(init?.body));
     }) as unknown as typeof fetch;
@@ -324,7 +340,9 @@ describe("findPendingChunks skips tombstoned and non-live versions", () => {
     expect(pending).toEqual([{ id: "chunk_live", text: "keep me" }]);
     expect(queries).toHaveLength(1);
     const { sql, params } = queries[0]!;
-    expect(sql).toContain('INNER JOIN "memory"."version" v ON v.id = c.version_id');
+    expect(sql).toContain(
+      'INNER JOIN "memory"."version" v ON v.id = c.version_id',
+    );
     expect(sql).toContain("v.status <> 'tombstoned'");
     expect(sql).toContain("v.generation = $3");
     expect(params).toEqual(["tenant-1", 100, "live"]);

@@ -74,7 +74,5 @@ export const ReplayRequestSchema = type({
 });
 export type ReplayRequest = typeof ReplayRequestSchema.infer;
 
-export const TransformRunStatusSchema = type(
-  "'running'|'completed'|'failed'",
-);
+export const TransformRunStatusSchema = type("'running'|'completed'|'failed'");
 export type TransformRunStatus = typeof TransformRunStatusSchema.infer;

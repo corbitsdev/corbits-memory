@@ -6,9 +6,9 @@ a frozen snapshot (`computeAuthority` at write). Search derives a separate
 
 ## Edges
 
-| `rel` | Effect |
-|-------|--------|
-| `supports` | Independent source backs the target claim version — factor up |
+| `rel`         | Effect                                                          |
+| ------------- | --------------------------------------------------------------- |
+| `supports`    | Independent source backs the target claim version — factor up   |
 | `contradicts` | Disagreement signal — factor down; **no** auto-delete/supersede |
 
 Counts are edges with `to_type = 'version'` and `to_ref = <version id>`.

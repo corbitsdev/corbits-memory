@@ -41,7 +41,9 @@ const DEFAULT_BATCH_SIZE = 32;
 const PROBE_TEXT = "embedding dimension probe";
 
 function buildHeaders(config: EmbedClientConfig): Record<string, string> {
-  const headers: Record<string, string> = { "content-type": "application/json" };
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+  };
   if (config.apiKey) {
     headers.authorization = `Bearer ${config.apiKey}`;
   }
@@ -73,7 +75,10 @@ async function doFetch(
       signal: AbortSignal.timeout(timeoutMs),
     });
   } catch (err) {
-    if (err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError")) {
+    if (
+      err instanceof Error &&
+      (err.name === "TimeoutError" || err.name === "AbortError")
+    ) {
       throw new EmbedTimeoutError(
         `Embed request to ${url} timed out after ${timeoutMs}ms`,
       );
@@ -108,7 +113,11 @@ async function embedBatchOpenAi(
   await assertOk(res, url);
   const json = (await res.json()) as { data?: Array<{ embedding: number[] }> };
   if (!json.data) {
-    throw new EmbedHttpError(res.status, "openai-compat response missing data[]", url);
+    throw new EmbedHttpError(
+      res.status,
+      "openai-compat response missing data[]",
+      url,
+    );
   }
   return json.data.map((d) => d.embedding);
 }
@@ -174,7 +183,8 @@ async function embedBatch(
   config: EmbedClientConfig,
   fetchImpl: typeof fetch,
 ): Promise<number[][]> {
-  if (config.apiStyle === "openai") return embedBatchOpenAi(batch, config, fetchImpl);
+  if (config.apiStyle === "openai")
+    return embedBatchOpenAi(batch, config, fetchImpl);
   if (config.apiStyle === "tei") return embedBatchTei(batch, config, fetchImpl);
   return embedBatchOllama(batch, config, fetchImpl);
 }

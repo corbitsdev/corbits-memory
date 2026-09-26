@@ -50,7 +50,9 @@ async function visibleTo(
     principalId: params.principalId,
     createdByPrincipalId: doc.principalId,
     accessTags: doc.accessTags,
-    ...(params.visibleTags !== undefined ? { visibleTags: params.visibleTags } : {}),
+    ...(params.visibleTags !== undefined
+      ? { visibleTags: params.visibleTags }
+      : {}),
     ...(params.conditionRegistry !== undefined
       ? { conditionRegistry: params.conditionRegistry }
       : {}),

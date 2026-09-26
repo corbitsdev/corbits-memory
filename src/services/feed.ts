@@ -5,10 +5,7 @@
 import { and, asc, eq, gt, isNull, ne, or, sql } from "drizzle-orm";
 
 import type { Db } from "../db/client.js";
-import {
-  memoryDocument,
-  memoryVersion,
-} from "../db/schema.js";
+import { memoryDocument, memoryVersion } from "../db/schema.js";
 import { LIVE_GENERATION } from "../core/generation.js";
 
 export const FEED_LIMIT_MIN = 1;
@@ -55,10 +52,7 @@ export class FeedInputError extends Error {
   }
 }
 
-export async function fetchFeed(
-  db: Db,
-  args: FeedArgs,
-): Promise<FeedResult> {
+export async function fetchFeed(db: Db, args: FeedArgs): Promise<FeedResult> {
   const after = Math.max(0, Math.floor(args.after ?? 0));
   const limit = Math.min(
     FEED_LIMIT_MAX,
@@ -101,10 +95,7 @@ export async function fetchFeed(
       createdByPrincipalId: memoryVersion.createdByPrincipalId,
     })
     .from(memoryVersion)
-    .innerJoin(
-      memoryDocument,
-      eq(memoryDocument.id, memoryVersion.documentId),
-    )
+    .innerJoin(memoryDocument, eq(memoryDocument.id, memoryVersion.documentId))
     .where(and(...conditions))
     .orderBy(asc(memoryVersion.feedSeq))
     .limit(limit);

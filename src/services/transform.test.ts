@@ -19,7 +19,9 @@ describe("buildRerankClientConfig", () => {
   });
 
   it("defaults apiStyle to 'tei' when omitted, mirroring the engine's own rerank config precedent", () => {
-    const config = buildRerankClientConfig({ baseUrl: "https://rerank.example" });
+    const config = buildRerankClientConfig({
+      baseUrl: "https://rerank.example",
+    });
     expect(config).toEqual({
       baseUrl: "https://rerank.example",
       apiStyle: "tei",
@@ -52,7 +54,11 @@ describe("TransformConfigParamsSchema", () => {
   it("accepts a fully-specified params object", () => {
     const parsed = TransformConfigParamsSchema({
       chunk: { strategy: "token.recursive", maxTokens: 500 },
-      embed: { baseUrl: "http://localhost:11434", model: "nomic-embed-text", apiStyle: "ollama" },
+      embed: {
+        baseUrl: "http://localhost:11434",
+        model: "nomic-embed-text",
+        apiStyle: "ollama",
+      },
       rerank: { baseUrl: "https://rerank.example", apiStyle: "tei" },
       authorityWeight: 0.8,
       recencyHalfLifeDays: 45,
@@ -65,7 +71,11 @@ describe("TransformConfigParamsSchema", () => {
   it("rejects an unknown chunk strategy — token.recursive is the only one adaptAndPlan supports", () => {
     const parsed = TransformConfigParamsSchema({
       chunk: { strategy: "semantic.experimental" },
-      embed: { baseUrl: "http://localhost:11434", model: "nomic-embed-text", apiStyle: "ollama" },
+      embed: {
+        baseUrl: "http://localhost:11434",
+        model: "nomic-embed-text",
+        apiStyle: "ollama",
+      },
     });
     expect(parsed instanceof type.errors).toBe(true);
   });
@@ -159,10 +169,14 @@ describe("runTransform / promoteGeneration — embed-absent guards (CL-6287)", (
   function untouchableRawSql(): RawSql {
     return {
       unsafe: () => {
-        throw new Error("rawSql.unsafe must not be called when embed is unconfigured");
+        throw new Error(
+          "rawSql.unsafe must not be called when embed is unconfigured",
+        );
       },
       begin: () => {
-        throw new Error("rawSql.begin must not be called when embed is unconfigured");
+        throw new Error(
+          "rawSql.begin must not be called when embed is unconfigured",
+        );
       },
     } as unknown as RawSql;
   }
@@ -182,8 +196,10 @@ describe("runTransform / promoteGeneration — embed-absent guards (CL-6287)", (
 
     function chain(table: unknown) {
       const resolve = (): Promise<unknown[]> => {
-        if (table === transformConfig) return Promise.resolve(rows.transformConfig ?? []);
-        if (table === transformRun) return Promise.resolve(rows.transformRun ?? []);
+        if (table === transformConfig)
+          return Promise.resolve(rows.transformConfig ?? []);
+        if (table === transformRun)
+          return Promise.resolve(rows.transformRun ?? []);
         if (table === rawCapture) return Promise.resolve(rows.rawCapture ?? []);
         return Promise.resolve([]);
       };
@@ -204,7 +220,8 @@ describe("runTransform / promoteGeneration — embed-absent guards (CL-6287)", (
           onFulfilled: (v: unknown[]) => unknown,
           onRejected?: (e: unknown) => unknown,
         ) => resolve().then(onFulfilled, onRejected),
-        catch: (onRejected: (e: unknown) => unknown) => resolve().catch(onRejected),
+        catch: (onRejected: (e: unknown) => unknown) =>
+          resolve().catch(onRejected),
       };
       return builder;
     }
@@ -236,7 +253,12 @@ describe("runTransform / promoteGeneration — embed-absent guards (CL-6287)", (
 
     expect(result.status).toBe("failed");
     expect(updates).toHaveLength(1);
-    const update = updates[0] as { status: string; rawCount: number; versionCount: number; error: string | null };
+    const update = updates[0] as {
+      status: string;
+      rawCount: number;
+      versionCount: number;
+      error: string | null;
+    };
     expect(update.status).toBe("failed");
     expect(update.rawCount).toBe(0);
     expect(update.versionCount).toBe(0);

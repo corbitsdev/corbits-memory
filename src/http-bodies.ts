@@ -42,7 +42,9 @@ export type AddRequest = typeof AddRequest.infer;
 
 export const SearchRequest = type({
   query: "string >= 1",
-  "limit?": type(`${SEARCH_LIMIT_MIN} <= number.integer <= ${SEARCH_LIMIT_MAX}`),
+  "limit?": type(
+    `${SEARCH_LIMIT_MIN} <= number.integer <= ${SEARCH_LIMIT_MAX}`,
+  ),
   "kinds?": "string[]",
   "entity_ids?": "string[]",
   "sources?": "string[]",
@@ -75,11 +77,7 @@ export function parseListLimitString(
 ): number | undefined | null {
   if (raw === undefined || raw === "") return undefined;
   const n = Number(raw);
-  if (
-    !Number.isInteger(n) ||
-    n < LIST_LIMIT_MIN ||
-    n > LIST_LIMIT_MAX
-  ) {
+  if (!Number.isInteger(n) || n < LIST_LIMIT_MIN || n > LIST_LIMIT_MAX) {
     return null;
   }
   return n;

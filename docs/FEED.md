@@ -19,10 +19,10 @@ Use the feed when:
 memory.feed({ tenantId, principalId, after?, limit?, excludeGenerator? })
 ```
 
-| Field | Meaning |
-|-------|---------|
-| `after` | Last consumed `feedSeq` (exclusive). Omit/0 = from start. |
-| `limit` | Page size (bounded). |
+| Field              | Meaning                                                   |
+| ------------------ | --------------------------------------------------------- |
+| `after`            | Last consumed `feedSeq` (exclusive). Omit/0 = from start. |
+| `limit`            | Page size (bounded).                                      |
 | `excludeGenerator` | Skip versions with this `generator_agent_id` (loop-safe). |
 
 - Ordered by `feed_seq` ascending (Postgres `bigserial` on `memory.version`).
@@ -30,7 +30,7 @@ memory.feed({ tenantId, principalId, after?, limit?, excludeGenerator? })
 - Capability: `memory` / `search` (same as list/retrieve).
 - Document access: grant-tag post-filter identical to search.
 - **Cursor advances past the examined raw page**, even when the access filter
-  returns zero entries. Using the last *allowed* `feedSeq` would stall a
+  returns zero entries. Using the last _allowed_ `feedSeq` would stall a
   consumer on a fully denied page forever.
 
 Cursor storage is the **consumer's** job (workflow run state).

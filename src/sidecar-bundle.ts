@@ -37,7 +37,9 @@ type HttpCredential = {
 
 /** The slice of the host-assembled runtime capabilities this bundle uses. */
 type CredentialCapabilities = {
-  resolve(key: "credentials"): { resolve(handle: string): Promise<HttpCredential> };
+  resolve(key: "credentials"): {
+    resolve(handle: string): Promise<HttpCredential>;
+  };
 };
 
 /** The env keys `requires` declares, on top of the core ones. */
@@ -62,9 +64,7 @@ function query(params: Record<string, unknown>): string {
   return serialized === "" ? "" : `?${serialized}`;
 }
 
-function defined(
-  entries: Record<string, unknown>,
-): Record<string, unknown> {
+function defined(entries: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(
     Object.entries(entries).filter(([, value]) => value !== undefined),
   );
@@ -72,7 +72,10 @@ function defined(
 
 /** Maps one model-facing tool call onto the run-scoped route that performs
  * it. An unknown name returns undefined and answers as a tool error. */
-function requestFor(name: string, args: Record<string, unknown>): Request_ | undefined {
+function requestFor(
+  name: string,
+  args: Record<string, unknown>,
+): Request_ | undefined {
   switch (name) {
     case "memory_add":
       return {
@@ -150,14 +153,21 @@ export async function callMemoryRoute(
   runAddress: string,
   request: Request_,
 ): Promise<unknown> {
-  const response = await fetchImpl(`${WORKFLOW_MEMORY_BASE_PATH}${request.path}`, {
-    method: request.method,
-    headers: {
-      "x-workflow-run-address": runAddress,
-      ...(request.body !== undefined ? { "content-type": "application/json" } : {}),
+  const response = await fetchImpl(
+    `${WORKFLOW_MEMORY_BASE_PATH}${request.path}`,
+    {
+      method: request.method,
+      headers: {
+        "x-workflow-run-address": runAddress,
+        ...(request.body !== undefined
+          ? { "content-type": "application/json" }
+          : {}),
+      },
+      ...(request.body !== undefined
+        ? { body: JSON.stringify(request.body) }
+        : {}),
     },
-    ...(request.body !== undefined ? { body: JSON.stringify(request.body) } : {}),
-  });
+  );
   if (!response.ok) throw new Error(await readErrorMessage(response));
   const payload: unknown = await response.json().catch(() => undefined);
   if (typeof payload === "object" && payload !== null && "data" in payload) {
@@ -202,7 +212,11 @@ const bundleOpts = {
         const name = bareToolName(call.name);
         const request = requestFor(name, call.arguments);
         if (request === undefined) {
-          return { callId: call.id, content: `unknown memory tool: ${call.name}`, isError: true };
+          return {
+            callId: call.id,
+            content: `unknown memory tool: ${call.name}`,
+            isError: true,
+          };
         }
         try {
           const credential = await hub();

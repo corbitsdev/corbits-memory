@@ -41,7 +41,11 @@ describe("computeAuthority", () => {
       signals({ createdByKind: "human", actorCount: 1, sourceClass: "native" }),
     );
     const multiPartyThread = computeAuthority(
-      signals({ createdByKind: "human", actorCount: 5, sourceClass: "channel" }),
+      signals({
+        createdByKind: "human",
+        actorCount: 5,
+        sourceClass: "channel",
+      }),
     );
     expect(soloArtifact).toBeLessThan(multiPartyThread);
   });

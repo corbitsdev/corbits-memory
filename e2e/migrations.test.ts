@@ -44,7 +44,9 @@ describe.skipIf(testDatabaseUrl() === undefined)("memory migrations", () => {
     await runMemoryMigrations(db.config, options);
     const afterSecond = await snapshot("memory");
 
-    expect(afterFirst.some((i) => i.startsWith("column document.id "))).toBe(true);
+    expect(afterFirst.some((i) => i.startsWith("column document.id "))).toBe(
+      true,
+    );
     expect(afterSecond).toEqual(afterFirst);
     expect(await snapshot("public")).toEqual(publicBefore);
   });
@@ -71,81 +73,90 @@ describe.skipIf(testDatabaseUrl() === undefined)("memory migrations", () => {
   }, 30_000);
 });
 
-describe.skipIf(testDatabaseUrl() === undefined)("memory migrations in a non-public host schema", () => {
-  let db: TestDb;
+describe.skipIf(testDatabaseUrl() === undefined)(
+  "memory migrations in a non-public host schema",
+  () => {
+    let db: TestDb;
 
-  beforeAll(async () => {
-    db = await createEmptyDb();
-    await runMigrations(db.config, { schema: "hub" });
-  });
+    beforeAll(async () => {
+      db = await createEmptyDb();
+      await runMigrations(db.config, { schema: "hub" });
+    });
 
-  afterAll(async () => {
-    await db.close();
-  });
+    afterAll(async () => {
+      await db.close();
+    });
 
-  test("foreign keys point at the host schema, and a replay against another schema fails", async () => {
-    const hub = { schema: "hub", ftsLanguage: "english" };
-    await runMemoryMigrations(db.config, hub);
-    await runMemoryMigrations(db.config, hub);
+    test("foreign keys point at the host schema, and a replay against another schema fails", async () => {
+      const hub = { schema: "hub", ftsLanguage: "english" };
+      await runMemoryMigrations(db.config, hub);
+      await runMemoryMigrations(db.config, hub);
 
-    const targets = await db.sql<{ target: string }[]>`
+      const targets = await db.sql<{ target: string }[]>`
       SELECT DISTINCT confrelid::regclass::text AS target
         FROM pg_constraint c JOIN pg_namespace n ON n.oid = c.connamespace
         WHERE n.nspname = 'memory' AND c.contype = 'f'
           AND confrelid::regclass::text NOT LIKE 'memory.%'
         ORDER BY 1`;
-    expect(targets.map((t) => t.target)).toEqual(["hub.principal", "hub.tenant"]);
+      expect(targets.map((t) => t.target)).toEqual([
+        "hub.principal",
+        "hub.tenant",
+      ]);
 
-    await runMigrations(db.config, { schema: "public" });
-    await expect(runMemoryMigrations(db.config, options)).rejects.toThrow(
-      "already exists",
-    );
-  });
-});
+      await runMigrations(db.config, { schema: "public" });
+      await expect(runMemoryMigrations(db.config, options)).rejects.toThrow(
+        "already exists",
+      );
+    });
+  },
+);
 
-describe.skipIf(testDatabaseUrl() === undefined)("upgrading a database the ledger runner left before 0004", () => {
-  let db: TestDb;
+describe.skipIf(testDatabaseUrl() === undefined)(
+  "upgrading a database the ledger runner left before 0004",
+  () => {
+    let db: TestDb;
 
-  beforeAll(async () => {
-    db = await createEmptyDb();
-    await runMigrations(db.config, { schema: "public" });
-    const dir = join(import.meta.dirname, "..", "migrations");
-    for (const file of (await readdir(dir)).sort()) {
-      if (file >= "0004") break;
-      const raw = await readFile(join(dir, file), "utf8");
-      await db.sql.unsafe(raw.replaceAll("{{FTS_LANGUAGE}}", "english"));
-    }
-    await db.sql`
+    beforeAll(async () => {
+      db = await createEmptyDb();
+      await runMigrations(db.config, { schema: "public" });
+      const dir = join(import.meta.dirname, "..", "migrations");
+      for (const file of (await readdir(dir)).sort()) {
+        if (file >= "0004") break;
+        const raw = await readFile(join(dir, file), "utf8");
+        await db.sql.unsafe(raw.replaceAll("{{FTS_LANGUAGE}}", "english"));
+      }
+      await db.sql`
       INSERT INTO memory.document (id, tenant_id, kind, title, adapter, external_ref)
       VALUES ('doc-old', 'acme', 'note', 'Old claim', 'test', 'old')`;
-    await db.sql`
+      await db.sql`
       INSERT INTO memory.version
         (id, tenant_id, document_id, version, content_hash, occurred_at,
          created_by_kind, provenance)
       VALUES ('ver-old', 'acme', 'doc-old', 1, 'h', now(), 'agent', 'inferred')`;
-    await db.sql`
+      await db.sql`
       INSERT INTO public.tenant (id, name, slug, domain)
       VALUES ('acme', 'acme', 'acme', 'acme.test')`;
-  });
+    });
 
-  afterAll(async () => {
-    await db.close();
-  });
+    afterAll(async () => {
+      await db.close();
+    });
 
-  test("the temporal_class backfill applies once and a later replay leaves new rows alone", async () => {
-    await runMemoryMigrations(db.config, options);
-    const [old] = await db.sql<{ temporal_class: string }[]>`
+    test("the temporal_class backfill applies once and a later replay leaves new rows alone", async () => {
+      await runMemoryMigrations(db.config, options);
+      const [old] = await db.sql<{ temporal_class: string }[]>`
       SELECT temporal_class FROM memory.version WHERE id = 'ver-old'`;
-    expect(old?.temporal_class).toBe("state");
+      expect(old?.temporal_class).toBe("state");
 
-    await db.sql`
+      await db.sql`
       INSERT INTO memory.version
         (id, tenant_id, document_id, version, content_hash, occurred_at,
          created_by_kind, provenance, temporal_class)
       VALUES ('ver-new', 'acme', 'doc-old', 2, 'h2', now(), 'agent', 'inferred', 'event')`;
-    await runMemoryMigrations(db.config, options);
-    const [fresh] = await db.sql<{ temporal_class: string }[]>`
+      await runMemoryMigrations(db.config, options);
+      const [fresh] = await db.sql<{ temporal_class: string }[]>`
       SELECT temporal_class FROM memory.version WHERE id = 'ver-new'`;
-    expect(fresh?.temporal_class).toBe("event");
-  });
-});
+      expect(fresh?.temporal_class).toBe("event");
+    });
+  },
+);
