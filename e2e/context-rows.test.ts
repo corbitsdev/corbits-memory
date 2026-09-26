@@ -3,8 +3,8 @@ import { createInMemoryGrantStore } from "@intx/authz";
 import { createRequireGrant, type TenantEnv } from "@intx/hub-api";
 import { Hono } from "hono";
 
-import type { Memory } from "../src/memory.ts";
-import { createMemoryRoutes } from "../src/routes/mount.ts";
+import type { Memory } from "../src/memory.js";
+import { createMemoryRoutes } from "../src/routes/mount.js";
 import {
   allow,
   createTestDb,
@@ -12,7 +12,7 @@ import {
   seedPrincipal,
   testDatabaseUrl,
   type TestDb,
-} from "./helpers.ts";
+} from "./helpers.js";
 
 describe.skipIf(testDatabaseUrl() === undefined)(
   "synthesized context rows",

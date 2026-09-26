@@ -149,8 +149,10 @@ export async function ensureEmbedModel(
   // lives in the schema: a hard delete cascades document -> version ->
   // chunk -> embedding with no application cleanup to forget. CREATE TABLE
   // IF NOT EXISTS cannot retrofit the FK onto a pre-existing table — that
-  // is a deliberate new-tables-only choice (see IMPLEMENTATION.md for the
-  // one-time ALTER).
+  // is a deliberate new-tables-only choice. A pre-existing table takes it
+  // once: ALTER TABLE memory_embedding_<key> ADD CONSTRAINT
+  // memory_embedding_<key>_chunk_fk FOREIGN KEY (chunk_id)
+  // REFERENCES memory_chunk (id) ON DELETE CASCADE.
   await client.query(
     `CREATE TABLE IF NOT EXISTS ${tableName} (
        chunk_id text PRIMARY KEY,

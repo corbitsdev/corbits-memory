@@ -1,7 +1,5 @@
 # @corbits/memory
 
-[![npm](https://img.shields.io/npm/v/@corbits/memory.svg)](https://www.npmjs.com/package/@corbits/memory) [![License: LGPL-2.1](https://img.shields.io/badge/license-LGPL--2.1-green.svg)](https://github.com/corbitsdev/corbits-memory/blob/main/LICENSE)
-
 Hybrid semantic and full-text document memory in Postgres with pgvector, with optional embedding and rerank endpoints. A Corbits hub module: it mounts Hono routes on `@intx/hub-api` that check Interchange grants (permissions a principal, a user or agent account, holds on a resource), and ships agent tools for the sidecar, the Interchange agent runtime.
 
 ## Why @corbits/memory?
@@ -199,8 +197,6 @@ export function buildAssistant(sources: readonly InferencePreference[]) {
 - The first run upgrades a 0.1.0 database in place with no data loss and drops the 0.1.0 migration ledger. You cannot roll back to 0.1.0, and 0.1.0 and 0.2.0 replicas must not share a database.
 - `@intx/*`, `drizzle-orm`, `hono`, `hono-openapi` and `postgres` are peer dependencies.
 - Internal helpers and test fakes are no longer exported from the package root.
-
-See the [changelog](https://github.com/corbitsdev/corbits-memory/blob/main/CHANGELOG.md) for the full list.
 
 ## License
 

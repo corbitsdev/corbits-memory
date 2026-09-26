@@ -1,10 +1,10 @@
 # Capture feed
 
 Stateless, cursorable pull of new **versions** for **optional** multi-writer
-backfill / process workers (CL-5868).
+backfill / process workers.
 
 **Default product path does not need this.** Prefer
-**add → ingest elements → process** in one host pipeline (`PRODUCT.md`): the
+**add → ingest elements → process** in one host pipeline: the
 workflow already has the payload, so no pull cursor.
 
 Use the feed when:
@@ -13,7 +13,7 @@ Use the feed when:
 - you need catch-up / replay over a durable ordering key
 - process is intentionally decoupled from the write (fail-soft polish)
 
-## Phase 1 — pull (implemented)
+## Pull
 
 ```
 memory.feed({ tenantId, principalId, after?, limit?, excludeGenerator? })
@@ -36,13 +36,6 @@ memory.feed({ tenantId, principalId, after?, limit?, excludeGenerator? })
 Cursor storage is the **consumer's** job (workflow run state).
 
 HTTP: `GET /api/tenants/:tenantId/memory/feed?after=&limit=&exclude_generator=`
-
-## Phase 2 — push (design only)
-
-Post-commit outbox row keyed by `feed_seq` + host dispatcher that mails the
-deployment address with version ids. **Not implemented** in core. Phase 1
-`feed_seq` is the ordering key so Phase 2 is additive. Only relevant if process
-stays out-of-band from the writer.
 
 ## Non-goals
 
