@@ -62,7 +62,7 @@
     "build": "tsc -p tsconfig.build.json",
     "prepack": "npm run build",
     "test": "bun test ./src ./tests",
-    "test:coverage": "bun test --coverage --coverage-reporter=lcov --coverage-reporter=text ./src"
+    "test:coverage": "bun test --coverage --coverage-reporter=lcov --coverage-reporter=text ./src ./tests"
   },
   "dependencies": {
     "arktype": "^2.1.29"
