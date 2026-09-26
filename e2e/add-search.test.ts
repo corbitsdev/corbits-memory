@@ -3,7 +3,7 @@ import { createInMemoryGrantStore } from "@intx/authz";
 import type { Hono } from "hono";
 import type { TenantEnv } from "@intx/hub-api";
 
-import type { Memory } from "../src/memory.ts";
+import type { Memory } from "../src/memory.js";
 import {
   allow,
   createTestApp,
@@ -12,7 +12,7 @@ import {
   seedPrincipal,
   testDatabaseUrl,
   type TestDb,
-} from "./helpers.ts";
+} from "./helpers.js";
 
 describe.skipIf(testDatabaseUrl() === undefined)("add and search", () => {
   let db: TestDb;
