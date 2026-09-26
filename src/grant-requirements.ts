@@ -23,8 +23,7 @@ const GrantRequirement = type({
    * `memory:forget` scoped to what it creates"). **Nothing in this package
    * reads or enforces this value** — whether a specific caller may actually
    * forget/purge a specific document is decided entirely by the imperative
-   * creator check in `services/retention-ownership.ts`. See ARCHITECTURE.md
-   * § Boundaries for the two-mechanism split.
+   * creator check in `services/retention-ownership.ts`.
    */
   installHint: "'tenant' | 'creator' | 'invoker'",
   /** Package surfaces that need the requirement when installed. */
