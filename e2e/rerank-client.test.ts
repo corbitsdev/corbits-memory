@@ -12,7 +12,7 @@ import {
   rerankDocuments,
   validateRerankConfig,
 } from "../src/core/rerank-client.ts";
-import { startHttpStub } from "./lib/http-stub.ts";
+import { startHttpStub } from "./helpers.ts";
 
 // .env.example ships RERANK_MODEL=bge-reranker-base with RERANK_MAX_DOC_CHARS
 // unset; that combination must validate.

@@ -12,7 +12,7 @@ import {
   seedPrincipal,
   testDatabaseUrl,
   type TestDb,
-} from "./lib/db-harness.ts";
+} from "./helpers.ts";
 
 describe.skipIf(testDatabaseUrl() === undefined)("synthesized context rows", () => {
   let db: TestDb;

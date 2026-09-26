@@ -22,11 +22,11 @@ Postgres. See `IMPLEMENTATION.md` for how the pieces fit together.
 ## Running the tests
 
 ```bash
-bun run typecheck && bun run test
+bun run typecheck && bun run test && bun run test:e2e
 ```
 
-- `bun run test` runs the unit suite in `src/` and the end-to-end suite in
-  `tests/`. The end-to-end tests drive the mounted routes and migrations
+- `bun run test` runs the unit suite in `src/`; `bun run test:e2e` runs the
+  end-to-end suite in `e2e/`. The end-to-end tests drive the mounted routes and migrations
   against a real pgvector Postgres: set `TEST_DATABASE_URL` to a server the
   tests can create and drop databases on (for `docker compose up -d`,
   `postgres://memory:memory-dev-password@localhost:5434/memory`). Each suite
@@ -53,18 +53,16 @@ numbered file, because a guarded `ADD CONSTRAINT` keeps the old definition.
   changed; link any relevant issue.
 - Make sure `bun run typecheck && bun run test` pass before requesting review.
 
-## Commit messages
-
-- Present tense, imperative mood: "Add X", "Fix Y", "Harden Z" — not "Added"
-  or "Fixes".
-- No issue-tracker ticket references (e.g. `CL-1234`) in commit messages,
-  code, or comments — commit messages should be self-explanatory without an
-  external ticket.
-- One logical change per commit where practical; a commit message describes
-  the change, not the task that produced it.
-
 ## Contributor License Agreement
 
 Contributions require agreeing to the project's CLA — see `CLA.md`. The CLA
 bot will comment on your first PR with instructions if you haven't signed
 yet.
+
+## Commit messages
+
+Commit subjects and PR titles follow [Conventional Commits](https://www.conventionalcommits.org): `feat`, `fix`, `refactor`, `test`, `docs`, `build`, `ci`, `perf`, and `chore(release): x.y.z` for releases.
+Add `!` only for public API breaks: removed or renamed exports, changed signatures, newly required params. Peer and dependency range changes are `build(deps):` with no `!`.
+Keep subjects imperative, lowercase after the colon, 72 characters or less, and free of ticket IDs.
+No ticket IDs in code or comments either. One logical change per commit where practical; describe the change, not the task that produced it.
+Every PR links its issue with a `Closes <issue id>` line in the PR body.
