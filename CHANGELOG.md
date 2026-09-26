@@ -36,6 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `MEMORY_GRANT_REQUIREMENTS` is read from `package.json`
   `interchange.grantRequirements`, now the only declaration.
   `MEMORY_CAPABILITY_IDS` is typed `string[]`.
+- `prepack` runs `bun run build`.
 
 ### Upgrading from 0.1.0
 
