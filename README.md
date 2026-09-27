@@ -75,15 +75,15 @@ Other root exports: `MemoryError` and `RerankConfigError`, the `SEARCH_LIMIT_*` 
 
 Returns a `Hono<TenantEnv>` sub-app. Mount it at `/api/tenants/:tenantId/memory`, below the middleware that sets `principal` and `tenant` on the context (Interchange's `createResolveTenant` does). Identity always comes from the context, never from the request body.
 
-| Route                                       | Grant           | Does                                                             |
-| ------------------------------------------- | --------------- | ---------------------------------------------------------------- |
-| `POST /add`                                 | `memory:add`    | Adds a document, or a new version of one.                        |
-| `POST /search`                              | `memory:search` | Hybrid search over the documents the caller can see.             |
-| `GET /list`                                 | `memory:search` | Recent documents the caller can see.                             |
-| `GET /feed`                                 | `memory:search` | New versions after a `feed_seq` cursor, for consumers.           |
-| `POST /documents/:documentId/forget`        | `memory:forget` | Drops a document from search and redacts its text. Creator only. |
-| `POST /documents/:documentId/purge`         | `memory:purge`  | Deletes a document and its versions. Creator only.               |
-| `POST /versions/:versionId/retention-class` | `memory:forget` | Sets a version's retention class. Creator only.                  |
+| Route                                       | Grant           | Does                                                                                        |
+| ------------------------------------------- | --------------- | ------------------------------------------------------------------------------------------- |
+| `POST /add`                                 | `memory:add`    | Adds a document, or a new version of one.                                                   |
+| `POST /search`                              | `memory:search` | Hybrid search over the documents the caller can see.                                        |
+| `GET /list`                                 | `memory:search` | Recent documents the caller can see.                                                        |
+| `GET /feed`                                 | `memory:search` | New versions after a `feed_seq` cursor, for consumers.                                      |
+| `POST /documents/:documentId/forget`        | `memory:forget` | Drops a document from search and redacts its text, including the raw capture. Creator only. |
+| `POST /documents/:documentId/purge`         | `memory:purge`  | Deletes a document, its versions and its raw captures. Creator only.                        |
+| `POST /versions/:versionId/retention-class` | `memory:forget` | Sets a version's retention class. Creator only.                                             |
 
 A missing principal answers `401` and a missing grant answers `403`. `callerResolver` is optional: it resolves a non-session caller to a `{ tenantId, principalId }` before the same grant checks run, and a malformed result answers `500`.
 
