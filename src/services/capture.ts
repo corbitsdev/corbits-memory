@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import type { Db, RawSql } from "../db/client.js";
 import type { EngineConfig } from "../config.js";
 import { newId } from "../core/id.js";
@@ -374,6 +374,9 @@ async function insertChunksAndGraph(
   return insertedChunks;
 }
 
+// Namespaces the two-int4 advisory lock; deliberately arbitrary.
+const CAPTURE_LOCK_NAMESPACE = 0x3e30_7a12;
+
 // The replay pipeline's single derivation core: adaptAndPlan's output → doc
 // upsert → version(+authority) → chunks → edges, scoped to a target
 // `generation`. The live /capture path calls this with generation='live'
@@ -393,6 +396,12 @@ async function deriveVersionInTransaction(
   generation: string,
 ): Promise<CaptureTxResult> {
   const doc = plan.document;
+  // Serializes captures of one (tenant, adapter, externalRef): without it,
+  // parallel captures read the same active version and collide on the next
+  // version number. The document row may not exist yet, so FOR UPDATE can't.
+  await tx.execute(
+    sql`SELECT pg_advisory_xact_lock(${CAPTURE_LOCK_NAMESPACE}, hashtext(${JSON.stringify([input.tenantId, input.adapter, doc.externalRef])}))`,
+  );
   const existingRows = await tx
     .select()
     .from(memoryDocument)
