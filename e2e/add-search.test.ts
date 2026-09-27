@@ -103,4 +103,23 @@ describe.skipIf(testDatabaseUrl() === undefined)("add and search", () => {
     expect(await titles("alice", "acme")).toContain("Quarterly roadmap");
     expect(await titles("bob", "globex")).toEqual([]);
   });
+
+  test("parallel adds to one externalRef become sequential versions", async () => {
+    const results = await Promise.all(
+      [1, 2, 3, 4, 5, 6].map((i) =>
+        memory!.add({
+          tenantId: "acme",
+          principalId: "alice",
+          externalRef: "parallel-ref",
+          content: { title: "Parallel", text: `parallel edit ${i}` },
+        }),
+      ),
+    );
+    const documentIds = new Set(results.map((r) => r.documentId));
+    expect(documentIds.size).toBe(1);
+    const versions = await db.sql<{ version: number }[]>`
+      SELECT version FROM memory.version
+        WHERE document_id = ${[...documentIds][0]!} ORDER BY version`;
+    expect(versions.map((v) => v.version)).toEqual([1, 2, 3, 4, 5, 6]);
+  });
 });
