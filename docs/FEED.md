@@ -26,6 +26,7 @@ memory.feed({ tenantId, principalId, after?, limit?, excludeGenerator? })
 | `excludeGenerator` | Skip versions with this `generator_agent_id` (loop-safe). |
 
 - Ordered by `feed_seq` ascending (Postgres `bigserial` on `memory.version`).
+- Live versions of a tenant commit in `feed_seq` order (a per-tenant transaction lock), so a cursor never passes a version still being written.
 - **Live generation only** — same rule as default search.
 - Capability: `memory` / `search` (same as list/retrieve).
 - Document access: grant-tag post-filter identical to search.
