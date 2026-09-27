@@ -9,10 +9,10 @@ import { createRequireGrant, type TenantEnv } from "@intx/hub-api";
 import { Hono } from "hono";
 import postgres from "postgres";
 
-import { createMemory, type Memory } from "../src/memory.ts";
-import type { MemoryConfig } from "../src/mount-config.ts";
-import { runMemoryMigrations } from "../src/migrations.ts";
-import { createMemoryRoutes } from "../src/routes/mount.ts";
+import { createMemory, type Memory } from "../src/memory.js";
+import type { MemoryConfig } from "../src/mount-config.js";
+import { runMemoryMigrations } from "../src/migrations.js";
+import { createMemoryRoutes } from "../src/routes/mount.js";
 
 const FTS_LANGUAGE = "english";
 

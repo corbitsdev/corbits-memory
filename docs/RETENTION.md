@@ -1,4 +1,4 @@
-# Retention classes (CL-5871)
+# Retention classes
 
 Versions carry a **retention class** orthogonal to temporal ranking class
 (`temporal_class`) and lineage (`source_class` / `provenance`).
@@ -31,7 +31,7 @@ verb — TTL never hard-deletes.
 
 Service module: `src/services/retention.ts`.
 
-## HTTP surface (CL-6288)
+## HTTP surface
 
 | Route                                               | Grant action    | Plane verb           |
 | --------------------------------------------------- | --------------- | -------------------- |
@@ -72,4 +72,4 @@ something a single user requests about their own data, and it has no natural
 per-caller grant (it does not take a `principalId` and touches every
 matching row tenant-wide). A host that wants it schedules a cron job calling
 `memory.sweepEphemeral({ tenantId })` in-process (the returned `Memory`
-already exposes it); the engine stays cron-free per `ARCHITECTURE.md`.
+already exposes it); the engine stays cron-free.

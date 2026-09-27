@@ -5,7 +5,7 @@ import { createInMemoryGrantStore } from "@intx/authz";
 import { runMigrations } from "@intx/db";
 import * as v010 from "@corbits/memory-0.1.0";
 
-import { runMemoryMigrations } from "../src/migrations.ts";
+import { runMemoryMigrations } from "../src/migrations.js";
 import {
   allow,
   createEmptyDb,
@@ -14,7 +14,7 @@ import {
   testDatabaseUrl,
   testMemoryConfig,
   type TestDb,
-} from "./helpers.ts";
+} from "./helpers.js";
 
 const DOCS = [
   {

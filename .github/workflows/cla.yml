@@ -1,0 +1,53 @@
+name: CLA Assistant
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_target:
+    types: [opened, synchronize]
+
+permissions:
+  actions: write
+  contents: write
+  pull-requests: write
+  statuses: write
+
+concurrency:
+  group: cla-${{ github.event.pull_request.number || github.event.issue.number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  cla:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Maintainer fast path
+        if: >-
+          github.event_name == 'pull_request_target' &&
+          (contains(fromJSON('["TheGreatAxios","brianjfox"]'), github.event.pull_request.user.login) ||
+           endsWith(github.event.pull_request.user.login, '[bot]'))
+        run: echo "Maintainer or bot pull request; CLA not required."
+      - name: CLA Assistant
+        if: >-
+          ((github.event.comment.body == 'recreate-signatures' ||
+            github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA') ||
+           github.event_name == 'pull_request_target') &&
+          !(github.event_name == 'pull_request_target' &&
+            (contains(fromJSON('["TheGreatAxios","brianjfox"]'), github.event.pull_request.user.login) ||
+             endsWith(github.event.pull_request.user.login, '[bot]')))
+        # corbitsdev/cla-assistant-action v2.6.1-node24: upstream v2.6.1 on node24.
+        uses: corbitsdev/cla-assistant-action@ef6d3e51db8232fe93090810f13bde30497c1d74
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          path-to-document: "https://github.com/${{ github.repository }}/blob/main/CLA.md"
+          path-to-signatures: "signatures/version1/cla.json"
+          branch: "cla-signatures"
+          allowlist: TheGreatAxios,brianjfox,*[bot]
+          custom-notsigned-prcomment: >-
+            Thank you for your contribution. Before it can be merged, please read our
+            [Contributor License Agreement](https://github.com/${{ github.repository }}/blob/main/CLA.md)
+            and sign it by posting a new comment on this pull request containing
+            exactly the line below (nothing else):
+          custom-pr-sign-comment: "I have read the CLA Document and I hereby sign the CLA"
+          custom-allsigned-prcomment: "All contributors have signed the CLA."

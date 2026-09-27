@@ -1,46 +1,37 @@
-name: CI
+name: ci
 
 on:
+  pull_request:
   push:
     branches: [main]
-  pull_request:
 
 jobs:
-  test:
+  check:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     services:
       postgres:
         image: pgvector/pgvector:pg17
-        env:
-          POSTGRES_PASSWORD: memory-test
-        ports:
-          - 5432:5432
+        env: { POSTGRES_PASSWORD: postgres, POSTGRES_DB: memory }
+        ports: ["5432:5432"]
         options: >-
-          --health-cmd pg_isready --health-interval 5s --health-timeout 5s
-          --health-retries 10
+          --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
     env:
-      TEST_DATABASE_URL: postgres://postgres:memory-test@localhost:5432/postgres
+      TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/memory
     steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-      - run: bun install --frozen-lockfile
-      - run: bun run lint
-      - run: bun run format:check
-      - run: bun run typecheck
-      - run: bun run test
-      - run: bun run test:e2e
-  node:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        node-version: [24]
-    steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node-version }}
-      - run: npm install --no-audit --no-fund
-      - run: npx tsc --noEmit
-      - run: npm pack --dry-run
+          node-version: 24
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run check
+      - run: bun run test:e2e
+      - name: node consumer smoke
+        run: |
+          set -euo pipefail
+          TARBALL="$PWD/$(npm pack --silent)"
+          mkdir -p "$RUNNER_TEMP/c" && cd "$RUNNER_TEMP/c"
+          npm init -y >/dev/null && npm pkg set type=module >/dev/null
+          npm install "$TARBALL"
+          node -e 'import("@corbits/memory").then((m) => { for (const n of ["createMemory", "createMemoryRoutes", "loadMemoryConfig", "mountWorkflowMemory", "createMemoryHttpClient"]) if (typeof m[n] !== "function") throw new Error("missing export: " + n); })'

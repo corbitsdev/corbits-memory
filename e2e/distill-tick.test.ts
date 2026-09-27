@@ -1,9 +1,9 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { createInMemoryGrantStore } from "@intx/authz";
 
-import { runDistillTick } from "../src/distiller/tick.ts";
-import { createMemoryHttpClient } from "../src/http-client.ts";
-import type { Memory } from "../src/memory.ts";
+import { runDistillTick } from "../src/distiller/tick.js";
+import { createMemoryHttpClient } from "../src/http-client.js";
+import type { Memory } from "../src/memory.js";
 import {
   allow,
   createTestApp,
@@ -12,7 +12,7 @@ import {
   seedPrincipal,
   testDatabaseUrl,
   type TestDb,
-} from "./helpers.ts";
+} from "./helpers.js";
 
 describe.skipIf(testDatabaseUrl() === undefined)("distill tick", () => {
   let db: TestDb;

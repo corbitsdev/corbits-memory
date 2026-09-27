@@ -1,23 +1,8 @@
 node_modules/
 dist/
-.env
-.env.local
-*.log
-.DS_Store
-data/
+*.tsbuildinfo
+*.tgz
 coverage/
-
-# Local product-hub runtime state (docker volumes cover Postgres; these are file-based)
-.hub-data/
-.agent-state/
-tmp/
-
-# Dispatch orchestration scratch (local only)
-dispatch/
-
-# Staging dirs for sibling package extracts (copy out with cp only)
-.staging-*/
-
-
-# Local agent/session scratch — never commit
-.corbits/
+.env
+.env.*
+.DS_Store

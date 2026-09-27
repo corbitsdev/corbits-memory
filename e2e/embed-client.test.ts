@@ -5,8 +5,8 @@ import {
   EmbedTimeoutError,
   embedTexts,
   probeEmbedDims,
-} from "../src/core/embed-client.ts";
-import { startHttpStub } from "./helpers.ts";
+} from "../src/core/embed-client.js";
+import { startHttpStub } from "./helpers.js";
 
 const stub = startHttpStub();
 afterAll(() => stub.stop());
