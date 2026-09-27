@@ -40,7 +40,7 @@ never creates one; it mounts onto yours.
 | `createMemoryRoutes({ memory, requireGrant })` | Hono sub-app the host mounts at `/api/tenants/:tenantId/memory` |
 | `mountWorkflowMemory(app, { memory, agentToken })` | Parallel run-scoped `/api/workflow-memory/*` for deployed agents |
 | `loadMemoryConfig()` | Config from env |
-| `runMemoryMigrations(url)` | Apply pgvector schema |
+| `runMemoryMigrations(dbConfig, { schema, ftsLanguage })` | Apply pgvector schema |
 | `@corbits/memory/sidecar-bundle` | Deployed-agent factory — no client code, no base URL, no token |
 | `@corbits/memory/distiller` | Optional process helpers: `runDistillTick`, `createResidentDistiller` |
 

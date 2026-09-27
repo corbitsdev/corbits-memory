@@ -1,15 +1,16 @@
 /**
  * Memory-plane (pgvector) schema migrations, callable by host apps.
- * Applies every migrations/*.sql in filename order, each in its own
- * transaction, tracked in memory._migrations so re-runs are idempotent
- * and the ledger never collides with a host's public migration bookkeeping.
+ * Applies every migrations/*.sql in filename order on each run, the same
+ * way Interchange `runMigrations` does: every file is idempotent, so there
+ * is no ledger.
  */
 import postgres from "postgres";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
+import type { DBConfig } from "@intx/db";
 import {
   FTS_LANGUAGE_TOKEN,
-  parseFtsLanguage,
+  assertFtsLanguage,
   verifyFtsLanguage,
 } from "./core/fts-language.js";
 import { createRawSqlClient } from "./core/embed-sql.js";
@@ -19,55 +20,63 @@ import { MEMORY_SCHEMA } from "./db/schema.js";
 // <pkg>/migrations next to <pkg>/dist, so this resolves in Node too.
 const MIGRATIONS_DIR = join(import.meta.dirname, "..", "migrations");
 
-export async function runMemoryMigrations(
-  databaseUrl: string,
-  opts: { log?: (line: string) => void; ftsLanguage?: string } = {},
-): Promise<void> {
-  const log = opts.log ?? (() => {});
-  // This runner is an env-driven boundary like loadMemoryConfig: when the
-  // caller does not pass a language it reads the same FTS_LANGUAGE the query
-  // side will, so the two cannot diverge by defaulting differently.
-  const ftsLanguage = parseFtsLanguage(
-    opts.ftsLanguage ?? process.env["FTS_LANGUAGE"],
-  );
-  const sql = postgres(databaseUrl, { max: 1 });
-  try {
-    // Schema first so the ledger and every later migration can land inside it
-    // even when 0001 has not been applied yet (fresh DB) or was skipped.
-    await sql.unsafe(
-      `CREATE SCHEMA IF NOT EXISTS "${MEMORY_SCHEMA}"`,
-    );
-    await sql.unsafe(
-      `CREATE TABLE IF NOT EXISTS "${MEMORY_SCHEMA}"."_migrations" (
-      "name" text PRIMARY KEY,
-      "applied_at" timestamp NOT NULL DEFAULT now()
-    )`,
-    );
-    const appliedRows = (await sql.unsafe(
-      `SELECT name FROM "${MEMORY_SCHEMA}"."_migrations"`,
-    )) as unknown as { name: string }[];
-    const applied = new Set(appliedRows.map((row) => row.name));
+// Advisory locks are namespaced by this integer alone; deliberately arbitrary
+// and specific to @corbits/memory.
+const LOCK_KEY = 0x3e30_7a11;
 
+function quoteIdentifier(name: string): string {
+  return `"${name.replace(/"/g, '""')}"`;
+}
+
+/**
+ * Takes the same `config` and `schema` the host passes Interchange
+ * `runMigrations`: `schema` is where the host's `tenant` and `principal`
+ * tables live, and the `"public".` foreign-key references in the SQL are
+ * rewritten to it. Memory's own tables always live in the `memory` schema.
+ * `ftsLanguage` is fixed into the generated tsvector column; pass the same
+ * value `loadMemoryConfig` resolves for the query side.
+ */
+export async function runMemoryMigrations(
+  config: DBConfig,
+  options: { schema: string; ftsLanguage: string },
+): Promise<void> {
+  if (options.schema.length === 0) {
+    throw new Error("runMemoryMigrations: schema name must not be empty");
+  }
+  const hostSchema = quoteIdentifier(options.schema);
+  const ftsLanguage = assertFtsLanguage(options.ftsLanguage);
+  const sql = postgres({
+    host: config.host,
+    port: config.port,
+    user: config.user,
+    password: config.password,
+    database: config.database,
+    ssl: config.ssl ?? false,
+    max: 1,
+    onnotice: () => undefined,
+  });
+  try {
     const files = (await readdir(MIGRATIONS_DIR))
       .filter((name) => name.endsWith(".sql"))
       .sort();
+    const ddls = await Promise.all(
+      files.map(async (file) =>
+        (await readFile(join(MIGRATIONS_DIR, file), "utf8"))
+          .replaceAll(FTS_LANGUAGE_TOKEN, ftsLanguage)
+          .replace(/"public"\.(?=")/g, `${hostSchema}.`),
+      ),
+    );
 
-    for (const file of files) {
-      if (applied.has(file)) {
-        log(`(skip) ${file}`);
-        continue;
-      }
-      const raw = await readFile(join(MIGRATIONS_DIR, file), "utf8");
-      const ddl = raw.replaceAll(FTS_LANGUAGE_TOKEN, ftsLanguage);
-      await sql.begin(async (tx) => {
+    // One transaction behind a transaction-scoped advisory lock: concurrent
+    // replicas serialize instead of racing CREATE ... IF NOT EXISTS or
+    // deadlocking on replayed ALTERs, and a failure releases the lock.
+    await sql.begin(async (tx) => {
+      await tx`SELECT pg_advisory_xact_lock(${LOCK_KEY})`;
+      await tx.unsafe(`CREATE SCHEMA IF NOT EXISTS "${MEMORY_SCHEMA}"`);
+      for (const ddl of ddls) {
         await tx.unsafe(ddl);
-        await tx.unsafe(
-          `INSERT INTO "${MEMORY_SCHEMA}"."_migrations" (name) VALUES ($1)`,
-          [file],
-        );
-      });
-      log(`applied ${file}`);
-    }
+      }
+    });
 
     // The catalog is the authoritative record of which language the
     // generated column was actually built with; a previously-migrated

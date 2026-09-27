@@ -42,19 +42,30 @@ describe("the baseline migration language token", () => {
   });
 });
 
-describe("runMemoryMigrations language boundary", () => {
-  it("falls back to the FTS_LANGUAGE env var when no option is passed", async () => {
-    // Pin the boundary contract without a live database: the runner must
-    // resolve exactly like the config loader, from the same env var.
+describe("runMemoryMigrations boundary", () => {
+  const config = {
+    host: "unused",
+    port: 5432,
+    user: "unused",
+    password: "unused",
+    database: "unused",
+  };
+
+  it("rejects an invalid ftsLanguage before connecting", async () => {
     const { runMemoryMigrations } = await import("../migrations.js");
-    process.env["FTS_LANGUAGE"] = "not a valid name";
-    try {
-      await expect(runMemoryMigrations("postgres://unused")).rejects.toThrow(
-        "not a valid text search config name",
-      );
-    } finally {
-      delete process.env["FTS_LANGUAGE"];
-    }
+    await expect(
+      runMemoryMigrations(config, {
+        schema: "public",
+        ftsLanguage: "not a valid name",
+      }),
+    ).rejects.toThrow("not a valid text search config name");
+  });
+
+  it("rejects an empty host schema before connecting", async () => {
+    const { runMemoryMigrations } = await import("../migrations.js");
+    await expect(
+      runMemoryMigrations(config, { schema: "", ftsLanguage: "english" }),
+    ).rejects.toThrow("schema name must not be empty");
   });
 });
 
