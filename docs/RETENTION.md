@@ -45,7 +45,7 @@ Service module: `src/services/retention.ts`.
 offering "forget this" must never be one flag away from "shred this" by
 accident. `forget` (tombstone) is **not** an undo-able action: the document
 stops appearing in search/feed, its chunk text is overwritten with
-`[redacted]`, and so is the text of any raw capture only its versions
+`[redacted]`, and so is the text of every raw capture its versions
 referenced — the original content does not survive, there is no
 un-tombstone/restore verb, and only version metadata (status, timestamps,
 retention class) remains for audit. `purge` (hard delete) goes further and
