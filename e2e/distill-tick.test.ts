@@ -12,7 +12,7 @@ import {
   seedPrincipal,
   testDatabaseUrl,
   type TestDb,
-} from "./lib/db-harness.ts";
+} from "./helpers.ts";
 
 describe.skipIf(testDatabaseUrl() === undefined)("distill tick", () => {
   let db: TestDb;

@@ -1,4 +1,4 @@
-// Real-Postgres harness for the tests/ suite. Each suite gets a fresh
+// Real-Postgres harness for the e2e/ suites. Each suite gets a fresh
 // database on the server named by TEST_DATABASE_URL (any pgvector Postgres
 // whose user can create databases, such as compose.yml's), with Interchange's control-plane tables and the memory
 // migrations applied; `close` drops it.
@@ -9,10 +9,10 @@ import { createRequireGrant, type TenantEnv } from "@intx/hub-api";
 import { Hono } from "hono";
 import postgres from "postgres";
 
-import { createMemory, type Memory } from "../../src/memory.ts";
-import type { MemoryConfig } from "../../src/mount-config.ts";
-import { runMemoryMigrations } from "../../src/migrations.ts";
-import { createMemoryRoutes } from "../../src/routes/mount.ts";
+import { createMemory, type Memory } from "../src/memory.ts";
+import type { MemoryConfig } from "../src/mount-config.ts";
+import { runMemoryMigrations } from "../src/migrations.ts";
+import { createMemoryRoutes } from "../src/routes/mount.ts";
 
 const FTS_LANGUAGE = "english";
 
@@ -49,7 +49,7 @@ export type TestDb = {
 export async function createEmptyDb(): Promise<TestDb> {
   const serverUrl = testDatabaseUrl();
   if (serverUrl === undefined) {
-    throw new Error("TEST_DATABASE_URL is required for the tests/ suite");
+    throw new Error("TEST_DATABASE_URL is required for the e2e/ suites");
   }
   const url = new URL(serverUrl);
   const database = `memory_test_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
@@ -204,4 +204,51 @@ export function createTestApp(opts: {
     }),
   );
   return app;
+}
+
+// A local HTTP server standing in for an embed or rerank endpoint. Each test
+// sets `reply`; every request is recorded with its path, auth header and
+// JSON body (both clients only send JSON).
+
+export type StubRequest = {
+  path: string;
+  authorization: string | null;
+  body: unknown;
+};
+
+export type HttpStub = {
+  url: string;
+  requests: StubRequest[];
+  reply: (req: StubRequest) => Response | Promise<Response>;
+  reset: () => void;
+  stop: () => void;
+};
+
+const unconfigured = () => new Response("no reply configured", { status: 500 });
+
+export function startHttpStub(): HttpStub {
+  const stub: HttpStub = {
+    url: "",
+    requests: [],
+    reply: unconfigured,
+    reset: () => {
+      stub.requests.length = 0;
+      stub.reply = unconfigured;
+    },
+    stop: () => server.stop(true),
+  };
+  const server = Bun.serve({
+    port: 0,
+    async fetch(req) {
+      const recorded: StubRequest = {
+        path: new URL(req.url).pathname,
+        authorization: req.headers.get("authorization"),
+        body: await req.json(),
+      };
+      stub.requests.push(recorded);
+      return stub.reply(recorded);
+    },
+  });
+  stub.url = server.url.href.replace(/\/$/, "");
+  return stub;
 }

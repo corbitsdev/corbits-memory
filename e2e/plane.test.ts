@@ -15,7 +15,7 @@ import {
   testDatabaseUrl,
   testMemoryConfig,
   type TestDb,
-} from "./lib/db-harness.ts";
+} from "./helpers.ts";
 
 async function rejection(run: Promise<unknown>): Promise<MemoryError> {
   const err = await run.then(

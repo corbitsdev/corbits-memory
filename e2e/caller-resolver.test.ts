@@ -15,7 +15,7 @@ import {
   seedPrincipal,
   testDatabaseUrl,
   type TestDb,
-} from "./lib/db-harness.ts";
+} from "./helpers.ts";
 
 // A machine caller (e.g. a workflow run) never passes the host's session
 // middleware; the host's callerResolver names its tenant and principal.

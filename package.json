@@ -1,6 +1,6 @@
 {
   "name": "@corbits/memory",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Mountable memory add/search/list SDK for Interchange hubs — includes resident distiller",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -61,8 +61,9 @@
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.build.json",
     "prepack": "npm run build",
-    "test": "bun test ./src ./tests",
-    "test:coverage": "bun test --coverage --coverage-reporter=lcov --coverage-reporter=text ./src ./tests"
+    "test": "bun test ./src",
+    "test:e2e": "bun test ./e2e",
+    "test:coverage": "bun test --coverage --coverage-reporter=lcov --coverage-reporter=text ./src ./e2e"
   },
   "dependencies": {
     "arktype": "^2.1.29"
@@ -81,6 +82,7 @@
     "postgres": "^3.4.9"
   },
   "devDependencies": {
+    "@corbits/memory-0.1.0": "npm:@corbits/memory@0.1.0",
     "@intx/agent": "0.4.0",
     "@intx/authz": "0.4.0",
     "@intx/db": "0.4.0",
