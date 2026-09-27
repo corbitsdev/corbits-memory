@@ -648,9 +648,9 @@ describe("hybridSearch — embed unconfigured (CL-6287)", () => {
     };
   }
 
-  // The no-embed lexical dispatch itself is covered by memory.test.ts's
-  // wiring-blocked plane tests; what stays here is the degraded-flag
-  // contract (configured-off reads differently from a runtime failure).
+  // The no-embed lexical dispatch itself is covered end to end by tests/;
+  // what stays here is the degraded-flag contract (configured-off reads
+  // differently from a runtime failure).
   it("reports dense_unavailable and lexical_only together, distinguishing configured-off from a runtime failure", async () => {
     const result = await hybridSearch(
       {

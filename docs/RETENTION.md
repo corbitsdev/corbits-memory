@@ -64,7 +64,7 @@ creator (`created_by_principal_id` — the document's first version for
 independent of any share grant. A peer who can search a shared document gets
 403 on `forget`/`purge`/`retention-class` for it. See
 `src/services/retention-ownership.ts` and the ownership tests in
-`src/memory.test.ts` / `src/routes/routes.test.ts`.
+`tests/grants.test.ts` / `tests/caller-resolver.test.ts`.
 
 **`sweepEphemeral` stays off the HTTP surface.** It is a maintenance sweep —
 "deprecate every ephemeral version past its TTL for this tenant" — not
