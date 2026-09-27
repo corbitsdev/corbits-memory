@@ -61,7 +61,7 @@
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.build.json",
     "prepack": "npm run build",
-    "test": "bun test ./src",
+    "test": "bun test ./src ./tests",
     "test:coverage": "bun test --coverage --coverage-reporter=lcov --coverage-reporter=text ./src"
   },
   "dependencies": {

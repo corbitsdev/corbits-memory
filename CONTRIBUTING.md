@@ -24,23 +24,15 @@ the pieces fit together.
 bun run typecheck && bun run test
 ```
 
-- `bun run test` runs the unit suite (`bun test ./src`) — every `core/*`
-  module, most services, and the route layer have colocated `*.test.ts`
-  files. It needs no external services.
-- `bun run test:coverage` runs the same suite with lcov + text coverage
+- `bun run test` runs the unit suite in `src/` and the end-to-end suite in
+  `tests/`. The end-to-end tests drive the mounted routes and migrations
+  against a real pgvector Postgres: set `TEST_DATABASE_URL` to a server the
+  tests can create and drop databases on (for `docker compose up -d`,
+  `postgres://memory:memory-dev-password@localhost:5434/memory`). Each suite
+  creates its own database and drops it afterwards. Without
+  `TEST_DATABASE_URL` those suites skip.
+- `bun run test:coverage` runs the unit suite with lcov + text coverage
   reports.
-- `bun run test:e2e` runs the integration suite (`bun test ./e2e`) — files
-  under the top-level `e2e/` directory drive the full stack against a
-  **real** pgvector Postgres and a **real** embedding endpoint. It needs both
-  reachable:
-  - `TEST_DATABASE_URL` (defaults to the `docker compose` connection string)
-  - `TEST_EMBED_BASE_URL` / `TEST_EMBED_MODEL` (default to a local Ollama at
-    `http://localhost:11434` / `nomic-embed-text`)
-
-  If either is unreachable, the affected tests skip loudly with a logged
-  reason rather than failing. If you're changing anything in the capture or
-  search pipeline, run this suite with both dependencies up before opening a
-  PR.
 
 `bun run typecheck` (`tsc --noEmit`) must be clean before any commit.
 
