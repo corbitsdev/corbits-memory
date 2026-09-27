@@ -120,6 +120,9 @@ function parseOptionalDate(value: string | undefined): Date | null {
   return new Date(value);
 }
 
+// Namespaces the two-int4 advisory lock; deliberately arbitrary.
+const FEED_LOCK_NAMESPACE = 0x3e30_7a13;
+
 async function insertVersion(
   tx: Tx,
   input: CaptureInput,
@@ -135,6 +138,14 @@ async function insertVersion(
 ): Promise<string> {
   const versionId = newId("kver");
   const authoritySignals = deriveAuthoritySignals(plan);
+  if (opts.generation === LIVE_GENERATION) {
+    // feed_seq is taken at insert but becomes visible at commit. Holding a
+    // per-tenant lock from here to commit makes live versions commit in
+    // feed_seq order, so a feed cursor never passes a row still in flight.
+    await tx.execute(
+      sql`SELECT pg_advisory_xact_lock(${FEED_LOCK_NAMESPACE}, hashtext(${input.tenantId}))`,
+    );
+  }
   await tx.insert(memoryVersion).values({
     id: versionId,
     tenantId: input.tenantId,
