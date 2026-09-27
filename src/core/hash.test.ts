@@ -33,7 +33,10 @@ describe("contentHash", () => {
 
   it("changes when chunk text changes", () => {
     const h1 = contentHash(base);
-    const h2 = contentHash({ ...base, chunkTexts: ["first chunk", "different"] });
+    const h2 = contentHash({
+      ...base,
+      chunkTexts: ["first chunk", "different"],
+    });
     expect(h1).not.toBe(h2);
   });
 

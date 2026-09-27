@@ -28,7 +28,6 @@ const DEGRADE_FLAG_SET = {
   lexical_only: true,
 } satisfies Record<DegradeFlag, true>;
 
-
 // Deriving the list from a `satisfies Record<DegradeFlag, true>` object
 // means adding a flag in hybrid-search.ts without adding it here is a
 // compile error (missing property), not a silent gap that only a test
@@ -214,7 +213,7 @@ function newTenantState(): TenantState {
     totalSearches: 0,
     degradeCounts: emptyDegradeCounts(),
     since: new Date(),
-    windowBuffer: new Array(config.windowSize).fill(undefined),
+    windowBuffer: Array.from({ length: config.windowSize }, () => undefined),
     windowCursor: 0,
     windowFilled: 0,
     windowFlagCounts: zeroFlagCounts(),
@@ -239,7 +238,7 @@ let tenants = new Map<string, TenantState>();
 // trade-off.
 function resizeAllTenantWindows(windowSize: number): void {
   for (const state of tenants.values()) {
-    state.windowBuffer = new Array(windowSize).fill(undefined);
+    state.windowBuffer = Array.from({ length: windowSize }, () => undefined);
     state.windowCursor = 0;
     state.windowFilled = 0;
     state.windowFlagCounts = zeroFlagCounts();
@@ -296,7 +295,10 @@ function pushToWindow(state: TenantState, flags: readonly DegradeFlag[]): void {
   const evicted = state.windowBuffer[state.windowCursor];
   if (evicted) {
     for (const flag of evicted) {
-      state.windowFlagCounts[flag] = Math.max(0, state.windowFlagCounts[flag] - 1);
+      state.windowFlagCounts[flag] = Math.max(
+        0,
+        state.windowFlagCounts[flag] - 1,
+      );
     }
   } else {
     state.windowFilled = Math.min(state.windowFilled + 1, config.windowSize);
@@ -332,7 +334,10 @@ export interface DegradeMetricsSnapshot {
   escalated: Record<DegradeFlag, boolean>;
 }
 
-function toSnapshot(tenantId: string, state: TenantState): DegradeMetricsSnapshot {
+function toSnapshot(
+  tenantId: string,
+  state: TenantState,
+): DegradeMetricsSnapshot {
   const windowedDegradeRate = {} as Record<DegradeFlag, number>;
   for (const flag of ALL_DEGRADE_FLAGS) {
     windowedDegradeRate[flag] = windowedRate(state, flag);
@@ -422,7 +427,9 @@ export function recordDegrade(
 }
 
 /** Read-only snapshot for a host to expose on its own metrics/health endpoint. */
-export function getDegradeMetricsSnapshot(tenantId: string): DegradeMetricsSnapshot {
+export function getDegradeMetricsSnapshot(
+  tenantId: string,
+): DegradeMetricsSnapshot {
   const state = tenants.get(tenantId) ?? newTenantState();
   return toSnapshot(tenantId, state);
 }

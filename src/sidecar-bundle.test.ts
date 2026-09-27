@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
 import { MEMORY_TOOL_DEFINITIONS } from "./tools.js";
-import { HUB_CREDENTIAL_HANDLE, memory, SIDECAR_BUNDLE_ID } from "./sidecar-bundle.js";
+import {
+  HUB_CREDENTIAL_HANDLE,
+  memory,
+  SIDECAR_BUNDLE_ID,
+} from "./sidecar-bundle.js";
 
 type Recorded = { url: string; init?: RequestInit };
 
@@ -9,7 +13,10 @@ function env(recorded: Recorded[], respond: () => Response) {
   const credential = {
     kind: "http" as const,
     fetch: (input: string | URL | Request, init?: RequestInit) => {
-      recorded.push({ url: String(input), ...(init !== undefined ? { init } : {}) });
+      recorded.push({
+        url: String(input),
+        ...(init !== undefined ? { init } : {}),
+      });
       return Promise.resolve(respond());
     },
     dispose: () => undefined,
@@ -18,7 +25,8 @@ function env(recorded: Recorded[], respond: () => Response) {
     address: "run-1@acme.example.com",
     capabilities: {
       resolve: (key: string) => {
-        if (key !== "credentials") throw new Error(`unexpected capability ${key}`);
+        if (key !== "credentials")
+          throw new Error(`unexpected capability ${key}`);
         return {
           resolve: (handle: string) => {
             if (handle !== HUB_CREDENTIAL_HANDLE) {
@@ -33,10 +41,13 @@ function env(recorded: Recorded[], respond: () => Response) {
 }
 
 const ok = () =>
-  new Response(JSON.stringify({ data: { documentId: "doc_1", versionId: "ver_1" } }), {
-    status: 200,
-    headers: { "content-type": "application/json" },
-  });
+  new Response(
+    JSON.stringify({ data: { documentId: "doc_1", versionId: "ver_1" } }),
+    {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    },
+  );
 
 const signal = new AbortController().signal;
 
@@ -104,7 +115,10 @@ describe("the memory sidecar bundle", () => {
   test("an unknown tool name is a tool error", async () => {
     const recorded: Recorded[] = [];
     const bundle = memory(env(recorded, ok));
-    const result = await bundle.run({ id: "d", name: "memory_nope", arguments: {} }, signal);
+    const result = await bundle.run(
+      { id: "d", name: "memory_nope", arguments: {} },
+      signal,
+    );
     expect(result.isError).toBe(true);
     expect(recorded).toHaveLength(0);
   });
@@ -126,7 +140,10 @@ describe("every declared tool maps onto a route", () => {
     test(`${name} calls ${url}`, async () => {
       const recorded: Recorded[] = [];
       const bundle = memory(env(recorded, ok));
-      const result = await bundle.run({ id: name, name, arguments: args }, signal);
+      const result = await bundle.run(
+        { id: name, name, arguments: args },
+        signal,
+      );
       expect(result.isError).toBeUndefined();
       expect(recorded[0]?.url).toBe(url);
       await bundle.dispose?.();
@@ -154,7 +171,11 @@ describe("every declared tool maps onto a route", () => {
     const recorded: Recorded[] = [];
     const bundle = memory(env(recorded, ok));
     await bundle.run(
-      { id: "n", name: "@corbits/memory/sidecar-bundle:memory_list", arguments: {} },
+      {
+        id: "n",
+        name: "@corbits/memory/sidecar-bundle:memory_list",
+        arguments: {},
+      },
       signal,
     );
     expect(recorded[0]?.url).toBe("/api/workflow-memory/list");
@@ -162,7 +183,10 @@ describe("every declared tool maps onto a route", () => {
 
   test("a body-less hub error still reads as a tool error", async () => {
     const bundle = memory(env([], () => new Response("nope", { status: 500 })));
-    const result = await bundle.run({ id: "e", name: "memory_list", arguments: {} }, signal);
+    const result = await bundle.run(
+      { id: "e", name: "memory_list", arguments: {} },
+      signal,
+    );
     expect(result.isError).toBe(true);
     expect(result.content).toBe("the hub answered 500");
   });

@@ -4,7 +4,4 @@ export type {
   LiveSearchItem,
   SourceProvider,
 } from "./types.js";
-export {
-  createFakeDocumentStore,
-  createFakeSourceProvider,
-} from "./fakes.js";
+export { createFakeDocumentStore, createFakeSourceProvider } from "./fakes.js";

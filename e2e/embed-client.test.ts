@@ -12,7 +12,11 @@ const stub = startHttpStub();
 afterAll(() => stub.stop());
 beforeEach(() => stub.reset());
 
-const openai = { baseUrl: stub.url, modelId: "text-embed-3", apiStyle: "openai" } as const;
+const openai = {
+  baseUrl: stub.url,
+  modelId: "text-embed-3",
+  apiStyle: "openai",
+} as const;
 
 describe("embedTexts", () => {
   test("sends nothing for empty input", async () => {
@@ -26,35 +30,55 @@ describe("embedTexts", () => {
       const texts = body.input ?? body.inputs ?? [];
       const vectors = texts.map((t) => [t.length, 0]);
       if (req.path === "/v1/embeddings") {
-        return Response.json({ data: vectors.map((embedding) => ({ embedding })) });
+        return Response.json({
+          data: vectors.map((embedding) => ({ embedding })),
+        });
       }
       if (req.path === "/embed") return Response.json(vectors);
       return Response.json({ embeddings: vectors });
     };
 
-    expect(await embedTexts(["a", "bb"], openai)).toEqual([[1, 0], [2, 0]]);
+    expect(await embedTexts(["a", "bb"], openai)).toEqual([
+      [1, 0],
+      [2, 0],
+    ]);
     expect(
-      await embedTexts(["a", "bb"], { baseUrl: stub.url, modelId: "bge-m3", apiStyle: "tei" }),
-    ).toEqual([[1, 0], [2, 0]]);
+      await embedTexts(["a", "bb"], {
+        baseUrl: stub.url,
+        modelId: "bge-m3",
+        apiStyle: "tei",
+      }),
+    ).toEqual([
+      [1, 0],
+      [2, 0],
+    ]);
     expect(
       await embedTexts(["a", "bb"], {
         baseUrl: stub.url,
         modelId: "nomic-embed-text",
         apiStyle: "ollama",
       }),
-    ).toEqual([[1, 0], [2, 0]]);
+    ).toEqual([
+      [1, 0],
+      [2, 0],
+    ]);
 
     expect(stub.requests.map((r) => [r.path, r.body])).toEqual([
       ["/v1/embeddings", { model: "text-embed-3", input: ["a", "bb"] }],
       ["/embed", { inputs: ["a", "bb"] }],
-      ["/api/embed", { model: "nomic-embed-text", input: ["a", "bb"], truncate: true }],
+      [
+        "/api/embed",
+        { model: "nomic-embed-text", input: ["a", "bb"], truncate: true },
+      ],
     ]);
   });
 
   test("sends the bearer token only when apiKey is set, and batches per batchSize", async () => {
     stub.reply = (req) =>
       Response.json({
-        data: (req.body as { input: string[] }).input.map(() => ({ embedding: [1] })),
+        data: (req.body as { input: string[] }).input.map(() => ({
+          embedding: [1],
+        })),
       });
 
     await embedTexts(["a", "b", "c"], {
@@ -67,7 +91,10 @@ describe("embedTexts", () => {
     await embedTexts(["d"], openai);
 
     expect(
-      stub.requests.map((r) => [r.authorization, (r.body as { input: string[] }).input]),
+      stub.requests.map((r) => [
+        r.authorization,
+        (r.body as { input: string[] }).input,
+      ]),
     ).toEqual([
       ["Bearer secret", ["a", "b"]],
       ["Bearer secret", ["c"]],
@@ -94,13 +121,14 @@ describe("embedTexts", () => {
         apiStyle: "openai",
         timeoutMs: 20,
       }),
-    ).rejects.toThrow(
-      EmbedTimeoutError,
-    );
+    ).rejects.toThrow(EmbedTimeoutError);
   });
 });
 
 test("probeEmbedDims returns the served vector length", async () => {
-  stub.reply = () => Response.json({ data: [{ embedding: new Array(768).fill(0) }] });
+  stub.reply = () =>
+    Response.json({
+      data: [{ embedding: Array.from({ length: 768 }, () => 0) }],
+    });
   expect(await probeEmbedDims(openai)).toBe(768);
 });

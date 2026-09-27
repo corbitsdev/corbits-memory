@@ -72,7 +72,9 @@ export async function createEmptyDb(): Promise<TestDb> {
       try {
         await sql.end();
       } finally {
-        await admin.unsafe(`DROP DATABASE IF EXISTS "${database}" WITH (FORCE)`);
+        await admin.unsafe(
+          `DROP DATABASE IF EXISTS "${database}" WITH (FORCE)`,
+        );
         await admin.end();
       }
     },

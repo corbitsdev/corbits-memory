@@ -11,5 +11,6 @@ import { type } from "arktype";
  * fix lives in one schema instead of a comment repeated at each call site.
  */
 export const NonBlankId = type("string").narrow(
-  (s, ctx) => s.trim().length > 0 || ctx.mustBe("non-blank (not just whitespace)"),
+  (s, ctx) =>
+    s.trim().length > 0 || ctx.mustBe("non-blank (not just whitespace)"),
 );

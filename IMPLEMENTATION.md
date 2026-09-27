@@ -53,7 +53,6 @@ scripts/db-setup.ts       # runs the idempotent migrations against DATABASE_URL
 compose.yml               # pgvector + Ollama + reranker for local dev
 ```
 
-
 The SDK has no server and no process entrypoint. `createMemory` takes
 
 the host's `Hono<TenantEnv>` app plus `{ config, grants? }` and mounts the
@@ -85,18 +84,18 @@ There are two config types, both in the SDK:
 throws if unset/empty, `optionalEnv(name)` returns `undefined`, `intEnv(name,
 fallback)` parses a positive integer or throws.
 
-| Var | Required? | Default | Notes |
-|---|---|---|---|
-|  `DATABASE_URL` | **yes** | — | the engine's own pgvector Postgres |
-| `DB_POOL_MAX` | no | `8` | postgres-js pool size |
-| `FTS_LANGUAGE` | no | `english` | text search config for the lexical channel; fixed into the generated column at migration time — changing it later requires rebuilding the column (recipe below), and `runMemoryMigrations` fails loudly if config and column disagree. Unqualified `pg_catalog` config names only — a schema-qualified config (`myschema.mycfg`) is rejected explicitly, both when configuring and when read back from an already-migrated column. |
-| `EMBED_BASE_URL` | no | — | embed endpoint root, no path suffix; absent (with `EMBED_MODEL` also absent) => lexical-only, see below |
-| `EMBED_MODEL` | no | — | model id/name passed to the embed endpoint; must be set together with `EMBED_BASE_URL` (both or neither — one without the other throws) |
-| `EMBED_API_STYLE` | no | `"openai"` | `"openai" \| "tei" \| "ollama"` |
-| `EMBED_API_KEY` | no | `undefined` | forwarded as `Authorization: Bearer <key>` |
-| `RERANK_BASE_URL` | no | `undefined` | absent => search degrades to fusion-only |
-| `RERANK_MODEL` | no | `undefined` | defaults to `bge-reranker-v2-m3` in the client |
-| `RERANK_API_KEY` | no | `undefined` | forwarded as Bearer token to the rerank endpoint |
+| Var               | Required? | Default     | Notes                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ----------------- | --------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`    | **yes**   | —           | the engine's own pgvector Postgres                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `DB_POOL_MAX`     | no        | `8`         | postgres-js pool size                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `FTS_LANGUAGE`    | no        | `english`   | text search config for the lexical channel; fixed into the generated column at migration time — changing it later requires rebuilding the column (recipe below), and `runMemoryMigrations` fails loudly if config and column disagree. Unqualified `pg_catalog` config names only — a schema-qualified config (`myschema.mycfg`) is rejected explicitly, both when configuring and when read back from an already-migrated column. |
+| `EMBED_BASE_URL`  | no        | —           | embed endpoint root, no path suffix; absent (with `EMBED_MODEL` also absent) => lexical-only, see below                                                                                                                                                                                                                                                                                                                            |
+| `EMBED_MODEL`     | no        | —           | model id/name passed to the embed endpoint; must be set together with `EMBED_BASE_URL` (both or neither — one without the other throws)                                                                                                                                                                                                                                                                                            |
+| `EMBED_API_STYLE` | no        | `"openai"`  | `"openai" \| "tei" \| "ollama"`                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `EMBED_API_KEY`   | no        | `undefined` | forwarded as `Authorization: Bearer <key>`                                                                                                                                                                                                                                                                                                                                                                                         |
+| `RERANK_BASE_URL` | no        | `undefined` | absent => search degrades to fusion-only                                                                                                                                                                                                                                                                                                                                                                                           |
+| `RERANK_MODEL`    | no        | `undefined` | defaults to `bge-reranker-v2-m3` in the client                                                                                                                                                                                                                                                                                                                                                                                     |
+| `RERANK_API_KEY`  | no        | `undefined` | forwarded as Bearer token to the rerank endpoint                                                                                                                                                                                                                                                                                                                                                                                   |
 
 **Lexical-only mode (CL-6287).** `EngineConfig.embed` is optional — leave both
 `EMBED_BASE_URL`/`EMBED_MODEL` unset and the engine still constructs and
@@ -155,6 +154,7 @@ each run, so there is no ledger). No memory table has a foreign key into any
 control-plane table — `tenant_id`/`principal_id`/source refs are plain `text`.
 
 ### `memory_document`
+
 The stable logical row for a captured source. Unique on
 `(tenant_id, adapter, external_ref)` — this triple is the dedupe/identity key
 every capture upserts against. Document access is **grant tags**:
@@ -163,6 +163,7 @@ every capture upserts against. Document access is **grant tags**:
 `last_seen_at` bumps on every re-capture, even a content-hash NOOP.
 
 ### `memory_version`
+
 The versioned body of a document. `version` is a monotonic integer scoped to
 `(document_id, generation)` — **not** globally per-document — per the
 `memory_version_document_generation_version_uniq` unique index (baseline
@@ -182,6 +183,7 @@ so a replayed corpus's versions never collide with, or even become visible
 alongside, the live ones unless a caller explicitly searches that generation.
 
 ### `memory_chunk`
+
 An ordered slice of a version's text, keyed by `(version_id, ordinal)`
 (unique). Carries a generated-always `text_fts tsvector` column (GIN-indexed)
 that powers the lexical search channel — this is the only place FTS is
@@ -233,6 +235,7 @@ column is rejected explicitly by `verifyFtsLanguage` (with this same recipe
 in the error) rather than silently mis-parsed.
 
 ### `memory_entity` / `memory_edge`
+
 Lightweight graph rows. `memory_entity` has no unique constraint; dedupe on
 `(tenant_id, kind, identifiers)` is done in application code
 (`upsertEntity` in `capture.ts`, an exact-match linear scan per kind). Same for
@@ -250,9 +253,9 @@ migration CHECK sets match the TS constants.
 
 Two axes on `memory.version`, orthogonal to ranking priors:
 
-| Column / field | Values | Meaning |
-| --- | --- | --- |
-| `provenance` | `stated` \| `inferred` \| `unknown` | How content was obtained. Capture defaults to `stated`; distilled claims write `inferred`. Existing rows default `unknown`. |
+| Column / field           | Values                              | Meaning                                                                                                                                     |
+| ------------------------ | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `provenance`             | `stated` \| `inferred` \| `unknown` | How content was obtained. Capture defaults to `stated`; distilled claims write `inferred`. Existing rows default `unknown`.                 |
 | `source_class` (lineage) | `native` \| `imported` \| `derived` | Data lineage. Adapters write `native` (or `imported` for bulk import); distilled claims write `derived` via `AdaptedDocument.lineageClass`. |
 
 Ranking priors (`AdaptedDocument.sourceClass`: `native|thread|channel|call|record`) feed `computeAuthority` only and are **not** written to the version `source_class` column — that was a latent CHECK violation fixed when the axes were split.
@@ -263,16 +266,17 @@ A derived claim is a normal version with `provenance: inferred`, `lineageClass: 
 
 See `docs/TEMPORAL.md`. On `memory.version`:
 
-| Column | Role |
-| --- | --- |
-| `occurred_at` | Effective time the content refers to |
-| `ingested_at` | When the plane learned it (no separate `asserted_at`) |
-| `temporal_class` | `event` \| `deadline` \| `state` \| `lesson` — ranking prior |
-| `valid_from` / `valid_until` | Optional validity window |
+| Column                       | Role                                                         |
+| ---------------------------- | ------------------------------------------------------------ |
+| `occurred_at`                | Effective time the content refers to                         |
+| `ingested_at`                | When the plane learned it (no separate `asserted_at`)        |
+| `temporal_class`             | `event` \| `deadline` \| `state` \| `lesson` — ranking prior |
+| `valid_from` / `valid_until` | Optional validity window                                     |
 
 Search multiplies fused scores by `temporalRecencyMultiplier` (class-aware). Timeline and search both filter `generation` (default live) so replay rows never leak into live views.
 
 ### `memory_embed_model`
+
 Per-tenant registry of embed models and their discovered dimensionality
 (`discoverModelDims`/`probeEmbedDims` — dims are **never** hard-coded, always
 probed live against the endpoint). Unique on `(tenant_id, model_key)`, where
@@ -297,12 +301,13 @@ Optional `archived_live_generation` and `archived_live_model_key` on
 `transform_run` record which generation and dense model held live rows before
 promote (for demote/rollback of both corpus and dense search).
 
-
 ### Dynamic per-model vector tables: `memory_embedding_<key>`
+
 Not in `db/schema.ts` (no fixed shape — dimensionality varies by model) and
 not in any migration file. Created at runtime by
 `activateEmbedModel` (`embed-model-registry.ts`) the first time a given
 `(baseUrl, modelId)` pair is used:
+
 ```sql
 CREATE TABLE IF NOT EXISTS memory_embedding_<key> (
   chunk_id text PRIMARY KEY,
@@ -312,17 +317,20 @@ CREATE TABLE IF NOT EXISTS memory_embedding_<key> (
     FOREIGN KEY (chunk_id) REFERENCES memory_chunk (id) ON DELETE CASCADE
 )
 ```
+
 plus a `(tenant_id, chunk_id)` index (created on every activation, so it
 retrofits onto older tables). The FK completes the hard-delete cascade
 chain document -> version -> chunk -> embedding. `CREATE TABLE IF NOT
 EXISTS` cannot add the FK to a table created before it existed; that gap is
 accepted (no populated pre-FK installs exist). If hard deletes are ever
 introduced against such a table, run once, per embedding table:
+
 ```sql
 ALTER TABLE memory_embedding_<key>
   ADD CONSTRAINT memory_embedding_<key>_chunk_fk
   FOREIGN KEY (chunk_id) REFERENCES memory_chunk (id) ON DELETE CASCADE;
 ```
+
 plus an HNSW index: `vector_cosine_ops` up to 2000 dims (falling back to
 `ivfflat` if the Postgres/pgvector build lacks the `hnsw` access method), or
 a `halfvec` expression index (`halfvec_cosine_ops`, pgvector >= 0.7) for
@@ -342,6 +350,7 @@ string-interpolated into raw SQL — this is the only place in the codebase a
 computed identifier is spliced into DDL/DML.
 
 ### `raw_capture`
+
 The immutable, append-only substrate (the raw-capture layer). Stores the exact add/ingest
 request payload (`adapter`, `occurred_at`, `document`) as JSON in `raw_text`
 (there's also a `raw_bytes bytea` column for non-textual payloads, currently
@@ -353,6 +362,7 @@ inserting a duplicate; the table never has rows updated or deleted by
 ingestion.
 
 ### `transform_config`
+
 A named, versioned recipe of derivation + retrieval-tuning knobs
 (`TransformConfigParams`: `chunk` — only `token.recursive` is a valid
 strategy today — `embed`, optional `rerank`, `authorityWeight`,
@@ -361,6 +371,7 @@ strategy today — `embed`, optional `rerank`, `authorityWeight`,
 `version = max(existing) + 1` rather than colliding (`createTransformConfig`).
 
 ### `transform_run`
+
 One execution of a `transform_config` against a (possibly scoped) slice of
 `raw_capture`. `generation` is this run's own id, unique
 (`transform_run_generation_uniq`) — so a generation always resolves back to
@@ -381,10 +392,10 @@ returns the run summary either way.
    defaults regardless of chunker, which is why the live path is unaffected
    by a replay's custom caps), and computes `contentHash` over
    `title + kind + externalRef + stableStringify(attributes) + joined chunk
-   text` (`core/hash.ts`) — this hash is the NOOP-check key.
+text` (`core/hash.ts`) — this hash is the NOOP-check key.
 2. **`insertOrReuseRawCapture`**: hashes the raw wire payload
    (`computeSourceHash`, independent of `contentHash` — this one covers the
-   *unadapted* input including `adapter`/`occurredAt`) and looks it up by
+   _unadapted_ input including `adapter`/`occurredAt`) and looks it up by
    `(tenantId, sourceHash)`; reuses the existing `raw_capture` row or inserts
    a new one, all inside the same transaction as the derived rows.
 3. **`deriveVersionInTransaction`** — the single derivation core shared by
@@ -490,17 +501,17 @@ and `GET .../memory/feed` pull live versions ordered by `feed_seq` (migration
    - live generation → `resolveActiveEmbedTable` (tenant active model)
    - staged generation → `resolveEmbedTableByModelKey` for the transform
      config's embed model (ready or active; never activates)
-   runs a raw-SQL cosine-distance ANN query via `cosineDistanceExpr`
-   (`e.embedding <=> $vector` up to 2000 dims, or the matching
-   `(e.embedding::halfvec(N)) <=> $vector::halfvec(N)` expression above that
-   so the halfvec HNSW index is used)
-   against that table joined back to
-   `memory_chunk`/`memory_version`/`memory_document` with the
-   **same tenant-only scope** as the lexical channel (no mini-ACL in SQL).
-   Returns `null` (not an error) when there's no active embed
-   model yet or the query is empty; a thrown error from the embed call or
-   the SQL itself is caught by the caller and also folds into `null`/degraded
-   — the dense channel never fails the whole search.
+     runs a raw-SQL cosine-distance ANN query via `cosineDistanceExpr`
+     (`e.embedding <=> $vector` up to 2000 dims, or the matching
+     `(e.embedding::halfvec(N)) <=> $vector::halfvec(N)` expression above that
+     so the halfvec HNSW index is used)
+     against that table joined back to
+     `memory_chunk`/`memory_version`/`memory_document` with the
+     **same tenant-only scope** as the lexical channel (no mini-ACL in SQL).
+     Returns `null` (not an error) when there's no active embed
+     model yet or the query is empty; a thrown error from the embed call or
+     the SQL itself is caught by the caller and also folds into `null`/degraded
+     — the dense channel never fails the whole search.
 4. **RRF fusion** — `fuseRrf` (`core/hybrid-search.ts`): combines the
    lexical and dense per-channel rank orders (never raw scores — they're on
    incomparable scales) via Reciprocal Rank Fusion,
@@ -508,7 +519,7 @@ and `GET .../memory/feed` pull live versions ordered by `feed_seq` (migration
 5. **Per-document dedupe** (non-reranked path only) —
    `dedupeCandidatesPerDocument`: collapses to the single highest-scoring
    chunk per `documentId`, using `authorityWeightedScore` (`relevance * (1 +
-   0.5 * authority)`) as the rank prior, tie-broken by recency.
+0.5 * authority)`) as the rank prior, tie-broken by recency.
 6. **Rerank** (only if a rerank endpoint is configured — engine env
    `RERANK_BASE_URL`, or the replay generation's `transform_config.params.rerank`):
    dedupe (without the authority prior — authority is applied later on this
@@ -529,7 +540,7 @@ and `GET .../memory/feed` pull live versions ordered by `feed_seq` (migration
 9. **Degrade path** — if reranking fails (network error, non-2xx) or was
    never configured, the pipeline falls back to
    `dedupeCandidatesPerDocument(mergedRows, true, authorityWeight).slice(0,
-   k)` (fused + authority-weighted order, no MMR) and reports
+k)` (fused + authority-weighted order, no MMR) and reports
    `degraded: ["rerank_unavailable"]`. If dense retrieval failed/unconfigured,
    `degraded` includes `"dense_unavailable"` and lexical alone answers.
 10. **Finishing** — `attachEntityIds` joins in each surviving document's
@@ -541,8 +552,8 @@ and `GET .../memory/feed` pull live versions ordered by `feed_seq` (migration
     the lexical channel contributed zero rows (a dense-only result never
     reports `"strong"`); otherwise `deriveEvidence` on the lexical rows —
     `"strong"` requires **both** the top-ranked hit's raw `ts_rank ≥
-    STRONG_RANK_FLOOR (0.05)` **and** its authority `≥
-    AUTHORITY_STRONG_FLOOR (0.3)`; else `"weak"`.
+STRONG_RANK_FLOOR (0.05)` **and** its authority `≥
+AUTHORITY_STRONG_FLOOR (0.3)`; else `"weak"`.
 
 Tenant isolation is unconditional and first in every query (`tenant_id`
 filtered before grant-tag / creator document access); every table/channel is scoped that
@@ -553,9 +564,11 @@ way, with no exception.
 `raw_capture` is the immutable substrate every replay reads from and never
 writes to. A `transform_config` is a named/versioned recipe
 (`createTransformConfig`, `listTransformConfigs`) capturing chunk/embed/rerank
-+ retrieval-tuning knobs.
+
+- retrieval-tuning knobs.
 
 `runTransform(configId, scope?)`:
+
 1. Loads the config, mints a new `runId` = the run's own `generation`.
 2. Inserts a `transform_run` row (`status: 'running'`).
 3. Selects every `raw_capture` row in `scope` (adapter/since/until filters on
@@ -602,7 +615,6 @@ active dense embed model for a tenant. The host must treat them as admin
 operations (grant-gate before calling); never expose them unauthenticated to
 end-user agents.
 
-
 ## Mounted routes
 
 `createMemoryRoutes(deps)` serves these once the host mounts it at
@@ -631,15 +643,15 @@ request payload cap that this package does not implement (see CL-6286's PR
 body for why) — re-home both as host middleware before deleting the old
 surface, or a migrating host silently loses them.
 
-| Method + path | Grant action | Request body | Response |
-|---|---|---|---|
-| `POST /api/tenants/:tenantId/memory/add` | `add` | `{ title, text, access_tags?, share? }` | `200 { documentId, versionId }`; `400` on validation |
-| `POST /api/tenants/:tenantId/memory/search` | `search` | `{ query, limit?, kinds?, entity_ids?, sources?, includeEvidence? }` (limit 1–50; `kinds`/`entity_ids`/`sources` narrow retrieval before fusion; unset or `[]` = unfiltered; `includeEvidence` adds a short evidence string when true) | `200 { items[], evidence?, degraded? }`; `400` on bad input |
-| `GET /api/tenants/:tenantId/memory/list` | `search` | query `?limit=` (1–100, string on the wire) | `200 { events: [{ at, title, source, tenantId, principalId }] }` — durable recent documents for the caller's scope, filtered with grant-tag access (`canAccessDocument`). One event per document (active live version). |
-| `GET /api/tenants/:tenantId/memory/feed` | `search` | query `?after=&limit=&exclude_generator=` | `200 { entries[], nextCursor }` — cursor pull of new live versions. See `docs/FEED.md`. |
-| `POST /api/tenants/:tenantId/memory/documents/:documentId/forget` | `forget` | `{ reason? }` | `200 { documentId, versions }`; `403` unless caller is the document's creator; `404` unknown document. Tombstones — content is redacted, not archived; see docs/RETENTION.md. |
-| `POST /api/tenants/:tenantId/memory/documents/:documentId/purge` | `purge` | none | `200 { documentId, deleted, reason? }`; `403` unless caller is the document's creator; `404` unknown document. Hard-deletes the row — irreversible; refused while a `durable` version is untombstoned. |
-| `POST /api/tenants/:tenantId/memory/versions/:versionId/retention-class` | `forget` | `{ retention_class }` | `200 { versionId, documentId, status }`; `400` invalid class; `403` unless caller is the version's creator; `404` unknown version. |
+| Method + path                                                            | Grant action | Request body                                                                                                                                                                                                                           | Response                                                                                                                                                                                                                |
+| ------------------------------------------------------------------------ | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /api/tenants/:tenantId/memory/add`                                 | `add`        | `{ title, text, access_tags?, share? }`                                                                                                                                                                                                | `200 { documentId, versionId }`; `400` on validation                                                                                                                                                                    |
+| `POST /api/tenants/:tenantId/memory/search`                              | `search`     | `{ query, limit?, kinds?, entity_ids?, sources?, includeEvidence? }` (limit 1–50; `kinds`/`entity_ids`/`sources` narrow retrieval before fusion; unset or `[]` = unfiltered; `includeEvidence` adds a short evidence string when true) | `200 { items[], evidence?, degraded? }`; `400` on bad input                                                                                                                                                             |
+| `GET /api/tenants/:tenantId/memory/list`                                 | `search`     | query `?limit=` (1–100, string on the wire)                                                                                                                                                                                            | `200 { events: [{ at, title, source, tenantId, principalId }] }` — durable recent documents for the caller's scope, filtered with grant-tag access (`canAccessDocument`). One event per document (active live version). |
+| `GET /api/tenants/:tenantId/memory/feed`                                 | `search`     | query `?after=&limit=&exclude_generator=`                                                                                                                                                                                              | `200 { entries[], nextCursor }` — cursor pull of new live versions. See `docs/FEED.md`.                                                                                                                                 |
+| `POST /api/tenants/:tenantId/memory/documents/:documentId/forget`        | `forget`     | `{ reason? }`                                                                                                                                                                                                                          | `200 { documentId, versions }`; `403` unless caller is the document's creator; `404` unknown document. Tombstones — content is redacted, not archived; see docs/RETENTION.md.                                           |
+| `POST /api/tenants/:tenantId/memory/documents/:documentId/purge`         | `purge`      | none                                                                                                                                                                                                                                   | `200 { documentId, deleted, reason? }`; `403` unless caller is the document's creator; `404` unknown document. Hard-deletes the row — irreversible; refused while a `durable` version is untombstoned.                  |
+| `POST /api/tenants/:tenantId/memory/versions/:versionId/retention-class` | `forget`     | `{ retention_class }`                                                                                                                                                                                                                  | `200 { versionId, documentId, status }`; `400` invalid class; `403` unless caller is the version's creator; `404` unknown version.                                                                                      |
 
 `createMemoryRoutes` serves these seven HTTP
 routes (add, search, list, feed, forget, purge, retention-class).
@@ -673,11 +685,11 @@ mountWorkflowMemory(workflowMemoryApp, {
 app.route("/api/workflow-memory", workflowMemoryApp);
 ```
 
-| Constant | Value |
-| --- | --- |
-| `WORKFLOW_MEMORY_BASE_PATH` | `/api/workflow-memory` |
-| `HUB_CREDENTIAL_HANDLE` | `hub` |
-| `SIDECAR_BUNDLE_ID` | `@corbits/memory/sidecar-bundle` |
+| Constant                    | Value                            |
+| --------------------------- | -------------------------------- |
+| `WORKFLOW_MEMORY_BASE_PATH` | `/api/workflow-memory`           |
+| `HUB_CREDENTIAL_HANDLE`     | `hub`                            |
+| `SIDECAR_BUNDLE_ID`         | `@corbits/memory/sidecar-bundle` |
 
 **Auth.** Every route sits behind middleware: `agentToken.verify(c)` reads
 the presented `Authorization`; `agentToken.resolveRun` looks up
@@ -690,12 +702,12 @@ token's tenant. No `requireGrant`. No tenant override. Scope on context:
 are `{ data: … }` on success. Sidecar `requires`: `capabilities`,
 `address` (run address). Tool results are JSON strings.
 
-| Tool name | Method + path | Notes |
-| --- | --- | --- |
-| `memory_add` | `POST /add` | Body same as tenant add. Forces `share.tenant = true` (team share; explicit share only widens). Capture path is `memory.add` → `captureDocument`. |
-| `memory_search` | `POST /search` | Body same as tenant search; `visibleTags` = `[tenantTag(tenantId)]`. |
-| `memory_list` | `GET /list?limit=` | Same grant-tag visibility as search (`visibleTags` team tag). |
-| `memory_feed` | `GET /feed?after=&limit=&exclude_generator=` | **501** if `memory.feed` is undefined on this plane. |
+| Tool name       | Method + path                                | Notes                                                                                                                                             |
+| --------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `memory_add`    | `POST /add`                                  | Body same as tenant add. Forces `share.tenant = true` (team share; explicit share only widens). Capture path is `memory.add` → `captureDocument`. |
+| `memory_search` | `POST /search`                               | Body same as tenant search; `visibleTags` = `[tenantTag(tenantId)]`.                                                                              |
+| `memory_list`   | `GET /list?limit=`                           | Same grant-tag visibility as search (`visibleTags` team tag).                                                                                     |
+| `memory_feed`   | `GET /feed?after=&limit=&exclude_generator=` | **501** if `memory.feed` is undefined on this plane.                                                                                              |
 
 Unknown tool name → tool error (`isError: true`). Non-HTTP hub credential
 kind → error. `callMemoryRoute` sends `x-workflow-run-address` and
@@ -722,20 +734,18 @@ Audience widening uses `splitAudienceWiden` (write-narrow-then-widen) and
 `shareWidenReceipt` on version attributes after source-owner approval.
 Ask-on-read remains design-only (fail-closed).
 
-
-
 ### Timeline wire fields (vs the old CaptureLog ring)
 
 The process-local CaptureLog hardcoded `source: "api"` and recorded the
 HTTP caller's `subjectId` as `principalId` at capture time. The durable
 timeline maps different columns:
 
-| Wire field | Source column / meaning |
-|---|---|
-| `at` | `memory_document.last_seen_at` (ISO) — re-captures rise in the feed |
-| `title` | `memory_document.title` |
-| `source` | `memory_document.adapter` (HTTP add defaults to `"http"`, not `"api"`) |
-| `tenantId` | `memory_document.tenant_id` |
+| Wire field    | Source column / meaning                                                                                                                                                                      |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `at`          | `memory_document.last_seen_at` (ISO) — re-captures rise in the feed                                                                                                                          |
+| `title`       | `memory_document.title`                                                                                                                                                                      |
+| `source`      | `memory_document.adapter` (HTTP add defaults to `"http"`, not `"api"`)                                                                                                                       |
+| `tenantId`    | `memory_document.tenant_id`                                                                                                                                                                  |
 | `principalId` | `memory_version.created_by_principal_id` of the active live version (empty string when null) — the capturing actor stored on the version, not the request principal of a later timeline read |
 
 ### Document access (grant tags)
@@ -754,7 +764,6 @@ Document access is Interchange authz — **not** a mini-ACL.
   modes or block lists.
 
 See `docs/AUTHZ-DOCUMENT-ACCESS.md`.
-
 
 ## Observability
 

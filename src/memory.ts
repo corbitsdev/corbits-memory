@@ -1,5 +1,3 @@
-import { authorize } from "@intx/authz";
-
 import {
   canAccessDocument,
   matchesVisibleTags,
@@ -11,11 +9,17 @@ import {
 import type { EngineConfig } from "./config.js";
 import { formatCaughtError, log } from "./log.js";
 import { createDb, type Db, type RawSql } from "./db/client.js";
-import { createFtsVerification, parseFtsLanguage } from "./core/fts-language.js";
+import {
+  createFtsVerification,
+  parseFtsLanguage,
+} from "./core/fts-language.js";
 import { createRawSqlClient } from "./core/embed-sql.js";
 import type { SearchHit } from "./core/schemas/search.js";
 import { validateRerankConfig } from "./core/rerank-client.js";
-import { captureDocument, type CaptureDegradedReason } from "./services/capture.js";
+import {
+  captureDocument,
+  type CaptureDegradedReason,
+} from "./services/capture.js";
 import {
   hybridSearch,
   MemorySearchInputError,
@@ -23,10 +27,7 @@ import {
   type HybridSearchResult,
   DEFAULT_HYBRID_TOP_K,
 } from "./services/search.js";
-import {
-  listTimelineEvents,
-  type TimelineEvent,
-} from "./services/timeline.js";
+import { listTimelineEvents, type TimelineEvent } from "./services/timeline.js";
 import {
   fetchFeed,
   feedPageAfterAccessFilter,
@@ -60,10 +61,11 @@ import {
   MEMORY_SHARE_CONDITION_REGISTRY,
 } from "./services/share-grants.js";
 
-import {
-  isWritableGrantStore,
-} from "./ports/writable-grant-store.js";
-import type { TransformConfigParams, TransformScope } from "./core/schemas/transform.js";
+import { isWritableGrantStore } from "./ports/writable-grant-store.js";
+import type {
+  TransformConfigParams,
+  TransformScope,
+} from "./core/schemas/transform.js";
 import {
   LIVE_TIMEOUT_MS,
   mergeLocalLiveV1,
@@ -511,7 +513,9 @@ function resolveAddAccessTags(params: MemoryAddParams): string[] {
   return resolveAccessTags({
     principalId: params.principalId,
     tenantId: params.tenantId,
-    ...(params.accessTags !== undefined ? { accessTags: params.accessTags } : {}),
+    ...(params.accessTags !== undefined
+      ? { accessTags: params.accessTags }
+      : {}),
     ...(params.share !== undefined ? { share: params.share } : {}),
   });
 }
@@ -859,10 +863,7 @@ function createPlaneFromStore(
       const hasContent = params.content !== undefined;
       const hasFile = params.file !== undefined;
       if (hasContent === hasFile) {
-        throw new MemoryError(
-          400,
-          "provide exactly one of content or file",
-        );
+        throw new MemoryError(400, "provide exactly one of content or file");
       }
 
       let title: string;
@@ -884,8 +885,7 @@ function createPlaneFromStore(
           ...(file.filename !== undefined ? { filename: file.filename } : {}),
         });
         text = extracted.text;
-        title =
-          file.title ?? extracted.title ?? file.filename ?? "untitled";
+        title = file.title ?? extracted.title ?? file.filename ?? "untitled";
       }
 
       const accessTags = resolveAddAccessTags(params);
@@ -947,7 +947,9 @@ function createPlaneFromStore(
           const docTag = documentTag(result.documentId);
           let tagStamped = false;
           if (store.appendAccessTags) {
-            await store.appendAccessTags(params.tenantId, result.documentId, [docTag]);
+            await store.appendAccessTags(params.tenantId, result.documentId, [
+              docTag,
+            ]);
             tagStamped = true;
           } else {
             log.warn(
@@ -1002,10 +1004,7 @@ function createPlaneFromStore(
 
     async feed(params) {
       if (!store.feed) {
-        throw new MemoryError(
-          501,
-          "feed requires the engine DocumentStore",
-        );
+        throw new MemoryError(501, "feed requires the engine DocumentStore");
       }
       return store.feed({
         tenantId: params.tenantId,
@@ -1101,10 +1100,7 @@ function createPlaneFromStore(
         throw new MemoryError(404, "document not found");
       }
       if (!isOwner(owner, input.principalId)) {
-        throw new MemoryError(
-          403,
-          "only the document's creator may forget it",
-        );
+        throw new MemoryError(403, "only the document's creator may forget it");
       }
       return tombstoneDocument(transformDeps.db, input);
     },
@@ -1121,10 +1117,7 @@ function createPlaneFromStore(
         throw new MemoryError(404, "document not found");
       }
       if (!isOwner(owner, input.principalId)) {
-        throw new MemoryError(
-          403,
-          "only the document's creator may purge it",
-        );
+        throw new MemoryError(403, "only the document's creator may purge it");
       }
       return hardDeleteDocument(transformDeps.db, input);
     },
@@ -1252,9 +1245,7 @@ function createEngineDocumentStore(config: MemoryConfig): {
       });
 
       if (result.hits.length === 0) return result;
-      const docIds = Array.from(
-        new Set(result.hits.map((h) => h.document_id)),
-      );
+      const docIds = Array.from(new Set(result.hits.map((h) => h.document_id)));
 
       // Load access_tags + active-version creator for grant-tag check.
       // Raw SQL so unit tests can mock `sql` without a real drizzle client.

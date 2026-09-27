@@ -28,7 +28,11 @@ describe("filterTimelineRows (grant-tag access)", () => {
   it("allows the creator without grants on tags", async () => {
     const { events, withheld } = await filterTimelineRows(
       [row({ createdByPrincipalId: "p1", accessTags: [] })],
-      { principalId: "p1", tenantId: "t1", grants: createInMemoryGrantStore([]) },
+      {
+        principalId: "p1",
+        tenantId: "t1",
+        grants: createInMemoryGrantStore([]),
+      },
     );
     expect(withheld).toBe(0);
     expect(events).toHaveLength(1);
@@ -37,7 +41,12 @@ describe("filterTimelineRows (grant-tag access)", () => {
 
   it("denies a peer without a matching grant", async () => {
     const { events, withheld } = await filterTimelineRows(
-      [row({ createdByPrincipalId: "owner", accessTags: ["memory.tenant:t1"] })],
+      [
+        row({
+          createdByPrincipalId: "owner",
+          accessTags: ["memory.tenant:t1"],
+        }),
+      ],
       {
         principalId: "peer",
         tenantId: "t1",
@@ -79,7 +88,11 @@ describe("filterTimelineRows (grant-tag access)", () => {
     const { events, withheld } = await filterTimelineRows(
       [
         row({ documentId: "a", createdByPrincipalId: "p1", title: "mine" }),
-        row({ documentId: "b", createdByPrincipalId: "other", title: "theirs" }),
+        row({
+          documentId: "b",
+          createdByPrincipalId: "other",
+          title: "theirs",
+        }),
       ],
       { principalId: "p1", tenantId: "t1" },
     );

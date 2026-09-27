@@ -78,7 +78,9 @@ export type StrongEvidenceSignals = {
  * Whether evidence may report strong given relevance already cleared.
  * Requires authority floor AND (stated human OR supports ≥ floor).
  */
-export function meetsStrongEvidenceGate(signals: StrongEvidenceSignals): boolean {
+export function meetsStrongEvidenceGate(
+  signals: StrongEvidenceSignals,
+): boolean {
   if (signals.authority < signals.authorityFloor) return false;
   const floor = signals.corroborationFloor ?? CORROBORATION_STRONG_FLOOR;
   const statedHuman =

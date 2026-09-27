@@ -59,21 +59,48 @@ describe.skipIf(testDatabaseUrl() === undefined)("in-process memory", () => {
   }
 
   test.each([
-    ["search below 1", (m: Memory) =>
-      m.search({ tenantId: "acme", principalId: "alice", query: "q", limit: 0 })],
-    ["search above 50", (m: Memory) =>
-      m.search({ tenantId: "acme", principalId: "alice", query: "q", limit: 51 })],
-    ["list below 1", (m: Memory) =>
-      m.list({ tenantId: "acme", principalId: "alice", limit: 0 })],
-    ["list above 100", (m: Memory) =>
-      m.list({ tenantId: "acme", principalId: "alice", limit: 101 })],
+    [
+      "search below 1",
+      (m: Memory) =>
+        m.search({
+          tenantId: "acme",
+          principalId: "alice",
+          query: "q",
+          limit: 0,
+        }),
+    ],
+    [
+      "search above 50",
+      (m: Memory) =>
+        m.search({
+          tenantId: "acme",
+          principalId: "alice",
+          query: "q",
+          limit: 51,
+        }),
+    ],
+    [
+      "list below 1",
+      (m: Memory) =>
+        m.list({ tenantId: "acme", principalId: "alice", limit: 0 }),
+    ],
+    [
+      "list above 100",
+      (m: Memory) =>
+        m.list({ tenantId: "acme", principalId: "alice", limit: 101 }),
+    ],
   ] as const)("rejects a limit %s with a 400", async (_label, call) => {
     const err = await rejection(call(memory as Memory));
     expect(err.status).toBe(400);
   });
 
   test("add needs exactly one of content or file", async () => {
-    const neither = await rejection((memory as Memory).add({ tenantId: "acme", principalId: "alice" } as MemoryAddParams));
+    const neither = await rejection(
+      (memory as Memory).add({
+        tenantId: "acme",
+        principalId: "alice",
+      } as MemoryAddParams),
+    );
     const both = await rejection(
       (memory as Memory).add({
         tenantId: "acme",
@@ -105,7 +132,10 @@ describe.skipIf(testDatabaseUrl() === undefined)("in-process memory", () => {
       SELECT d.title, c.text FROM memory.document d
         JOIN memory.chunk c ON c.document_id = d.id
         WHERE d.id = ${documentId}`;
-    expect(row).toEqual({ title: "From extractor", text: "extracted from note.pdf" });
+    expect(row).toEqual({
+      title: "From extractor",
+      text: "extracted from note.pdf",
+    });
   });
 
   test("share maps to access tags, peers also get the document tag, and the default is owner-only", async () => {

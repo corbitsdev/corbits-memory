@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import {
   ALL_DEGRADE_FLAGS,
   configureDegradeMetrics,
@@ -10,7 +10,11 @@ import {
 import { log } from "../log.js";
 
 function captureLogs() {
-  const calls: Array<{ level: "info" | "warn" | "error"; message: string; payload: unknown }> = [];
+  const calls: Array<{
+    level: "info" | "warn" | "error";
+    message: string;
+    payload: unknown;
+  }> = [];
   const originalInfo = log.info;
   const originalWarn = log.warn;
   const originalError = log.error;
@@ -85,7 +89,8 @@ describe("degrade-metrics", () => {
       // — but the message string alone (no context object) must still show
       // the numbers a human needs.
       for (let i = 0; i < 90; i++) recordDegrade("tenant-a", undefined);
-      for (let i = 0; i < 10; i++) recordDegrade("tenant-a", ["dense_unavailable"]);
+      for (let i = 0; i < 10; i++)
+        recordDegrade("tenant-a", ["dense_unavailable"]);
       const info = calls.find((c) => c.level === "info");
       expect(info).toBeDefined();
       expect(calls.some((c) => c.level === "error")).toBe(false);
@@ -101,7 +106,8 @@ describe("degrade-metrics", () => {
     it("escalates on a saturated window (the original CL-4600 shape: 100% for 100+ calls)", () => {
       const { calls, restore } = captureLogs();
       try {
-        for (let i = 0; i < 100; i++) recordDegrade("tenant-a", ["rerank_unavailable"]);
+        for (let i = 0; i < 100; i++)
+          recordDegrade("tenant-a", ["rerank_unavailable"]);
         const error = calls.find((c) => c.level === "error");
         expect(error).toBeDefined();
         expect(error!.message).toContain("rerank_unavailable");
@@ -114,7 +120,10 @@ describe("degrade-metrics", () => {
       const { calls, restore } = captureLogs();
       try {
         for (let i = 0; i < 2000; i++) {
-          recordDegrade("tenant-a", i % 100 === 50 ? undefined : ["rerank_unavailable"]);
+          recordDegrade(
+            "tenant-a",
+            i % 100 === 50 ? undefined : ["rerank_unavailable"],
+          );
         }
         const errors = calls.filter((c) => c.level === "error");
         expect(errors.length).toBeGreaterThan(0);
@@ -131,7 +140,10 @@ describe("degrade-metrics", () => {
         let escalatedAtCall = -1;
         for (let i = 0; i < 300; i++) {
           recordDegrade("tenant-a", ["rerank_unavailable"]);
-          if (escalatedAtCall === -1 && calls.some((c) => c.level === "error")) {
+          if (
+            escalatedAtCall === -1 &&
+            calls.some((c) => c.level === "error")
+          ) {
             escalatedAtCall = i;
           }
         }
@@ -158,12 +170,17 @@ describe("degrade-metrics", () => {
     it("hysteresis prevents flapping: once escalated, a dip that doesn't cross the low watermark stays escalated without re-logging error on every call", () => {
       const { calls, restore } = captureLogs();
       try {
-        for (let i = 0; i < 200; i++) recordDegrade("tenant-a", ["rerank_unavailable"]);
-        const escalationsAfterSaturation = calls.filter((c) => c.level === "error").length;
+        for (let i = 0; i < 200; i++)
+          recordDegrade("tenant-a", ["rerank_unavailable"]);
+        const escalationsAfterSaturation = calls.filter(
+          (c) => c.level === "error",
+        ).length;
         // A single healthy call (rate stays well above the low watermark)
         // should not cause a second escalation transition.
         recordDegrade("tenant-a", undefined);
-        const escalationsAfterOneHealthyCall = calls.filter((c) => c.level === "error").length;
+        const escalationsAfterOneHealthyCall = calls.filter(
+          (c) => c.level === "error",
+        ).length;
         expect(escalationsAfterOneHealthyCall).toBe(escalationsAfterSaturation);
       } finally {
         restore();
@@ -179,13 +196,17 @@ describe("degrade-metrics", () => {
         // without a minimum-sample guard this can cross the watermark on a
         // window of 1-5 calls purely from small-sample noise.
         for (let i = 0; i < 50; i++) {
-          recordDegrade("cold-tenant", i % 5 === 0 ? ["rerank_unavailable"] : undefined);
+          recordDegrade(
+            "cold-tenant",
+            i % 5 === 0 ? ["rerank_unavailable"] : undefined,
+          );
         }
         const errorsBeforeMinSamples = calls.filter(
           (c) =>
             c.level === "error" &&
             c.message.includes("cold-tenant") &&
-            (c.payload as { windowSize?: number } | undefined)?.windowSize !== undefined &&
+            (c.payload as { windowSize?: number } | undefined)?.windowSize !==
+              undefined &&
             (c.payload as { windowSize: number }).windowSize < 32,
         );
         expect(errorsBeforeMinSamples.length).toBe(0);
@@ -198,9 +219,14 @@ describe("degrade-metrics", () => {
       const { calls, restore } = captureLogs();
       try {
         for (let i = 0; i < 200; i++) {
-          recordDegrade("cold-tenant", i % 5 === 0 ? ["rerank_unavailable"] : undefined);
+          recordDegrade(
+            "cold-tenant",
+            i % 5 === 0 ? ["rerank_unavailable"] : undefined,
+          );
         }
-        const errors = calls.filter((c) => c.level === "error" && c.message.includes("cold-tenant"));
+        const errors = calls.filter(
+          (c) => c.level === "error" && c.message.includes("cold-tenant"),
+        );
         expect(errors.length).toBeGreaterThan(0);
       } finally {
         restore();
@@ -225,7 +251,8 @@ describe("degrade-metrics", () => {
         for (let t = 0; t < 49; t++) {
           for (let i = 0; i < 50; i++) recordDegrade(`tenant-${t}`, undefined);
         }
-        for (let i = 0; i < 200; i++) recordDegrade("tenant-down", ["rerank_unavailable"]);
+        for (let i = 0; i < 200; i++)
+          recordDegrade("tenant-down", ["rerank_unavailable"]);
 
         const downErrors = calls.filter(
           (c) => c.level === "error" && c.message.includes("tenant-down"),
@@ -242,13 +269,18 @@ describe("degrade-metrics", () => {
     });
 
     it("keeps independent windows/counts per tenant", () => {
-      for (let i = 0; i < 10; i++) recordDegrade("tenant-a", ["dense_unavailable"]);
+      for (let i = 0; i < 10; i++)
+        recordDegrade("tenant-a", ["dense_unavailable"]);
       for (let i = 0; i < 5; i++) recordDegrade("tenant-b", undefined);
 
       expect(getDegradeMetricsSnapshot("tenant-a").totalSearches).toBe(10);
       expect(getDegradeMetricsSnapshot("tenant-b").totalSearches).toBe(5);
-      expect(getDegradeMetricsSnapshot("tenant-a").degradeCounts.dense_unavailable).toBe(10);
-      expect(getDegradeMetricsSnapshot("tenant-b").degradeCounts.dense_unavailable).toBe(0);
+      expect(
+        getDegradeMetricsSnapshot("tenant-a").degradeCounts.dense_unavailable,
+      ).toBe(10);
+      expect(
+        getDegradeMetricsSnapshot("tenant-b").degradeCounts.dense_unavailable,
+      ).toBe(0);
     });
 
     it("getAllDegradeMetricsSnapshots exposes every tracked tenant for a host to poll/forward", () => {
@@ -272,7 +304,8 @@ describe("degrade-metrics", () => {
     });
 
     it("an idle tenant's escalated state is preserved in its snapshot even though it never re-evaluates without new calls", () => {
-      for (let i = 0; i < 200; i++) recordDegrade("idle-incident", ["rerank_unavailable"]);
+      for (let i = 0; i < 200; i++)
+        recordDegrade("idle-incident", ["rerank_unavailable"]);
       const snapshotRightAfter = getDegradeMetricsSnapshot("idle-incident");
       expect(snapshotRightAfter.escalated.rerank_unavailable).toBe(true);
 
@@ -287,7 +320,8 @@ describe("degrade-metrics", () => {
 
     it("does not evict a currently-escalated tenant to make room for new tenants", () => {
       configureDegradeMetrics({ maxTrackedTenants: 3 });
-      for (let i = 0; i < 200; i++) recordDegrade("escalated-tenant", ["rerank_unavailable"]);
+      for (let i = 0; i < 200; i++)
+        recordDegrade("escalated-tenant", ["rerank_unavailable"]);
 
       // Fill past capacity with fresh, healthy tenants.
       recordDegrade("healthy-1", undefined);
@@ -306,7 +340,8 @@ describe("degrade-metrics", () => {
         recordDegrade("tenant-a", undefined);
         recordDegrade("tenant-b", undefined);
         const evictionLog = calls.find(
-          (c) => c.message.includes("evicted") || c.message.includes("evicting"),
+          (c) =>
+            c.message.includes("evicted") || c.message.includes("evicting"),
         );
         expect(evictionLog).toBeDefined();
       } finally {
@@ -354,14 +389,17 @@ describe("degrade-metrics", () => {
   describe("windowed vs. cumulative snapshot (dilution)", () => {
     it("the snapshot exposes a windowed rate that reflects a live incident even when the cumulative rate looks tame", () => {
       for (let i = 0; i < 9000; i++) recordDegrade("tenant-a", undefined);
-      for (let i = 0; i < 1000; i++) recordDegrade("tenant-a", ["rerank_unavailable"]);
+      for (let i = 0; i < 1000; i++)
+        recordDegrade("tenant-a", ["rerank_unavailable"]);
 
       const snapshot = getDegradeMetricsSnapshot("tenant-a");
       const cumulativeRate =
         snapshot.degradeCounts.rerank_unavailable / snapshot.totalSearches;
       expect(cumulativeRate).toBeCloseTo(0.1, 1);
       // The windowed rate reflects the live incident, not the lifetime dilution.
-      expect(snapshot.windowedDegradeRate.rerank_unavailable).toBeGreaterThan(0.9);
+      expect(snapshot.windowedDegradeRate.rerank_unavailable).toBeGreaterThan(
+        0.9,
+      );
       expect(snapshot.escalated.rerank_unavailable).toBe(true);
     });
   });
@@ -391,16 +429,24 @@ describe("degrade-metrics", () => {
     });
 
     it("a config the validator accepts always lets a fully-degraded tenant escalate", () => {
-      configureDegradeMetrics({ windowSize: 50, highWatermark: 0.3, lowWatermark: 0.15 });
-      for (let i = 0; i < 200; i++) recordDegrade("tenant-a", ["rerank_unavailable"]);
-      expect(getDegradeMetricsSnapshot("tenant-a").escalated.rerank_unavailable).toBe(true);
+      configureDegradeMetrics({
+        windowSize: 50,
+        highWatermark: 0.3,
+        lowWatermark: 0.15,
+      });
+      for (let i = 0; i < 200; i++)
+        recordDegrade("tenant-a", ["rerank_unavailable"]);
+      expect(
+        getDegradeMetricsSnapshot("tenant-a").escalated.rerank_unavailable,
+      ).toBe(true);
     });
   });
 
   describe("reconfiguring windowSize on live tenants", () => {
     it("shrinking windowSize on a live tenant never produces a rate above 1.0", () => {
       configureDegradeMetrics({ windowSize: 200 });
-      for (let i = 0; i < 200; i++) recordDegrade("tenant-a", ["rerank_unavailable"]);
+      for (let i = 0; i < 200; i++)
+        recordDegrade("tenant-a", ["rerank_unavailable"]);
       // 32 is the minimum-sample floor at the default 20% watermark — any
       // smaller windowSize at this watermark is itself rejected by the
       // invariant check, so this is the smallest legal shrink target.
@@ -408,29 +454,41 @@ describe("degrade-metrics", () => {
       recordDegrade("tenant-a", ["rerank_unavailable"]);
 
       const snapshot = getDegradeMetricsSnapshot("tenant-a");
-      expect(snapshot.windowedDegradeRate.rerank_unavailable).toBeLessThanOrEqual(1);
+      expect(
+        snapshot.windowedDegradeRate.rerank_unavailable,
+      ).toBeLessThanOrEqual(1);
       expect(snapshot.windowSize).toBeLessThanOrEqual(32);
     });
 
     it("growing windowSize on a live tenant also stays well-formed and still escalates once resample fills back up", () => {
       configureDegradeMetrics({ windowSize: 50 });
-      for (let i = 0; i < 6; i++) recordDegrade("tenant-a", ["rerank_unavailable"]);
+      for (let i = 0; i < 6; i++)
+        recordDegrade("tenant-a", ["rerank_unavailable"]);
       configureDegradeMetrics({ windowSize: 300 });
-      for (let i = 0; i < 100; i++) recordDegrade("tenant-a", ["rerank_unavailable"]);
+      for (let i = 0; i < 100; i++)
+        recordDegrade("tenant-a", ["rerank_unavailable"]);
 
       const snapshot = getDegradeMetricsSnapshot("tenant-a");
-      expect(snapshot.windowedDegradeRate.rerank_unavailable).toBeLessThanOrEqual(1);
+      expect(
+        snapshot.windowedDegradeRate.rerank_unavailable,
+      ).toBeLessThanOrEqual(1);
       expect(snapshot.escalated.rerank_unavailable).toBe(true);
     });
 
     it("a tenant that was escalated before a windowSize change re-escalates once enough post-resize samples accrue, rather than staying stuck", () => {
       configureDegradeMetrics({ windowSize: 200 });
-      for (let i = 0; i < 200; i++) recordDegrade("tenant-a", ["rerank_unavailable"]);
-      expect(getDegradeMetricsSnapshot("tenant-a").escalated.rerank_unavailable).toBe(true);
+      for (let i = 0; i < 200; i++)
+        recordDegrade("tenant-a", ["rerank_unavailable"]);
+      expect(
+        getDegradeMetricsSnapshot("tenant-a").escalated.rerank_unavailable,
+      ).toBe(true);
 
       configureDegradeMetrics({ windowSize: 40 });
-      for (let i = 0; i < 40; i++) recordDegrade("tenant-a", ["rerank_unavailable"]);
-      expect(getDegradeMetricsSnapshot("tenant-a").escalated.rerank_unavailable).toBe(true);
+      for (let i = 0; i < 40; i++)
+        recordDegrade("tenant-a", ["rerank_unavailable"]);
+      expect(
+        getDegradeMetricsSnapshot("tenant-a").escalated.rerank_unavailable,
+      ).toBe(true);
     });
   });
 });

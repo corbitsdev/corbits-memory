@@ -5,10 +5,7 @@ import {
   effectiveAuthority,
   meetsStrongEvidenceGate,
 } from "./corroboration.js";
-import {
-  BOOST_MULTIPLIER_MAX,
-  BOOST_MULTIPLIER_MIN,
-} from "./hybrid-search.js";
+import { BOOST_MULTIPLIER_MAX, BOOST_MULTIPLIER_MIN } from "./hybrid-search.js";
 
 describe("corroborationFactor", () => {
   it("is neutral with no edges", () => {

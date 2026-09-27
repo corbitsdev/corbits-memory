@@ -3,14 +3,12 @@
 **Status:** grant tags + creator (baseline migrations)  
 **Problem (historical):** an earlier mini-ACL (`visibility` mode + principal list + block list) ran parallel to Interchange grants. That path is gone — document access is grant tags only.
 
-
-
 ## Source of truth
 
-| Layer | Owner | Mechanism |
-| --- | --- | --- |
-| Who is the caller? | Host (Interchange) | `principal` + `tenant` on context / plane args |
-| May they use memory at all? | Host grant store | `authorize(…, resource: "memory", action: "add" \| "search")` |
+| Layer                             | Owner                                   | Mechanism                                                                |
+| --------------------------------- | --------------------------------------- | ------------------------------------------------------------------------ |
+| Who is the caller?                | Host (Interchange)                      | `principal` + `tenant` on context / plane args                           |
+| May they use memory at all?       | Host grant store                        | `authorize(…, resource: "memory", action: "add" \| "search")`            |
 | Which **documents** may they see? | Host grant store + tags on the document | `authorize(…, resource: <tag>, action: "search")` for any tag on the doc |
 
 There is **one** authorization system: `@intx/authz` + host `GrantStore`. Corbits Memory does not invent modes, allowlists, or block lists as a security boundary.
@@ -34,14 +32,16 @@ When the caller does not pass tags/share:
    grant of `search` on that owner resource (or a matching pattern) — the engine
    never auto-grants tags to anyone.
 
-
 ### Explicit tags
 
 ```ts
 plane.add({
-  tenantId, principalId, title, text,
+  tenantId,
+  principalId,
+  title,
+  text,
   accessTags: ["memory.space:eng", "memory.project:ke"],
-})
+});
 ```
 
 Host issues grants such as:
@@ -64,12 +64,12 @@ Patterns work: a grant on `memory.space:*` matches `memory.space:eng` via `@intx
 
 Share helpers **must not** reintroduce visibility modes. They only mint tags:
 
-| Sugar | Tags written |
-| --- | --- |
-| (omit `share` — owner-only default) | `memory.owner:<caller>` |
-| `share: { tenant: true }` | `memory.owner:<caller>`, `memory.tenant:<tenantId>` |
-| `share: { principals: ["p2","p3"] }` | `memory.owner:<caller>`, `memory.owner:p2`, `memory.owner:p3` |
-| `share: { tags: ["memory.space:eng"] }` | `memory.owner:<caller>`, plus those tags |
+| Sugar                                   | Tags written                                                  |
+| --------------------------------------- | ------------------------------------------------------------- |
+| (omit `share` — owner-only default)     | `memory.owner:<caller>`                                       |
+| `share: { tenant: true }`               | `memory.owner:<caller>`, `memory.tenant:<tenantId>`           |
+| `share: { principals: ["p2","p3"] }`    | `memory.owner:<caller>`, `memory.owner:p2`, `memory.owner:p3` |
+| `share: { tags: ["memory.space:eng"] }` | `memory.owner:<caller>`, plus those tags                      |
 
 There is **no** `share.private` key. Owner-only is the default when `share` is omitted.
 
@@ -121,7 +121,7 @@ Deny is expressed as **absence of allow** (or an explicit deny grant in the host
 ### Capability (unchanged)
 
 ```ts
-authorize(grantStore, principalId, tenantId, "memory", "search"|"add")
+authorize(grantStore, principalId, tenantId, "memory", "search" | "add");
 // effect must be "allow"
 ```
 
@@ -161,7 +161,11 @@ Unchanged intentional tradeoff: live `SourceProvider` hits are **enrichment unde
   "title": "…",
   "text": "…",
   "access_tags": ["memory.space:eng"],
-  "share": { "tenant": true, "principals": ["alice"], "tags": ["memory.space:eng"] }
+  "share": {
+    "tenant": true,
+    "principals": ["alice"],
+    "tags": ["memory.space:eng"]
+  }
 }
 ```
 
@@ -169,13 +173,12 @@ Identity never in body. `access_tags` and `share` are optional; default owner-on
 
 `search` / `list` need no ACL body — principal from context + grant store.
 
-
 ## Schema
 
 Document access is stored as:
 
-| Column | Role |
-| --- | --- |
+| Column               | Role                                                               |
+| -------------------- | ------------------------------------------------------------------ |
 | `access_tags text[]` | Resource strings in grant-pattern space (+ creator always allowed) |
 
 There is no `visibility_mode`, principal-id array, block list, or dual-write ACL
