@@ -4,17 +4,15 @@
  */
 import { describe, expect, it } from "bun:test";
 import { Hono } from "hono";
-import type { TenantEnv } from "@intx/hub-api";
+import { createRequireGrant, type TenantEnv } from "@intx/hub-api";
 import {
   createInMemoryGrantStore,
   type GrantRule,
 } from "@intx/authz";
 
-import {
-  createFakeDocumentStore,
-  createFakeSourceProvider,
-  createMemory,
-} from "../index.js";
+import { createMemory } from "../memory.js";
+import { createMemoryRoutes } from "../routes/mount.js";
+import { createFakeDocumentStore, createFakeSourceProvider } from "./fakes.js";
 
 const TENANT = "tenant_fake";
 const PRINCIPAL = "principal_fake";
@@ -85,16 +83,23 @@ describe("createMemory with fakes only", () => {
       ]),
     ];
     const app = appWithPrincipal();
-    const memory = createMemory({
-      app,
-      grantStore: createInMemoryGrantStore([
-        grant("add"),
-        grant("search"),
-      ]),
+    const grantConfig = {
+      grantStore: createInMemoryGrantStore([grant("add"), grant("search")]),
       conditionRegistry: {},
+    };
+    const memory = createMemory({
+      grantStore: grantConfig.grantStore,
+      conditionRegistry: grantConfig.conditionRegistry,
       documentStore: store,
       sources,
     });
+    app.route(
+      "/api/tenants/:tenantId/memory",
+      createMemoryRoutes({
+        memory,
+        requireGrant: createRequireGrant(grantConfig),
+      }),
+    );
 
     const { documentId } = await memory.add({
       tenantId: TENANT,

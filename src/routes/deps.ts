@@ -59,8 +59,6 @@ export type RouteDeps = {
   memory: Memory;
   /** Route-guard middleware factory (Interchange `createRequireGrant`). */
   requireGrant: RequireGrant;
-  /** The grant store, kept for callers that need imperative checks. */
-  grants: GrantConfig;
   /**
    * Optional resolver for a non-browser caller. Unset by default: every
    * route reads identity from `c.get("principal")` exactly as before, so no
@@ -98,7 +96,7 @@ export function caller(c: Context<TenantEnv>): {
  * rather than as the host missing middleware. `caller()` below has a perfectly
  * good error message for exactly this case, but it never gets to run.
  *
- * Routes mount at `/api/tenants/:tenantId/memory/*` so a real hub's
+ * Hosts mount the routes at `/api/tenants/:tenantId/memory` so a real hub's
  * `createResolveTenant` already sets principal + tenant. This guard is a
  * fail-closed safety net for mis-mounted hosts and unit tests.
  */

@@ -1,5 +1,5 @@
 /**
- * MergeLocalLiveV1 — combine local DocumentStore hits with live SourceProvider
+ * Local/live merge — combine local DocumentStore hits with live SourceProvider
  * hits into one ranked list.
  *
  * Spec (frozen for M3/M4):

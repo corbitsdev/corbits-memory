@@ -30,7 +30,7 @@ const ListResponse = type({
 
 export function mountListRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
   app.get(
-    "/api/tenants/:tenantId/memory/list",
+    "/list",
 
     describeRoute({
       tags: ["memory"],

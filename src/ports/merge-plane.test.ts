@@ -3,11 +3,8 @@
  */
 import { describe, expect, it } from "bun:test";
 
-import {
-  createFakeDocumentStore,
-  createFakeSourceProvider,
-  createMemory,
-} from "../index.js";
+import { createMemory } from "../memory.js";
+import { createFakeDocumentStore, createFakeSourceProvider } from "./fakes.js";
 import type { LiveSearchItem } from "./types.js";
 
 const TENANT = "t_merge";

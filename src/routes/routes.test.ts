@@ -6,7 +6,7 @@ import { createRequireGrant, type TenantEnv } from "@intx/hub-api";
 
 import type { Memory, TimelineEvent } from "../memory.js";
 import { MemoryError } from "../memory.js";
-import { registerMemoryRoutes } from "./mount.js";
+import { createMemoryRoutes } from "./mount.js";
 import type { RouteDeps } from "./deps.js";
 
 function grant(principalId: string, action: string): GrantRule {
@@ -145,7 +145,6 @@ const sharedBrowser = (() => {
   const session = { principalId: PRINCIPAL };
   const deps: RouteDeps = {
     memory: rec.plane,
-    grants: grantConfig,
     requireGrant: createRequireGrant(grantConfig),
   };
   const app = new Hono<TenantEnv>();
@@ -171,7 +170,7 @@ const sharedBrowser = (() => {
     });
     await next();
   });
-  registerMemoryRoutes(app, deps);
+  app.route("/api/tenants/:tenantId/memory", createMemoryRoutes(deps));
   return { app, grantList, catalog, session, rec };
 })();
 
@@ -313,14 +312,13 @@ const sharedMachine = (() => {
   } = { fn: () => null };
   const deps: RouteDeps = {
     memory: rec.plane,
-    grants: grantConfig,
     requireGrant: createRequireGrant(grantConfig),
     callerResolver: (c) => resolverBox.fn(c),
   };
   // No tenant-session middleware mounted at all — a machine caller has no
   // browser session; `callerResolver` is the only source of identity here.
   const app = new Hono<TenantEnv>();
-  registerMemoryRoutes(app, deps);
+  app.route("/api/tenants/:tenantId/memory", createMemoryRoutes(deps));
   return { app, grantList, catalog, resolverBox, rec };
 })();
 
@@ -365,11 +363,10 @@ function buildAppWithoutPrincipal() {
   };
   const deps: RouteDeps = {
     memory: plane,
-    grants: grantConfig,
     requireGrant: createRequireGrant(grantConfig),
   };
   const app = new Hono<TenantEnv>();
-  registerMemoryRoutes(app, deps);
+  app.route("/api/tenants/:tenantId/memory", createMemoryRoutes(deps));
   return app;
 }
 
@@ -1096,7 +1093,6 @@ describe("memory HTTP routes — resolver trust-boundary and row-fabrication con
     };
     const deps: RouteDeps = {
       memory: plane,
-      grants: grantConfig,
       requireGrant: createRequireGrant(grantConfig),
     };
     const app = new Hono<TenantEnv>();
@@ -1109,7 +1105,7 @@ describe("memory HTTP routes — resolver trust-boundary and row-fabrication con
       c.set("tenant", canaryTenant);
       await next();
     });
-    registerMemoryRoutes(app, deps);
+    app.route("/api/tenants/:tenantId/memory", createMemoryRoutes(deps));
 
     const res = await app.request(
       "/api/tenants/t1/memory/add",

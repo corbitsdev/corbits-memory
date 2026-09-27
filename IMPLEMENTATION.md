@@ -8,7 +8,7 @@ and wire shapes. For the "why standalone" / boundaries story, read
 
 ```
 src/
-  index.ts                # createMemory / registerMemoryRoutes / mountWorkflowMemory + distiller re-exports
+  index.ts                # createMemory / createMemoryRoutes / mountWorkflowMemory
 
   mount-config.ts         # MemoryConfig + loadMemoryConfig() — the mount config
   config.ts               # EngineConfig — the core vector-plane config (db + embed + rerank)
@@ -23,7 +23,7 @@ src/
   migrations.ts           # runMemoryMigrations(url)
   ports/                  # DocumentStore / SourceProvider + fakes
   routes/                 # the mounted tenant routes
-    mount.ts              # registerMemoryRoutes (HTTP)
+    mount.ts              # createMemoryRoutes (HTTP sub-app)
 
     deps.ts               # RouteDeps, caller(c) (context identity), grantGuard
     add.ts, search.ts, list.ts, feed.ts
@@ -605,7 +605,8 @@ end-user agents.
 
 ## Mounted routes
 
-`createMemory({ app })` registers these onto the host app. Identity is the request
+`createMemoryRoutes(deps)` serves these once the host mounts it at
+`/api/tenants/:tenantId/memory`. Identity is the request
 
 principal read off the Interchange context (`caller(c)` →
 `{ scopeId: principal.tenantId, subjectId: principal.id }`); clients never send
@@ -613,8 +614,8 @@ principal read off the Interchange context (`caller(c)` →
 Each route is guarded with `grantGuard(deps, action)`, which applies the host's
 `requireGrant("memory", action)` when provided (else a pass-through).
 
-**Machine callers (CL-6286):** `RouteDeps.callerResolver` /
-`createMemory({ callerResolver })` lets a host resolve identity for a caller
+**Machine callers (CL-6286):** `RouteDeps.callerResolver` (passed to
+`createMemoryRoutes`) lets a host resolve identity for a caller
 that never goes through its tenant-session middleware — e.g. a workflow-run
 child authenticating with its own sidecar bearer token. Unset by default
 (every existing host is unaffected). When set, `resolveCaller` (`deps.ts`)
@@ -640,7 +641,7 @@ surface, or a migrating host silently loses them.
 | `POST /api/tenants/:tenantId/memory/documents/:documentId/purge` | `purge` | none | `200 { documentId, deleted, reason? }`; `403` unless caller is the document's creator; `404` unknown document. Hard-deletes the row — irreversible; refused while a `durable` version is untombstoned. |
 | `POST /api/tenants/:tenantId/memory/versions/:versionId/retention-class` | `forget` | `{ retention_class }` | `200 { versionId, documentId, status }`; `400` invalid class; `403` unless caller is the version's creator; `404` unknown version. |
 
-`registerMemoryRoutes` and `createMemory({ app })` register these seven HTTP
+`createMemoryRoutes` serves these seven HTTP
 routes (add, search, list, feed, forget, purge, retention-class).
 **Capture** (`services/capture.ts`) is the write path inside `add`.
 **Search** (`services/search.ts`) is hybrid retrieval. Deployed agents do
@@ -658,7 +659,7 @@ have HTTP to the tenant tree can use `createMemoryHttpClient`
 ### Run-scoped sidecar (`mountWorkflowMemory`)
 
 `src/workflow-mount.ts`, re-exported from the barrel. Parallel to the
-tenant tree — do not fold agent-bearer auth into `registerMemoryRoutes`.
+tenant tree — do not fold agent-bearer auth into `createMemoryRoutes`.
 `package.json` exports `@corbits/memory/sidecar-bundle` →
 `src/sidecar-bundle.ts`.
 
@@ -713,7 +714,7 @@ store implements `WritableGrantStore.putGrant`:
 1. Appends `memory.doc:<documentId>` to the document's `access_tags`.
 2. Writes one allow/`search` grant per peer on that resource, origin
    `system`, with `conditions.memoryShare` audit payload.
-3. `resolveGrantConfig` merges `MEMORY_SHARE_CONDITION_REGISTRY` so those
+3. `createMemory` merges `MEMORY_SHARE_CONDITION_REGISTRY` so those
    condition keys are not fail-closed-skipped by `@intx/authz`.
 
 Without a writable store: tags only + warn log (peers need host grants).

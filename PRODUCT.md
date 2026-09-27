@@ -36,11 +36,11 @@ never creates one; it mounts onto yours.
 
 | Surface | Role |
 | --- | --- |
-| `createMemory({ app, … })` | Register `/api/tenants/:tenantId/memory/*` + return the plane |
+| `createMemory({ … })` | Build the plane |
+| `createMemoryRoutes({ memory, requireGrant })` | Hono sub-app the host mounts at `/api/tenants/:tenantId/memory` |
 | `mountWorkflowMemory(app, { memory, agentToken })` | Parallel run-scoped `/api/workflow-memory/*` for deployed agents |
 | `loadMemoryConfig()` | Config from env |
 | `runMemoryMigrations(url)` | Apply pgvector schema |
-| `registerMemoryRoutes` | Low-level HTTP only (optional) |
 | `@corbits/memory/sidecar-bundle` | Deployed-agent factory — no client code, no base URL, no token |
 | `@corbits/memory/distiller` | Optional process helpers: `runDistillTick`, `createResidentDistiller` |
 
@@ -80,7 +80,8 @@ Deployed agent (sidecar-bundle)
 ┌──────────────────────────────────────────────┐
 │  Host Interchange createApp                  │
 │  principal + tenant on context               │
-│  + createMemory({ app, grantStore, … })      │
+│  + createMemory({ grantStore, … })           │
+│  + app.route(…, createMemoryRoutes(deps))    │
 │       grants: memory:add | memory:search     │
 │       documentStore: pgvector | host | fake  │
 │  + mountWorkflowMemory(app, { memory, … })   │

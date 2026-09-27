@@ -24,29 +24,38 @@ yarn add @corbits/memory
 bun add @corbits/memory
 ```
 
-Write the mount as a function that takes your hub's `app`, `grantStore`, and
-`conditionRegistry` — the same trio you already pass to
+Build the plane, then mount its routes on your hub's `app` with the
+`grantStore` and `conditionRegistry` you already pass to
 `createRequireGrant`/`createApp`:
 
 ```ts
 import { Hono } from "hono";
-import type { TenantEnv } from "@intx/hub-api";
+import { createRequireGrant, type TenantEnv } from "@intx/hub-api";
 import type { ConditionRegistry, GrantStore } from "@intx/authz";
-import { createMemory, loadMemoryConfig, type Memory } from "@corbits/memory";
+import {
+  createMemory,
+  createMemoryRoutes,
+  loadMemoryConfig,
+  type Memory,
+} from "@corbits/memory";
 
 export function installMemory(
   app: Hono<TenantEnv>,
   grantStore: GrantStore,
   conditionRegistry: ConditionRegistry,
 ): Memory {
-  const memoryApp = new Hono<TenantEnv>();
   const memory = createMemory({
-    app: memoryApp,
     config: loadMemoryConfig(), // DATABASE_URL + embed env — see below
     grantStore,
     conditionRegistry,
   });
-  app.route("/", memoryApp);
+  app.route(
+    "/api/tenants/:tenantId/memory",
+    createMemoryRoutes({
+      memory,
+      requireGrant: createRequireGrant({ grantStore, conditionRegistry }),
+    }),
+  );
   return memory;
 }
 ```
@@ -125,10 +134,9 @@ at `@corbits/memory/sidecar-bundle`.
 
 ## How it works
 
-`createMemory` builds the plane. Pass `app` to register
-`/api/tenants/:tenantId/memory/*` behind `requireGrant("memory", …)` —
-`grantStore` is required for that mount. `loadMemoryConfig` lives on the
-barrel and at `@corbits/memory/config`.
+`createMemory` builds the plane. `createMemoryRoutes` returns its HTTP routes
+as a Hono sub-app, each guarded by `requireGrant("memory", …)`.
+`loadMemoryConfig` lives on the barrel and at `@corbits/memory/config`.
 
 Capability grants (`memory:add` / `memory:search` / `memory:forget` /
 `memory:purge`) gate the routes. Per-document visibility is Interchange
@@ -167,9 +175,8 @@ mail-triggered workflow is ticked by addressing it directly. No import of
 
 ### Lower-level: in-process calls, no HTTP
 
-`app` is optional. Passing only `config` builds the plane without
-registering routes, for a host worker that calls `add`/`search` directly
-(the resident distiller does this):
+A host worker can skip `createMemoryRoutes` and call `add`/`search` on the
+plane directly (the resident distiller does this):
 
 ```ts
 import { createMemory, loadMemoryConfig } from "@corbits/memory";
@@ -203,8 +210,8 @@ bun run typecheck  # tsc --noEmit
 bun run test       # bun test ./src
 ```
 
-Tests use `createFakeDocumentStore`/`createFakeSourceProvider` (exported for
-this purpose) so the suite runs without Postgres. `bun run build` compiles
+Unit tests use the in-repo `createFakeDocumentStore`/`createFakeSourceProvider`
+so the suite runs without Postgres. `bun run build` compiles
 `src/` to `dist/`, which is what the package publishes.
 
 ## License

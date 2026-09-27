@@ -417,24 +417,25 @@ export type MemoryOptions = {
    */
   documentStore?: DocumentStore;
   /**
-   * Live source connectors (tools-shaped). Merged into search via
-   * MergeLocalLiveV1; not a DocumentStore replacement.
+   * Live source connectors (tools-shaped). Merged into search results
+   * alongside local hits; not a DocumentStore replacement.
    */
   sources?: SourceProvider[];
 };
 
-/** Bundle host authz pieces for route guards and document access. */
-export function resolveGrantConfig(
-  options: Pick<MemoryOptions, "grantStore" | "conditionRegistry">,
+/** Bundle host authz pieces for document access. */
+function resolveGrantConfig(
+  grantStore: GrantConfig["grantStore"] | undefined,
+  conditionRegistry: GrantConfig["conditionRegistry"] | undefined,
 ): GrantConfig | undefined {
-  if (!options.grantStore) return undefined;
+  if (!grantStore) return undefined;
   // Merge memoryShare evaluator under host keys so share grants with
   // conditions are not fail-closed-skipped by @intx/authz.
   return {
-    grantStore: options.grantStore,
+    grantStore,
     conditionRegistry: {
       ...MEMORY_SHARE_CONDITION_REGISTRY,
-      ...(options.conditionRegistry ?? {}),
+      ...conditionRegistry,
     },
   };
 }
@@ -525,8 +526,8 @@ function resolveAddAccessTags(params: MemoryAddParams): string[] {
  * - Pass `options.grantStore` for document access filtering on search/list.
  *   `conditionRegistry` is optional (defaults to `{}`).
  * - Rerank config is validated at construction when using the default store.
- * - Pass `options.sources` for live SourceProviders; search merges via
- *   MergeLocalLiveV1 (fail-soft, 800ms timeout, prefer-local dedupe).
+ * - Pass `options.sources` for live SourceProviders; search merges them with
+ *   local hits (fail-soft, 800ms timeout, prefer-local dedupe).
  * - Document access uses grant tags via the host GrantStore (not mini-ACL).
  * - Inference is host-owned and ephemeral: call your model, then `add` /
  *   `search`. Core does not run an ingest agent or bake LLM into writes.
@@ -557,10 +558,7 @@ export function createMemory(options: MemoryOptions = {}): Memory {
     textExtractor,
     sources,
   } = options;
-  const grants = resolveGrantConfig({
-    ...(grantStore !== undefined ? { grantStore } : {}),
-    ...(conditionRegistry !== undefined ? { conditionRegistry } : {}),
-  });
+  const grants = resolveGrantConfig(grantStore, conditionRegistry);
 
   let transformDeps: EngineTransformDeps | undefined;
   const store =
@@ -580,10 +578,7 @@ export function createMemory(options: MemoryOptions = {}): Memory {
   return createPlaneFromStore(
     store,
     grants,
-    {
-      ...(textExtractor ? { textExtractor } : {}),
-      ...(sources ? { sources } : {}),
-    },
+    { textExtractor, sources },
     transformDeps,
   );
 }
@@ -754,7 +749,10 @@ function mergeToSearchResult(params: {
 function createPlaneFromStore(
   store: DocumentStore,
   grants: GrantConfig | undefined,
-  options: MemoryOptions,
+  options: {
+    textExtractor: TextExtractor | undefined;
+    sources: SourceProvider[] | undefined;
+  },
   transformDeps?: EngineTransformDeps,
 ): Memory {
   async function searchMerged(

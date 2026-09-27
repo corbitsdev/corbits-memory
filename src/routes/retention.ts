@@ -59,7 +59,7 @@ const RetentionClassResponse = type({
 
 export function mountForgetRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
   app.post(
-    "/api/tenants/:tenantId/memory/documents/:documentId/forget",
+    "/documents/:documentId/forget",
 
     describeRoute({
       tags: ["memory"],
@@ -108,7 +108,7 @@ export function mountForgetRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
 
 export function mountPurgeRoute(app: Hono<TenantEnv>, deps: RouteDeps): void {
   app.post(
-    "/api/tenants/:tenantId/memory/documents/:documentId/purge",
+    "/documents/:documentId/purge",
 
     describeRoute({
       tags: ["memory"],
@@ -161,7 +161,7 @@ export function mountSetRetentionClassRoute(
   deps: RouteDeps,
 ): void {
   app.post(
-    "/api/tenants/:tenantId/memory/versions/:versionId/retention-class",
+    "/versions/:versionId/retention-class",
 
     describeRoute({
       tags: ["memory"],
