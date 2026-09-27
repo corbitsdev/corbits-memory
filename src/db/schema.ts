@@ -31,7 +31,7 @@ const tenantRef = (column: string) =>
     .references(() => hostTenant.id, { onDelete: "cascade" });
 /** A removed principal must not vaporize the memory it created. */
 const principalRef = (column: string) =>
-  text(column).references(() => hostPrincipal.id, { onDelete: "cascade" });
+  text(column).references(() => hostPrincipal.id, { onDelete: "set null" });
 
 // No built-in `bytea` helper in drizzle-orm/pg-core; raw_capture.raw_bytes
 // holds non-textual raw payloads (binary source formats) as a Buffer.
