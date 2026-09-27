@@ -87,6 +87,8 @@ Returns a `Hono<TenantEnv>` sub-app. Mount it at `/api/tenants/:tenantId/memory`
 
 A missing principal answers `401` and a missing grant answers `403`. `callerResolver` is optional: it resolves a non-session caller to a `{ tenantId, principalId }` before the same grant checks run, and a malformed result answers `500`.
 
+Sharing on `add` needs grants the host may have to mint. `share.principals` writes each peer a `search` grant on `memory.doc:<documentId>` only when `grantStore` has a `putGrant` method; Interchange's stock grant store has none, so on a stock hub the host mints those grants. `share.tenant` never writes grants: the host grants `search` on `memory.tenant:<tenantId>` to whoever should see tenant-wide documents.
+
 ### `runMemoryMigrations(config, { schema, ftsLanguage })`
 
 Takes the same `DBConfig` and `schema` as Interchange's `runMigrations`. `schema` holds the host's `tenant` and `principal` tables; this package's tables always go in `memory`. `ftsLanguage` is fixed into the full-text index and must match `FTS_LANGUAGE` at runtime.
