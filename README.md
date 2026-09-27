@@ -8,12 +8,12 @@ not ship an answer endpoint.
 
 ## Runtime support
 
-Bun >= 1.2 runs the published TypeScript source (`package.json` `exports`);
-there is no `dist` build, so native Node does not load it. `engines.node` is
-`>=24` as a floor for Node-side tooling (typecheck, pack).
+The package ships compiled JavaScript and type declarations in `dist/`, so it
+runs on Node 22+ or Bun.
 
-Peer stack you already have on an Interchange hub: `@intx/authz`,
-`@intx/hub-api`, `hono`.
+Peer dependencies (the stack an Interchange hub already has): `@intx/agent`,
+`@intx/authz`, `@intx/hub-api`, `@intx/log`, `@intx/types`, `@intx/workflow`,
+`drizzle-orm`, `hono`, `hono-openapi`, `postgres`.
 
 ## Quickstart
 
@@ -204,8 +204,8 @@ bun run test       # bun test ./src
 ```
 
 Tests use `createFakeDocumentStore`/`createFakeSourceProvider` (exported for
-this purpose) so the suite runs without Postgres. There is no `build`
-script — the published surface is `src/`.
+this purpose) so the suite runs without Postgres. `bun run build` compiles
+`src/` to `dist/`, which is what the package publishes.
 
 ## License
 

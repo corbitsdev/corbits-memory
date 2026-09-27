@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `@intx/*`, `drizzle-orm`, `hono`, `hono-openapi` and `postgres` are peer
+  dependencies; the host supplies them. `engines` is removed.
+- `MEMORY_GRANT_REQUIREMENTS` is read from `package.json`
+  `interchange.grantRequirements`, now the only declaration.
+  `MEMORY_CAPABILITY_IDS` is typed `string[]`.
+
 ### Added
 
 - Retention HTTP routes (CL-6288): `POST …/memory/documents/:documentId/forget`

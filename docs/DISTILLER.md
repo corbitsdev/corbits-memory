@@ -102,9 +102,9 @@ on a schedule, e.g. from `@corbits/cron`. This package owns no clock.
 
 Installer discovery (not live grants):
 
-- `package.json` → `interchange.grantRequirements`
-- typed SSOT: `MEMORY_GRANT_REQUIREMENTS` / `MEMORY_CAPABILITY_IDS` from
-  `@corbits/memory`
+- `package.json` → `interchange.grantRequirements` (the single source)
+- loaded in-process as `MEMORY_GRANT_REQUIREMENTS` / `MEMORY_CAPABILITY_IDS`
+  from `@corbits/memory`
 
 Minimum capabilities:
 
