@@ -44,11 +44,13 @@ Service module: `src/services/retention.ts`.
 **Tombstone vs. hard delete stay distinct verbs, distinct grants.** A UI
 offering "forget this" must never be one flag away from "shred this" by
 accident. `forget` (tombstone) is **not** an undo-able action: the document
-stops appearing in search/feed and its chunk text is overwritten with
-`[redacted]` — the original content does not survive, there is no
+stops appearing in search/feed, its chunk text is overwritten with
+`[redacted]`, and so is the text of any raw capture only its versions
+referenced — the original content does not survive, there is no
 un-tombstone/restore verb, and only version metadata (status, timestamps,
 retention class) remains for audit. `purge` (hard delete) goes further and
-removes the document row itself; it has its own grant action and is refused
+removes the document row itself, along with the raw captures only its
+versions referenced; it has its own grant action and is refused
 outright while a `durable`-class version on the document is untombstoned. The
 distinction that matters is _what's still queryable_: after `forget` a
 document row and its metadata still exist (for audit) but its content is

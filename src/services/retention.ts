@@ -5,7 +5,12 @@
 import { and, eq, inArray, isNotNull, lt, or, sql } from "drizzle-orm";
 
 import type { Db } from "../db/client.js";
-import { memoryChunk, memoryDocument, memoryVersion } from "../db/schema.js";
+import {
+  memoryChunk,
+  memoryDocument,
+  memoryVersion,
+  rawCapture,
+} from "../db/schema.js";
 import type { RetentionClass } from "../core/enums.js";
 
 export type RetentionMutationResult = {
@@ -46,7 +51,8 @@ export async function deprecateVersion(
 }
 
 /**
- * Tombstone: hide from search/feed, redact chunk text, keep row for audit.
+ * Tombstone: hide from search/feed, redact chunk and raw capture text, keep
+ * rows for audit.
  * Applies to the document's live active (or deprecated) versions.
  */
 export async function tombstoneDocument(
@@ -84,12 +90,30 @@ export async function tombstoneDocument(
           eq(memoryChunk.documentId, input.documentId),
         ),
       );
+    await db
+      .update(rawCapture)
+      .set({ rawText: "[redacted]", rawBytes: null })
+      .where(
+        inArray(
+          rawCapture.id,
+          db
+            .select({ id: memoryVersion.rawCaptureId })
+            .from(memoryVersion)
+            .where(
+              and(
+                eq(memoryVersion.tenantId, input.tenantId),
+                eq(memoryVersion.documentId, input.documentId),
+              ),
+            ),
+        ),
+      );
   }
   return { versions: versions.length };
 }
 
 /**
- * Hard-delete a document (cascade chunks/versions/edges via FKs where set).
+ * Hard-delete a document (cascade chunks/versions/edges via FKs where set)
+ * and the raw captures only its versions referenced.
  * Blocked for durable retention_class on any non-tombstoned version.
  */
 export async function hardDeleteDocument(
@@ -119,17 +143,39 @@ export async function hardDeleteDocument(
     };
   }
 
-  const deleted = await db
-    .delete(memoryDocument)
-    .where(
-      and(
-        eq(memoryDocument.tenantId, input.tenantId),
-        eq(memoryDocument.id, input.documentId),
-      ),
-    )
-    .returning({ id: memoryDocument.id });
-
-  return { deleted: deleted.length > 0 };
+  return db.transaction(async (tx) => {
+    const captures = await tx
+      .selectDistinct({ id: memoryVersion.rawCaptureId })
+      .from(memoryVersion)
+      .where(
+        and(
+          eq(memoryVersion.tenantId, input.tenantId),
+          eq(memoryVersion.documentId, input.documentId),
+          isNotNull(memoryVersion.rawCaptureId),
+        ),
+      );
+    const deleted = await tx
+      .delete(memoryDocument)
+      .where(
+        and(
+          eq(memoryDocument.tenantId, input.tenantId),
+          eq(memoryDocument.id, input.documentId),
+        ),
+      )
+      .returning({ id: memoryDocument.id });
+    const captureIds = captures.flatMap((c) => (c.id === null ? [] : [c.id]));
+    if (captureIds.length > 0) {
+      await tx
+        .delete(rawCapture)
+        .where(
+          and(
+            inArray(rawCapture.id, captureIds),
+            sql`NOT EXISTS (SELECT 1 FROM ${memoryVersion} WHERE ${memoryVersion.rawCaptureId} = ${rawCapture.id})`,
+          ),
+        );
+    }
+    return { deleted: deleted.length > 0 };
+  });
 }
 
 /**

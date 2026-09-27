@@ -96,6 +96,12 @@ describe.skipIf(testDatabaseUrl() === undefined)(
       const [row] = await db.sql<{ status: string }[]>`
       SELECT status FROM memory.version WHERE document_id = ${documentId}`;
       expect(row?.status).toBe("tombstoned");
+      const raw = await db.sql<{ raw_text: string | null }[]>`
+      SELECT r.raw_text FROM memory.raw_capture r
+        JOIN memory.version v ON v.raw_capture_id = r.id
+        WHERE v.document_id = ${documentId}`;
+      expect(raw.length).toBeGreaterThan(0);
+      for (const r of raw) expect(r.raw_text).not.toContain("Forget me");
     });
 
     test("purge removes the document, its versions and its chunks", async () => {
@@ -118,6 +124,10 @@ describe.skipIf(testDatabaseUrl() === undefined)(
         (SELECT count(*)::int FROM memory.version WHERE document_id = ${documentId}) AS versions,
         (SELECT count(*)::int FROM memory.chunk WHERE document_id = ${documentId}) AS chunks`;
       expect(left).toEqual({ docs: 0, versions: 0, chunks: 0 });
+      const [raw] = await db.sql<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM memory.raw_capture
+        WHERE raw_text LIKE '%Purge me%'`;
+      expect(raw?.n).toBe(0);
     });
 
     test("legacy capture and find grants authorize neither add nor search", async () => {
